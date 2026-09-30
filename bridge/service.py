@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 from .ipc import DesktopIPC, IPCError
+from .transport import ipc_endpoint
 from .model import apply_patches, normalize_state, normalize_request, ordered_turns, async_requests
 from .store import SessionStore
 from .files import artifact_paths
@@ -50,7 +51,7 @@ class LiveSession:
 
 
 class Bridge:
-    def __init__(self, codex_home, data_dir, host="local", alias=None):
+    def __init__(self, codex_home, data_dir, host="local", alias=None, ipc_path=None, codex_bin=None):
         self.host = host
         self.codex_home = Path(codex_home)
         self.data_dir = Path(data_dir)
@@ -58,15 +59,15 @@ class Bridge:
         self.remote_bridges = {}
         self.host_errors = []
         self.store = RemoteStore(alias) if alias else SessionStore(codex_home)
-        self.catalog_reader = RemoteCatalog(alias) if alias else Catalog(codex_home)
+        self.catalog_reader = RemoteCatalog(alias) if alias else Catalog(codex_home, codex_bin)
         self.live = {}
         self.lock = threading.RLock()
-        self.ipc = DesktopIPC(Path(codex_home) / "ipc/ipc.sock", self._event, self._disconnected)
+        self.ipc = DesktopIPC(ipc_path or ipc_endpoint(codex_home), self._event, self._disconnected)
         self.closed = threading.Event()
         Path(data_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
         self.ledger_path = Path(data_dir) / "submissions.json"
         self.submit_lock = threading.Lock()
-        self.submissions = json.loads(self.ledger_path.read_text()) if self.ledger_path.exists() else {}
+        self.submissions = json.loads(self.ledger_path.read_text(encoding='utf-8')) if self.ledger_path.exists() else {}
         for key, value in self.submissions.items():
             if value.get("status") == "queued":
                 self.live.setdefault(key.split(":")[0], LiveSession(key.split(":")[0]))
@@ -81,11 +82,11 @@ class Bridge:
         with self.lock:
             if host not in self.remote_bridges:
                 folder = self.data_dir / 'hosts' / hashlib.sha256(host.encode()).hexdigest()[:16]
-                self.remote_bridges[host] = Bridge(self.codex_home, folder, host, available[host]['alias'])
+                self.remote_bridges[host] = Bridge(self.codex_home, folder, host, available[host]['alias'], ipc_path=self.ipc.path)
             return self.remote_bridges[host]
 
     def list(self, query="", limit=100, offset=0, archived=False):
-        sources = [(self, "此 Mac")]
+        sources = [(self, "此电脑")]
         if self.host == 'local':
             sources.extend((self.for_host(host), info.get('displayName') or info['alias']) for host, info in self.hosts.hosts().items())
         def read(source):
@@ -304,7 +305,7 @@ class Bridge:
     def _save_ledger(self):
         # Keep accepted or uncertain submissions durable across process restarts.
         target = self.ledger_path.with_suffix(".tmp")
-        target.write_text(json.dumps(self.submissions, ensure_ascii=False))
+        target.write_text(json.dumps(self.submissions, ensure_ascii=False), encoding='utf-8')
         target.chmod(0o600)
         target.replace(self.ledger_path)
 

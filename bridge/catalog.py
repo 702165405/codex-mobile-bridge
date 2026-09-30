@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -28,6 +29,30 @@ class Catalog:
 
     @staticmethod
     def find_runtime():
+        if os.name == 'nt':
+            local = Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData/Local')))
+            candidates = sorted((local / 'OpenAI/Codex/bin').glob('*/codex.exe'),
+                                key=lambda path: path.stat().st_mtime, reverse=True)
+            candidates += [local / 'Programs/Codex/resources/codex.exe',
+                           local / 'Programs/ChatGPT/resources/codex.exe']
+            for candidate in candidates:
+                if candidate.is_file():
+                    return candidate
+            try:
+                result = subprocess.run(
+                    ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
+                     '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); '
+                     'Get-AppxPackage OpenAI.Codex | Select-Object -ExpandProperty InstallLocation'],
+                    capture_output=True, text=True, encoding='utf-8', timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW)
+                for folder in result.stdout.splitlines():
+                    candidate = Path(folder.strip()) / 'app/resources/codex.exe'
+                    if candidate.is_file():
+                        return candidate
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            executable = shutil.which('codex.exe')
+            return Path(executable) if executable else None
         for app in ("ChatGPT", "Codex"):
             candidate = Path('/Applications') / (app + '.app') / 'Contents/Resources/codex-cli/bin/codex'
             if candidate.is_file():

@@ -7,7 +7,7 @@ from pathlib import Path
 
 class SessionStore:
     def __init__(self, codex_home):
-        self.home = Path(codex_home)
+        self.home = Path(codex_home).resolve()
 
     def _connect(self):
         databases = sorted(self.home.glob("state_*.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -57,7 +57,7 @@ class SessionStore:
         if not any(root.resolve() in resolved.parents for root in (self.home / "sessions", self.home / "archived_sessions")):
             raise ValueError("会话记录路径不在 Codex 数据目录中")
         items, turns, current = [], [], None
-        with resolved.open() as stream:
+        with resolved.open(encoding='utf-8') as stream:
             for line in stream:
                 try:
                     record = json.loads(line)

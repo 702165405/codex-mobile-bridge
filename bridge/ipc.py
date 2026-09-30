@@ -6,6 +6,8 @@ import threading
 import uuid
 from concurrent.futures import Future, TimeoutError
 
+from .transport import connect_stream
+
 
 class IPCError(Exception):
     pass
@@ -44,13 +46,9 @@ class DesktopIPC:
         with self.connect_lock:
             if self.client_id and self.socket:
                 return
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
-                sock.settimeout(5)
-                sock.connect(self.path)
-                sock.settimeout(None)
+                sock = connect_stream(self.path)
             except OSError as exc:
-                sock.close()
                 raise IPCError("桌面 App 未连接，请打开 Codex App。") from exc
             self.socket = sock
             threading.Thread(target=self._read_loop, args=(sock,), daemon=True).start()
