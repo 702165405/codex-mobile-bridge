@@ -1,0 +1,44 @@
+{
+  "name": "codex-mobile-bridge-desktop",
+  "version": "0.2.0",
+  "description": "Codex App 手机网关桌面启动器",
+  "author": "try2love",
+  "license": "MIT",
+  "private": true,
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "desktop": "electron .",
+    "test:desktop": "node --test tests/desktop.test.cjs",
+    "pack:desktop": "electron-builder --dir",
+    "build:windows": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "io.github.try2love.codexmobilebridge",
+    "productName": "Codex Mobile Bridge",
+    "directories": {
+      "output": "dist/desktop"
+    },
+    "files": [
+      "desktop/**",
+      "package.json",
+      "LICENSE"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/gateway",
+        "to": "gateway"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "identity": null
+    },
+    "win": {
+      "target": "portable"
+    }
+  }
+}

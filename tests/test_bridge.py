@@ -537,6 +537,20 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.request('GET', path, headers=auth)[0], 200)
         self.assertEqual(calls[-1][1:], ('detail', {'cursor': 'epoch.key', 'offset': 16000, 'version': 'v'}))
 
+    def test_notification_route_is_authenticated_and_csrf_protected(self):
+        class NotificationsFixture:
+            def watch(self, thread, host, enabled):
+                return {'available': True, 'watching': bool(enabled)}
+        self.server.notifications = NotificationsFixture()
+        self.server.bridge.host = 'local'
+        path = '/api/sessions/'+THREAD+'/notifications'
+        self.assertEqual(self.request('GET', path)[0], 401)
+        auth = self.login()
+        self.assertEqual(self.request('POST', path, {'enabled': True}, {'Cookie': auth['Cookie']})[0], 403)
+        status, _, value = self.request('POST', path, {'enabled': True}, auth)
+        self.assertEqual(status, 200)
+        self.assertTrue(value['watching'])
+
     def test_formula_css_fonts_and_path_boundary(self):
         conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
         try:

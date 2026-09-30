@@ -19,6 +19,7 @@ from bridge.httpd import GatewayServer
 from bridge.lifecycle import GatewayControl
 from bridge.service import Bridge
 from bridge.tunnel import QuickTunnel
+from bridge.notifications import Notifications
 
 ROOT = Path(__file__).resolve().parent
 
@@ -105,6 +106,8 @@ def main():
     pid_file.write_text(str(os.getpid()), encoding='utf-8')
     control = GatewayControl(args.config.parent)
     tunnel = None
+    notifications = Notifications(bridge, args.config.parent, lambda: server.origins)
+    server.notifications = notifications
     def stop_signal(signum, frame):
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, stop_signal)
@@ -128,11 +131,13 @@ def main():
                 print("外网地址：" + url, flush=True)
             except RuntimeError as exc:
                 print(str(exc), flush=True)
+        notifications.start()
         control.start(server.shutdown)
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass
     finally:
+        notifications.close()
         if tunnel:
             tunnel.close()
         bridge.close()

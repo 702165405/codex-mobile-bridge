@@ -32,6 +32,7 @@ class LiveSession:
         self.retry_at = 0
         self.error = None
         self.viewers = 0
+        self.watched = False
         self.touched = time.monotonic()
         self.condition = threading.Condition(threading.RLock())
         self.attach_lock = threading.Lock()
@@ -280,11 +281,11 @@ class Bridge:
                         self._send_queued(session, key, entry)
                     except Exception:
                         pass  # Unknown outcomes stay recorded and are never automatically replayed.
-                if (session.viewers > 0 or queued) and not session.connected:
+                if (session.viewers > 0 or queued or session.watched) and not session.connected:
                     self._refresh_async(session)
-                elif session.viewers == 0 and not queued and time.monotonic() - session.touched > 300:
+                elif session.viewers == 0 and not queued and not session.watched and time.monotonic() - session.touched > 300:
                     with self.lock:
-                        if session.viewers != 0:
+                        if session.viewers != 0 or session.watched:
                             continue
                         self.live.pop(session.id, None)
                     if session.connected:

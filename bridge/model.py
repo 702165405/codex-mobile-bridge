@@ -131,6 +131,15 @@ def normalize_state(state, connected=True):
                        "startedAt": turn.get("turnStartedAtMs"), "messages": messages,
                        "error": turn.get("error"), "diff": turn.get("diff")})
     history = state.get("turnHistory", {}).get("history", {})
+    return {"id": state.get("id", state.get("sessionId")), "title": state.get("title") or "未命名聊天",
+            "cwd": state.get("cwd"), "model": state.get("latestModel"), "provider": state.get("modelProvider"), "effort": state.get("latestReasoningEffort") or (state.get("latestThreadSettings") or {}).get("effort"),
+            "connected": connected, "status": state.get("threadRuntimeStatus", {}).get("type", "idle"),
+            "turns": result, "requests": pending_requests(state),
+            "historyComplete": history.get("isComplete", state.get("turnsPagination", {}).get("hasLoadedOldest", True))}
+
+
+def pending_requests(state):
+    turns = ordered_turns(state)
     requests = []
     for request in state.get("requests", []):
         normalized = normalize_request(request)
@@ -142,11 +151,7 @@ def normalize_state(state, connected=True):
             elif request.get("method") == "item/commandExecution/requestApproval" and not normalized["params"].get("command"):
                 normalized["params"]["command"] = related.get("command", "")
         requests.append(normalized)
-    return {"id": state.get("id", state.get("sessionId")), "title": state.get("title") or "未命名聊天",
-            "cwd": state.get("cwd"), "model": state.get("latestModel"), "provider": state.get("modelProvider"), "effort": state.get("latestReasoningEffort") or (state.get("latestThreadSettings") or {}).get("effort"),
-            "connected": connected, "status": state.get("threadRuntimeStatus", {}).get("type", "idle"),
-            "turns": result, "requests": requests + async_requests(state),
-            "historyComplete": history.get("isComplete", state.get("turnsPagination", {}).get("hasLoadedOldest", True))}
+    return requests + async_requests(state)
 
 
 def normalize_request(request):

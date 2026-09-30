@@ -1,0 +1,2 @@
+# Build-time only; packaged users do not need Python installed.
+pyinstaller==6.20.0

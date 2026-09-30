@@ -18,6 +18,60 @@
 
 详细流程及交付模板见[部署 Agent 执行说明](#agent-deployment)。
 
+## 桌面 App 与 ntfy（实验分支）
+
+本节对应 `feature/desktop-ntfy` 分支。桌面 App 是网关的启动与配置界面，继续连接原来的 Codex App，不替代 Codex 的执行或模型认证。
+
+### 使用桌面 App
+
+从本分支的 GitHub Actions → **Desktop prototype** 构建记录下载对应系统的产物。Mac 解压 `.app` 后打开；Windows 使用 portable `.exe`。打包产物内置 Python 网关运行时，日常使用无需安装 Python、Node.js 或打开终端。当前为未签名实验构建，系统可能提示来源未验证；正式签名发行尚未接入。
+
+打开后可设置：
+
+- **连接与状态**：一键启停、复制和打开手机地址、查看首次登录凭据。
+- **网络与登录**：局域网访问、端口、Cloudflare 临时 HTTPS、额外允许的 HTTPS 源、账号密码或免密模式。
+- **运行配置**：Codex 数据目录、IPC 地址、Codex 与 cloudflared 程序路径、网关数据目录、打开 App 自动启动。
+- **手机通知**：ntfy 服务、主题、Token、通知跳转地址、标题隐私和测试通知。
+- **运行日志**：查看与刷新本机网关日志。
+
+已有命令行部署时，在“运行配置”选择原来的 `.local` 目录，可识别并管理已经运行的网关。运行期间端口、网络和程序路径不可修改；停止后才能调整。关闭 App 窗口会保留网关进程，点击“停止”才会停止手机访问。密码变更在下次启动生效；新版网关会自动读取通知配置变更。
+
+cloudflared 仍为可选的外部程序，App 不自动下载或安装。需要临时外网入口时，在界面中选择其路径。
+
+### 配置手机 ntfy
+
+1. iPhone 或 Android 安装 ntfy，选择可用的 ntfy 服务并订阅自己的主题。
+2. 在电脑 App 的“手机通知”填写相同的服务和主题，按服务要求填写访问 Token。使用受访问控制保护的主题；默认通知只含待处理数量。
+3. 保存配置，点击“发送测试通知”，以手机实际收到为验收标准。服务器接受请求不等于手机已经收到。
+4. 开启通知后，在手机聊天页面点击 **“提醒”**，为该聊天启用待确认提醒。本机与 SSH 聊天分别关注。
+5. 新出现的命令、文件、权限请求或提问会触发通知；点击通知回到该聊天，沿用网页登录与确认卡片。
+
+被关注聊天在手机网页关闭后继续监听，前提是电脑、网关、原 Codex App 及相关 SSH 连接仍可用。网关重连或重启后使用本机记录去重，同一请求不因重复快照反复提醒。发送失败会退避重试，并在重试前重新核对请求是否仍待处理；网络中断时不承诺严格恰好投递一次。
+
+通知跳转地址留空时优先使用当前 HTTPS 入口，再选择局域网地址。临时域名变更不会改变 ntfy 订阅，但旧通知中的旧链接可能失效。自建 ntfy 的 iPhone 即时通知需要 APNs 上游配置；Android 后台接收也受系统电池与网络设置影响。参阅 [ntfy 手机说明](https://docs.ntfy.sh/subscribe/phone/)及 [iOS 即时推送配置](https://docs.ntfy.sh/config/#ios-instant-notifications)。
+
+### 从源码运行与打包
+
+开发环境需要 Node.js 与 Python；只有构建时需要 Electron、electron-builder 和 PyInstaller。Windows 与 Mac 应分别在目标系统上构建。
+
+```bash
+git switch feature/desktop-ntfy
+npm ci
+npm run desktop
+```
+
+构建步骤（在当前项目的 Python 虚拟环境中执行）：
+
+```bash
+python -m pip install -r requirements-desktop.txt
+python scripts/build-desktop.py
+npm run pack:desktop
+```
+
+Windows 可再执行 `npm run build:windows` 生成 portable `.exe`。开发测试可用 `CMB_DATA_DIR` 指定独立数据目录，`CMB_PYTHON` 指定开发用 Python；打包后的 App 使用内置运行时。运行 `python -B -m unittest discover -s tests -v` 和 `npm run test:desktop` 进行自动检查。
+
+App 设置界面通过本机进程通信管理网关，管理接口不对局域网或隧道开放。配置、推送 Token、凭据和投递记录位于网关数据目录，默认关闭 ntfy；打包与提交不包含 `.local`、`.tmp` 或个人配置。
+
 ## 功能
 
 | 功能 | 说明 |

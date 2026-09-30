@@ -14,3 +14,8 @@ __pycache__/
 /task_plan.md
 /findings.md
 /progress.md
+
+# Desktop development and packaged applications
+node_modules/
+dist/
+*.spec

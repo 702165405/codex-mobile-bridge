@@ -32,7 +32,7 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/icon.svg": ("icon.svg", "image/svg+xml")}
-THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail))?$")
+THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications))?$")
 FONT_ROUTE = re.compile(r"^/vendor/katex/fonts/(KaTeX_[A-Za-z0-9_-]+\.(woff2|woff|ttf))$")
 
 
@@ -42,6 +42,7 @@ class GatewayServer(ThreadingHTTPServer):
 
     def __init__(self, address, bridge, config, web_dir):
         self.bridge = bridge
+        self.notifications = None
         self.auth = Auth(config["auth"])
         self.origins = set(config["origins"])
         self.hosts = {urlsplit(o).netloc for o in self.origins}
@@ -189,6 +190,7 @@ class Handler(BaseHTTPRequestHandler):
             if not write and path == "/api/auth":
                 session = self.server.auth.get(self.token())
                 return self.output(200, {"authenticated": bool(session), "csrf": session["csrf"] if session else None,
+                                         "notifications": self.server.notifications is not None,
                                          "passwordless": self.server.auth.config.get("mode") == "none",
                                          "transport": "poll" if self.headers.get("Host", "").endswith(".trycloudflare.com") else "sse"})
             if write and path == "/api/login":
@@ -217,6 +219,11 @@ class Handler(BaseHTTPRequestHandler):
             if not match:
                 return self.output(404, {"error": "页面不存在"})
             thread_id, action = match.groups()
+            if action == 'notifications':
+                if self.server.notifications is None:
+                    return self.output(200, {'available': False, 'watching': False})
+                body = self.read_json() if write else {}
+                return self.output(200, self.server.notifications.watch(thread_id, bridge.host, body.get('enabled') if write else None))
             if not write:
                 if action == 'timeline':
                     return self.output(200, bridge.timeline_read(thread_id, limit=int(query.get('limit', ['20'])[0]), before=query.get('before', [None])[0]))
