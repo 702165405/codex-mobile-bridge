@@ -67,6 +67,7 @@ python3 -B -m unittest discover -s tests -v
 - 自动发现桌面运行时，读取模型目录与已安装 Skill 目录。
 - 验证 Windows 启动入口能在 `py` 未配置解释器时回退到 PATH 中的 `python`。
 - 独立后台实例通过 HTTP 验证：首页 200、未登录会话接口 401、账号密码登录 200、登录后列表可读且原桌面会话快照为已连接。
+- 使用官方 `cloudflared 2026.9.3` Windows amd64 程序（SHA-256 与发布摘要一致），以 `--lan --tunnel` 建立 HTTP/2 临时 HTTPS 入口。通过公网域名验证：首页 200、密码登录及 Secure Cookie、未登录会话接口 401、登录后的会话列表与原桌面快照、长轮询接口 200。局域网 IP 的认证状态接口也返回 200。
 
 本机完整测试结果：`Ran 40 tests`，`OK (skipped=1)`，即 39 项通过、1 项因缺少符号链接权限跳过。另通过前端 JavaScript 语法检查与 Git diff 空白检查。测试期间曾出现一次本机 HTTP 连接中止（WinError 10053），单项及完整复测均通过，尚未稳定复现。
 
@@ -74,7 +75,7 @@ python3 -B -m unittest discover -s tests -v
 
 Windows 不允许当前用户创建符号链接时，仅符号链接逃逸测试跳过；普通目录外文件拒绝测试仍执行。CI 已配置 Windows、macOS、Linux，其中 Windows/Linux 覆盖 Python 3.9 与 3.13；本次未运行远程 CI 或 macOS/Linux 实机测试。
 
-未向真实工作聊天发送测试消息或更改模型、权限；发送、审批、补充与队列使用命名管道模拟服务验证。Windows 真实 SSH、Cloudflare 外网隧道及手机硬件访问尚未实测。macOS 的既有验证记录不等同于这些 Windows 链路已通过。
+未向真实工作聊天发送测试消息或更改模型、权限；发送、审批、补充与队列使用命名管道模拟服务验证。Windows 真实 SSH 及手机硬件/蜂窝网络访问尚未实测；外网 HTTPS 检查由本机访问公网域名完成，不能代替手机网络验收。macOS 的既有验证记录不等同于这些 Windows 链路已通过。
 
 ### 其他边界
 
