@@ -22,7 +22,9 @@ SSH 参数包含非交互认证、严格主机指纹检查和禁用额外转发�
 
 ## 原生 IPC
 
-当前适配的传输为 `$CODEX_HOME/ipc/ipc.sock`：4 字节小端长度前缀，后接 JSON 帧。
+macOS 使用 `$CODEX_HOME/ipc/ipc.sock`，Windows 使用 `\\.\pipe\codex-ipc`，两者均为 4 字节小端长度前缀，后接 UTF-8 JSON 帧。`--ipc-path` 可覆盖地址。
+
+Windows 使用 CPython 标准库 `_winapi` 的 overlapped I/O 读取原始字节流，不使用 multiprocessing 的消息封装。关闭时先取消未完成 I/O，等待其结束后再释放 handle；发送有超时，空闲读取可被停止操作唤醒。不会另起 agent 替代桌面 owner。
 
 | 操作 | 当前实现 |
 | --- | --- |
@@ -56,6 +58,8 @@ App 的异步问题通过原生 questionItemId 格式回答。若原任务仍在
 
 ## 模型与 Skill
 
+Windows 自动发现用户目录中的 App 运行时、常见安装目录、MSIX 包及 PATH；`--codex-bin` 可明确选择桌面对应版本。仅本地目录查询使用该覆盖，SSH 目录仍由远端运行时读取。
+
 目录辅助进程只允许 `initialize`、`model/list`、`skills/list`。它不会调用 `thread/start`、`thread/resume` 或 `turn/start`。
 
 网页选择的 Skill ID 来自目录，服务端按 ID 解析受信目录项，再转为原生 `{type: "skill", name, path}` 输入；网页不能直接传入任意技能文件路径。
@@ -68,10 +72,14 @@ App 的异步问题通过原生 questionItemId 格式回答。若原任务仍在
 
 ## 模块
 
+网关停止使用带随机实例令牌的本地控制文件，由服务主动调用 `shutdown`，再关闭隧道、IPC 和 HTTP。`stop.py --config` 与启动配置对应，不依赖 Unix 信号或 Windows PID 强制终止。文件统一使用 UTF-8；Windows 权限继承目录 ACL。
+
 | 模块 | 职责 |
 | --- | --- |
 | `run.py` / `stop.py` | 启动参数、进程记录、停止 |
 | `bridge/ipc.py` | 原生帧传输、请求白名单和事件分发 |
+| `bridge/transport.py` | Unix socket / Windows 命名管道字节流 |
+| `bridge/lifecycle.py` | 跨平台停止请求与实例令牌校验 |
 | `bridge/service.py` | 会话同步、操作路由、去重和队列 |
 | `bridge/store.py` / `remote.py` | 只读发现、SSH、项目与主机映射 |
 | `bridge/model.py` | 历史和请求的规范化 |

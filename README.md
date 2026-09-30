@@ -2,11 +2,11 @@
 
 在手机浏览器里，继续电脑 **Codex App 已有的聊天**。
 
-手机与电脑打开同一个会话，查看回复、发送消息、选择模型与 Skill、回应待确认操作。本地任务继续在 Mac 执行，SSH 任务继续在原服务器执行；模型请求沿用该会话的提供商与认证配置。
+手机与电脑打开同一个会话，查看回复、发送消息、选择模型与 Skill、回应待确认操作。本地任务继续在原电脑执行，SSH 任务继续在原服务器执行；模型请求沿用该会话的提供商与认证配置。
 
 **不要求手机登录与电脑相同的 OpenAI 账号。** 网关提供独立的账号密码登录，也支持显式开启免密访问。可以通过局域网、临时 HTTPS 隧道或自己的反向代理连接。
 
-> 社区项目，与 OpenAI 无隶属关系。当前实现面向 macOS，依赖 Codex App 的内部 IPC；已验证的桌面内置 Codex 运行时版本为 `0.158.0-alpha.2.1`。App 更新后可能需要适配。
+> 社区项目，与 OpenAI 无隶属关系。支持 macOS 和 Windows，依赖 Codex App 的内部 IPC；各平台的实测范围见 [验证记录](VERIFICATION.md)。App 更新后可能需要适配。
 
 **让 Agent 帮你部署：** 将本仓库地址交给 Agent，并让它按[部署 Agent 执行说明](#agent-deployment)完成部署、验收和交付。该章节包含后台启动示例和最终回复模板。
 
@@ -17,7 +17,7 @@
 | 同步 App 聊天 | 读取已有聊天、历史、实时回复和工具输出 |
 | 同一会话执行 | 发送新消息、补充当前任务、排队、撤回待发送消息、停止任务 |
 | 手机回应 | 支持命令、文件、临时权限请求及提问卡片；复杂请求提示回到桌面处理 |
-| SSH 会话 | 显示 Mac App 已连接主机的聊天，操作继续交给对应主机的会话 |
+| SSH 会话 | 显示桌面 App 已连接主机的聊天，操作继续交给对应主机的会话 |
 | 聊天列表 | 最近交互排序，或按项目聚合；项目可展开/收起，显示主机标签 |
 | 模型设置 | 更改当前聊天的模型与推理强度，支持手动填写自定义模型 ID |
 | Skill | 按会话所在主机与工作目录读取已安装技能，搜索后随消息发送原生 Skill 引用 |
@@ -29,13 +29,41 @@
 
 ## 运行要求
 
-- macOS，已安装并运行 Codex App。
+- macOS 或 Windows 10/11，已安装并运行 Codex App。
 - Python 3.9 或更高版本；网关本身只使用 Python 标准库，无需 `pip install` 或前端构建。
-- Mac 保持唤醒、联网，网关进程保持运行。
-- 使用 SSH 聊天时：App 中已配置该主机，Mac 上相应 SSH 别名可非交互连接，远端有 Python 3。模型/Skill 目录还需要远端可用的 Codex 运行时。
+- 电脑保持唤醒、联网，网关进程保持运行。Windows 使用原生 CPython 3.9+，无需 WSL。
+- 使用 SSH 聊天时：App 中已配置该主机，电脑上相应 SSH 别名可非交互连接，远端有 Python 3。Windows 需要 PATH 中可用的 OpenSSH `ssh.exe`。模型/Skill 目录还需要远端可用的 Codex 运行时。
 - 外网临时隧道可选依赖：`cloudflared`，需要自行安装；仓库不包含该程序。
 
 ## 快速开始：局域网
+
+### Windows
+
+在 PowerShell 中执行：
+
+```powershell
+git clone https://github.com/try2love/codex-mobile-bridge.git
+cd codex-mobile-bridge
+py -3 -B .\run.py --lan
+```
+
+也可以双击 `start.cmd`。如果没有 Python Launcher，将 `py -3` 换成 `python`；双击脚本会自动尝试这两种入口。保持启动窗口打开，手机连接同一局域网后访问终端显示的 IP 地址。
+
+停止时按 `Ctrl+C`，或在另一个终端运行 `py -3 -B .\stop.py`，也可以双击 `stop.cmd`。网关收到停止请求后会清理连接及隧道，不会按旧 PID 强制终止其他进程。使用自定义 `--config` 时，停止命令须传入同一个配置路径。
+
+默认读取 `%USERPROFILE%\.codex`（或 `CODEX_HOME`），使用本机命名管道 `\\.\pipe\codex-ipc`。网关与 App 应使用同一个 Windows 用户运行。自定义数据目录可通过 `--codex-home` 指定；命名管道名不随该目录改变。
+
+模型/Skill 目录会查找 `%LOCALAPPDATA%\OpenAI\Codex\bin` 下的运行时、常见安装路径、当前用户的 MSIX 包及 PATH 中的 `codex.exe`。自定义安装或同时安装多个版本时，可明确指定 App 对应的程序：
+
+```powershell
+py -3 -B .\run.py --lan --codex-bin 'C:\path\to\codex.exe'
+```
+
+`--ipc-path` 可覆盖本机命名管道地址。它不是 TCP 入口，不能用于连接其他电脑。
+
+Windows 防火墙若弹出提示，仅按需要允许专用网络访问。凭据、发送记录均以 UTF-8 保存在 `.local/`；Windows 文件访问权限继承目录 ACL，请使用自己的用户目录或限制项目目录访问权限，POSIX `chmod` 不会替代 Windows ACL。
+
+### macOS
 
 ```sh
 git clone https://github.com/try2love/codex-mobile-bridge.git
@@ -45,7 +73,7 @@ python3 -B "$PWD/run.py" --lan
 
 也可以双击 `启动手机网关.command`。
 
-1. 打开 Mac 上的 Codex App。
+1. 打开电脑上的 Codex App。
 2. 启动网关，在终端找到局域网地址，例如 `http://192.168.1.10:8787`。
 3. 手机连接同一局域网，用浏览器打开该地址。
 4. 账号为 `admin`，首次生成的随机密码保存在项目内 `.local/首次登录.txt`。
@@ -55,13 +83,13 @@ python3 -B "$PWD/run.py" --lan
 
 如果聊天只显示历史记录，请先在电脑 App 打开该聊天，再点击手机页面的“重新连接”。网关不会自动为尚未加载的聊天启动新的执行实例。看到“桌面读取超时”表示实时状态尚未取得，不代表已经发送消息；只有发送操作结果不明时才会提示“操作可能已提交”，此时请先查看聊天，避免重复发送。
 
-不加 `--lan` 时，仅监听本机 `127.0.0.1`。前台运行时按 `Ctrl+C` 停止；使用以上绝对路径命令或双击脚本启动后，也可以运行 `python3 -B stop.py`，或双击 `停止手机网关.command`。
+不加 `--lan` 时，仅监听本机 `127.0.0.1`。前台运行时按 `Ctrl+C` 停止；也可以运行 `python3 -B stop.py`，或双击 `停止手机网关.command`。从旧版本升级后，首次请在旧服务窗口按 `Ctrl+C` 停止，再启用新的停止控制机制。
 
 网关不安装开机启动服务。重启网关后需要重新登录。
 
 ## 外网访问：临时 HTTPS 隧道
 
-适合没有公网 IP、没有域名，或手机无法接入校园/公司 VPN 的情况。Mac 主动向隧道服务建立出站连接，手机访问生成的 HTTPS 地址。
+适合没有公网 IP、没有域名，或手机无法接入校园/公司 VPN 的情况。电脑主动向隧道服务建立出站连接，手机访问生成的 HTTPS 地址。
 
 ### 安装 cloudflared
 
@@ -71,7 +99,15 @@ python3 -B "$PWD/run.py" --lan
 brew install cloudflared
 ```
 
-也可以从 [Cloudflare 官方下载页](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/) 获取对应 macOS 程序。
+也可以从 [Cloudflare 官方下载页](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/) 获取对应 macOS 或 Windows 程序。
+
+Windows 将 `cloudflared.exe` 放在 `.local\bin\cloudflared.exe` 或 PATH 中，然后双击 `start-tunnel.cmd`；也可以指定完整路径：
+
+```powershell
+py -3 -B .\run.py --lan --tunnel --cloudflared 'C:\tools\cloudflared.exe'
+```
+
+macOS 启动命令如下。
 
 ### 启动
 
@@ -118,7 +154,7 @@ python3 -B "$PWD/run.py" --origin https://codex.example.com
 
 “显示方式”可选 **最近交互** 或 **按项目**。项目分组可以展开/收起，浏览器会记住选择；主机名与项目名一起展示。
 
-SSH 列表复用 App 保存的连接和项目配置。手机不需要保存 SSH 私钥，也不用安装 SSH 客户端；Mac 负责连接服务器。服务器暂不可达时，列表会显示对应错误，本机会话仍可使用。
+SSH 列表复用 App 保存的连接和项目配置。手机不需要保存 SSH 私钥，也不用安装 SSH 客户端；电脑负责连接服务器。服务器暂不可达时，列表会显示对应错误，本机会话仍可使用。
 
 ### 模型与 Skill
 
@@ -165,15 +201,15 @@ python3 -B "$PWD/run.py" --lan --no-auth
 
 ```mermaid
 flowchart TD
-    Phone[手机浏览器] -->|HTTP / HTTPS + 登录|Gateway[Mac 上的 Python 网关]
+    Phone[手机浏览器] -->|HTTP / HTTPS + 登录|Gateway[电脑上的 Python 网关]
     Gateway -->|只读发现|Records[本机和 SSH 会话记录]
     Gateway -->|原生 IPC 订阅和操作|App[现有 Codex App 会话 owner]
-    App --> Local[Mac 上的原会话]
+    App --> Local[电脑上的原会话]
     App --> SSH[SSH 服务器上的原会话]
 ```
 
 - **发现与历史**：只读查询 Codex 的 SQLite 和会话记录；SSH 主机通过已有别名执行只读脚本。
-- **实时状态**：连接 App 的 Unix IPC，订阅快照与增量更新；SSH 会话从携带 `hostId` 的订阅快照识别 owner。
+- **实时状态**：通过 macOS Unix socket 或 Windows 命名管道连接 App，订阅快照与增量更新；SSH 会话从携带 `hostId` 的订阅快照识别 owner。
 - **执行与授权**：消息、模型设置、停止与审批回应都路由到原 owner，保留会话 ID、工作目录、provider 和权限上下文。
 - **模型/Skill 目录**：使用短时 `app-server` 元数据辅助进程，仅调用初始化、`model/list` 和 `skills/list`；它不恢复会话或执行任务。
 
@@ -192,6 +228,7 @@ flowchart TD
 | `submissions.json` | 本地聊天的发送去重记录、正文与队列 |
 | `hosts/<主机哈希>/submissions.json` | 按 SSH 主机隔离的发送记录 |
 | `gateway.pid` | 本网关进程记录 |
+| `gateway-control.json`、`gateway.stop` | 本次实例的停止令牌与停止请求，退出时清理 |
 | `外网地址.txt`、`tunnel.log` | 临时隧道地址与日志 |
 
 服务前台日志输出到启动终端。`.local/`、`.tmp/`、环境文件与本地开发记录均已加入 `.gitignore`，不要把它们上传到 issue 或公开仓库。
@@ -200,7 +237,7 @@ flowchart TD
 
 ## 已知限制
 
-- 当前仅验证 macOS 桌面环境；Windows、Linux 桌面未适配。
+- macOS 与 Windows 的真实验证范围分别记录在 [验证记录](VERIFICATION.md)；Linux 桌面尚未验证。
 - 内部 IPC 不是稳定的公开 API；Codex App 更新后可能出现不兼容。
 - 尚未加载的聊天可查看保存历史，发送前可能需要在 App 中打开一次。
 - SSH 连接需已有可非交互使用的认证；网关不提供 SSH 密码、主机指纹或 MFA 交互。

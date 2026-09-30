@@ -313,7 +313,7 @@ class Bridge:
         session = self.session(thread_id, attach=attach, background=background, force=force)
         view = session.view()
         view["host"] = self.host
-        view["hostLabel"] = "此 Mac" if self.host == "local" else self.hosts.hosts().get(self.host, {}).get("displayName", self.host)
+        view["hostLabel"] = "此电脑" if self.host == "local" else self.hosts.hosts().get(self.host, {}).get("displayName", self.host)
         with session.condition:
             artifacts = artifact_paths(session.state or {}, self.store.home) if self.host == "local" else {}
         view["files"] = [{"id": k, "name": v["name"], "reference": v["reference"], "image": v["image"]} for k, v in artifacts.items()]

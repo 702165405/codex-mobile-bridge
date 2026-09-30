@@ -115,6 +115,7 @@ class PlatformDataTests(unittest.TestCase):
             with sqlite3.connect(str(root / 'state_5.sqlite')) as db:
                 db.execute('CREATE TABLE threads(id TEXT, title TEXT, cwd TEXT, originator TEXT, rollout_path TEXT)')
                 db.execute('INSERT INTO threads VALUES(?,?,?,?,?)', (THREAD, text, str(root), 'Codex Desktop', str(history)))
+            db.close()
             relative = root.relative_to(Path.cwd())
             value = SessionStore(relative).history(THREAD)
             self.assertEqual(value['turns'][0]['items'][0]['text'], text)
