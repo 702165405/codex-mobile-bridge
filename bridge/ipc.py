@@ -98,6 +98,8 @@ class DesktopIPC:
                 raise IPCError(response.get("error", "桌面请求未完成"))
             return response
         except TimeoutError as exc:
+            if method in ("initialize", "thread-owner-discovery", "thread-follower-load-complete-history"):
+                raise IPCError("桌面读取超时；尚未取得实时会话状态。") from exc
             raise IPCError("桌面响应超时；操作可能已提交，请查看会话后再决定是否重发。") from exc
         finally:
             with self.lock:

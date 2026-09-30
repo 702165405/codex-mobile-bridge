@@ -6,6 +6,7 @@ import sqlite3
 import struct
 import tempfile
 import threading
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -139,6 +140,73 @@ class IntegrationTests(unittest.TestCase):
         self.assertNotIn('model', request)
         self.assertNotIn('modelProvider', request)
         self.assertTrue(call['params']['turnStart']['context']['inheritThreadSettings'])
+
+    def test_legacy_desktop_threads_visible_but_subagents_excluded(self):
+        from bridge.store import SessionStore
+        legacy, untagged, child, cli = (str(uuid.uuid4()) for _ in range(4))
+        with sqlite3.connect(str(self.root / 'state_5.sqlite')) as db:
+            for tid, origin, source in [(legacy, 'codex_work_desktop', 'vscode'),
+                                        (untagged, None, 'vscode'),
+                                        (child, 'codex_work_desktop', '{"subagent":{}}'),
+                                        (cli, 'codex_cli_rs', 'cli')]:
+                db.execute('INSERT INTO threads VALUES(?,?,?,?,?,?,?,?)',
+                           (tid, 'Saved chat', '/workspace', 2, 0, origin, source, 'unused'))
+        store = SessionStore(self.root)
+        self.assertEqual({r['id'] for r in store.list()}, {THREAD, legacy, untagged})
+        self.assertEqual(store.get(legacy)['id'], legacy)
+        self.assertEqual(store.get(untagged)['id'], untagged)
+        for tid in (child, cli):
+            with self.assertRaises(KeyError):
+                store.get(tid)
+
+    def test_native_free_text_question_null_options_can_be_answered(self):
+        self.fixture.state['turns'] = [{'turnId': 'last', 'status': 'completed', 'items': [
+            {'id': 'question', 'type': 'agentMessage', 'text': 'Your preference?',
+             'questions': [{'title': 'Your preference?', 'options': None}]}]}]
+        request = self.bridge.view(THREAD)['requests'][0]
+        question = request['params']['questions'][0]
+        self.assertEqual(question['options'], [])
+        self.bridge.respond(THREAD, request['id'], {'answers': {question['id']: ['Free text']}})
+        self.assertEqual(self.fixture.requests[-1]['method'], 'thread-follower-start-turn')
+
+    def test_background_read_shows_history_without_waiting_for_owner(self):
+        entered, release = threading.Event(), threading.Event()
+        attempts = []
+        def slow_owner(*args):
+            attempts.append(args)
+            entered.set()
+            release.wait(2)
+            raise IPCError('Desktop read timed out')
+        self.bridge.ipc.owner = slow_owner
+        history = {**state(), 'title': 'Saved history'}
+        self.bridge.store.history = lambda tid: history
+        try:
+            started = time.monotonic()
+            self.bridge.view(THREAD, background=True)
+            self.assertLess(time.monotonic() - started, .5)
+            self.assertTrue(entered.wait(1))
+            view = self.bridge.view(THREAD, background=True)
+            self.assertEqual(view['title'], 'Saved history')
+            self.assertTrue(view['connecting'])
+            self.assertFalse(view['connected'])
+            self.assertEqual(len(attempts), 1)
+        finally:
+            release.set()
+            session = self.bridge.live.get(THREAD)
+            if session:
+                with session.condition:
+                    session.condition.wait_for(lambda: not session.connecting, timeout=3)
+
+    def test_read_timeout_does_not_claim_a_write_was_submitted(self):
+        from concurrent.futures import TimeoutError
+        from unittest.mock import patch
+        ipc = DesktopIPC('unused')
+        with patch.object(ipc, '_send'), patch('bridge.ipc.Future.result', side_effect=TimeoutError):
+            with self.assertRaisesRegex(IPCError, '桌面读取超时'):
+                ipc.request('thread-owner-discovery', {}, timeout=0)
+            with self.assertRaisesRegex(IPCError, '操作可能已提交'):
+                ipc.request('thread-follower-start-turn', {}, timeout=0)
+        self.assertFalse(ipc.pending)
 
     def test_patch_and_revision_mismatch_resnapshot(self):
         session = self.bridge.session(THREAD)

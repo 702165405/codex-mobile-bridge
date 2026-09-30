@@ -2,6 +2,7 @@ import copy
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 import json
+import logging
 import re
 import threading
 import time
@@ -25,6 +26,8 @@ class LiveSession:
         self.revision = None
         self.sequence = 0
         self.connected = False
+        self.connecting = False
+        self.retry_at = 0
         self.error = None
         self.viewers = 0
         self.touched = time.monotonic()
@@ -41,6 +44,8 @@ class LiveSession:
             result = normalize_state(self.state or {"id": self.id}, self.connected)
             result["sequence"] = self.sequence
             result["connectionError"] = self.error
+            result["connecting"] = self.connecting
+            result["loadingHistory"] = self.state is None
             return result
 
 
@@ -103,15 +108,20 @@ class Bridge:
         rows.sort(key=lambda row: (row['recency'], row['id'], row['host']), reverse=True)
         return rows[offset:offset + limit]
 
-    def session(self, thread_id, attach=True):
+    def session(self, thread_id, attach=True, background=False, force=False):
         uuid.UUID(thread_id)
         with self.lock:
             session = self.live.get(thread_id)
-            if session is None:
-                self.store.get(thread_id)
-                session = LiveSession(thread_id)
-                self.live[thread_id] = session
+        if session is None:
+            # SSH/SQLite reads must not block IPC events for other chats.
+            self.store.get(thread_id)
+            with self.lock:
+                session = self.live.setdefault(thread_id, LiveSession(thread_id))
         session.touched = time.monotonic()
+        if background:
+            if attach:
+                self._refresh_async(session, force)
+            return session
         if attach and not session.connected:
             self._attach(session)
         if session.state is None:
@@ -121,6 +131,39 @@ class Bridge:
                     session.state = fallback
                     session.changed()
         return session
+
+    def _refresh_async(self, session, force=False):
+        with session.condition:
+            if session.connected or session.connecting or self.closed.is_set():
+                return
+            if not force and time.monotonic() < session.retry_at:
+                return
+            session.connecting = True
+            session.changed()
+        def refresh():
+            try:
+                if session.state is None:
+                    try:
+                        fallback = self.store.history(session.id)
+                        with session.condition:
+                            if session.state is None:
+                                session.state = fallback
+                                session.changed()
+                    except (OSError, ValueError, KeyError, RemoteUnavailable):
+                        # A missing saved rollout must not prevent a live snapshot.
+                        logging.getLogger(__name__).warning("Saved history unavailable; trying desktop snapshot")
+                if not self.closed.is_set():
+                    self._attach(session)
+            except Exception:
+                logging.getLogger(__name__).exception("Background session read failed")
+                with session.condition:
+                    session.error = "读取会话失败，请重新连接或查看网关日志。"
+            finally:
+                with session.condition:
+                    session.connecting = False
+                    session.retry_at = time.monotonic() + 15
+                    session.changed()
+        threading.Thread(target=refresh, daemon=True).start()
 
     def _attach(self, session):
         with session.attach_lock:
@@ -142,8 +185,8 @@ class Bridge:
                         session.discovering = True
                     self.ipc.follow(session.id, None, host=self.host)
                 with session.condition:
-                    if not session.condition.wait_for(lambda: session.connected, timeout=8):
-                        raise IPCError("桌面快照尚未到达")
+                    if not session.condition.wait_for(lambda: session.connected or self.closed.is_set(), timeout=8):
+                        raise IPCError("尚未收到桌面实时快照。请在电脑 App 打开此聊天后重新连接。")
             except IPCError as exc:
                 if self.host != "local":
                     try:
@@ -235,7 +278,7 @@ class Bridge:
                     except Exception:
                         pass  # Unknown outcomes stay recorded and are never automatically replayed.
                 if (session.viewers > 0 or queued) and not session.connected:
-                    self._attach(session)
+                    self._refresh_async(session)
                 elif session.viewers == 0 and not queued and time.monotonic() - session.touched > 300:
                     with self.lock:
                         if session.viewers != 0:
@@ -265,8 +308,8 @@ class Bridge:
         target.chmod(0o600)
         target.replace(self.ledger_path)
 
-    def view(self, thread_id, attach=True):
-        session = self.session(thread_id, attach=attach)
+    def view(self, thread_id, attach=True, background=False, force=False):
+        session = self.session(thread_id, attach=attach, background=background, force=force)
         view = session.view()
         view["host"] = self.host
         view["hostLabel"] = "此 Mac" if self.host == "local" else self.hosts.hosts().get(self.host, {}).get("displayName", self.host)

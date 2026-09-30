@@ -197,7 +197,7 @@ def async_requests(state):
             for index, question in enumerate(item["questions"]):
                 key = json.dumps(["request_user_input_async", item["id"], index], ensure_ascii=False, separators=(",", ":"))
                 if key not in answered:
-                    questions.append({"id": key, "question": question["title"], "options": [{"label": o} for o in question.get("options", [])]})
+                    questions.append({"id": key, "question": question["title"], "options": [{"label": o} for o in (question.get("options") or [])]})
             if questions:
                 result.append({"id": "async:" + str(turn.get("turnId")) + ":" + item["id"], "method": "bridge/requestUserInputAsync",
                                "supported": True, "params": {"questions": questions}})

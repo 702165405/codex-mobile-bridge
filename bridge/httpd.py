@@ -187,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
             thread_id, action = match.groups()
             if not write:
                 if action is None:
-                    return self.output(200, bridge.view(thread_id))
+                    return self.output(200, bridge.view(thread_id, background=True))
                 if action == "catalog":
                     return self.output(200, bridge.catalog(thread_id, refresh=query.get("refresh") == ["true"]))
                 if action == "poll":
@@ -210,7 +210,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("请求回应格式不正确")
                 result = bridge.respond(thread_id, body.get("requestId"), response)
             elif action == "reconnect":
-                result = bridge.view(thread_id)
+                result = bridge.view(thread_id, background=True, force=True)
             elif action == "queue":
                 result = bridge.cancel_queued(thread_id, body.get("id", ""))
             else:
@@ -222,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
         except KeyError:
             self.close_connection = True
             self.output(404, {"error": "找不到这个会话"})
-        except (ValueError, TypeError) as exc:
+        except ValueError as exc:
             self.close_connection = True
             self.output(400, {"error": str(exc)})
         except (IPCError, CatalogError, RemoteUnavailable) as exc:
@@ -249,7 +249,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def poll(self, bridge, thread_id, after):
-        session = bridge.session(thread_id)
+        session = bridge.session(thread_id, background=True)
         with session.condition:
             session.viewers += 1
         try:
@@ -258,14 +258,14 @@ class Handler(BaseHTTPRequestHandler):
                 changed = session.sequence != after
             if not self.authorized():
                 return
-            self.output(200, {"state": bridge.view(thread_id, attach=False) if changed else None})
+            self.output(200, {"state": bridge.view(thread_id, attach=False, background=True) if changed else None})
         finally:
             with session.condition:
                 session.viewers -= 1
                 session.touched = time.monotonic()
 
     def stream(self, bridge, thread_id):
-        session = bridge.session(thread_id)
+        session = bridge.session(thread_id, background=True)
         token = self.token()
         with session.condition:
             session.viewers += 1
@@ -288,7 +288,7 @@ class Handler(BaseHTTPRequestHandler):
                     updated = session.sequence != sequence
                     sequence = session.sequence
                 if updated:
-                    view = bridge.view(thread_id, attach=False)
+                    view = bridge.view(thread_id, attach=False, background=True)
                     payload = json.dumps(view, ensure_ascii=False, separators=(",", ":"))
                     self.wfile.write(f"id: {sequence}\nevent: state\ndata: {payload}\n\n".encode())
                 else:

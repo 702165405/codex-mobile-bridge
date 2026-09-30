@@ -24,14 +24,16 @@ class SessionStore:
             where = ["archived = ?"]
             params = [int(archived)]
             if "originator" in columns:
-                where.append("originator = 'Codex Desktop'")
+                # Older desktop imports have no originator but retain their app source.
+                where.append("(originator IN ('Codex Desktop', 'codex_work_desktop') OR (originator IS NULL AND source = 'vscode'))")
             if "thread_source" in columns:
                 where.append("COALESCE(thread_source, '') != 'subagent'")
             if "source" in columns:
                 where.append("COALESCE(source, '') NOT LIKE '%\"subagent\"%'")
             if query:
-                where.append("(title LIKE ? OR cwd LIKE ?)")
-                params += ["%" + query + "%"] * 2
+                search_fields = [name for name in ("name", "title", "cwd") if name in columns]
+                where.append("(" + " OR ".join(name + " LIKE ?" for name in search_fields) + ")")
+                params += ["%" + query + "%"] * len(search_fields)
             recency = "COALESCE(recency_at_ms, recency_at * 1000, updated_at * 1000)" if "recency_at_ms" in columns else "COALESCE(recency_at, updated_at)" if "recency_at" in columns else "updated_at"
             rows = conn.execute("SELECT " + ",".join(fields) + " FROM threads WHERE " + " AND ".join(where) + " ORDER BY " + recency + " DESC, id DESC LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
             return [dict(row) for row in rows]
@@ -42,7 +44,8 @@ class SessionStore:
             if not row:
                 raise KeyError("找不到这个桌面会话")
             result = dict(row)
-            if result.get("originator") != "Codex Desktop":
+            desktop = result.get("originator") in ("Codex Desktop", "codex_work_desktop") or (result.get("originator") is None and result.get("source") == "vscode")
+            if not desktop or result.get("thread_source") == "subagent" or '"subagent"' in (result.get("source") or ""):
                 raise KeyError("不是桌面 App 会话")
             return result
 
