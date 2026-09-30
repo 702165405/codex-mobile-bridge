@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import secrets
+import shutil
 import signal
 import socket
 import subprocess
@@ -14,6 +15,7 @@ from urllib.parse import urlsplit
 
 from bridge.auth import password_record
 from bridge.httpd import GatewayServer
+from bridge.lifecycle import GatewayControl
 from bridge.service import Bridge
 from bridge.tunnel import QuickTunnel
 
@@ -38,7 +40,7 @@ def addresses():
 
 def save_config(path, config):
     temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    temp.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding='utf-8')
     temp.chmod(0o600)
     temp.replace(path)
 
@@ -48,7 +50,11 @@ def main():
     parser.add_argument("--config", type=Path, default=ROOT / ".local/config.json")
     parser.add_argument("--lan", action="store_true", help="监听局域网；默认只监听本机")
     parser.add_argument("--tunnel", action="store_true", help="同时启动 Cloudflare 临时 HTTPS 外网入口")
-    parser.add_argument("--cloudflared", type=Path, default=ROOT / ".local/bin/cloudflared", help="Cloudflare 客户端路径")
+    tunnel_name = 'cloudflared.exe' if os.name == 'nt' else 'cloudflared'
+    tunnel_bin = ROOT / '.local/bin' / tunnel_name
+    parser.add_argument("--cloudflared", type=Path, default=tunnel_bin if tunnel_bin.is_file() else Path(shutil.which(tunnel_name) or str(tunnel_bin)), help="Cloudflare 客户端路径")
+    parser.add_argument("--ipc-path", help="桌面 IPC 地址；Windows 为本机命名管道路径")
+    parser.add_argument("--codex-bin", type=Path, help="桌面 App 的 Codex 可执行文件路径")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--origin", action="append", default=[], help="允许的 HTTPS 穿透源，例如 https://codex.example.com")
     parser.add_argument("--set-password", action="store_true", help="交互式设置登录密码，不启动服务")
@@ -61,12 +67,12 @@ def main():
     args.config.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     first_login = args.config.parent / "首次登录.txt"
     if args.config.exists():
-        config = json.loads(args.config.read_text())
+        config = json.loads(args.config.read_text(encoding='utf-8'))
     else:
         password = secrets.token_urlsafe(18)
         config = {"auth": {"mode": "password", "username": "admin", **password_record(password)}, "origins": []}
         save_config(args.config, config)
-        first_login.write_text("Codex App 手机网关\n账号：admin\n密码：" + password + "\n\n仅用于此网关，与 Codex 模型登录无关。\n修改密码：python3 run.py --set-password\n")
+        first_login.write_text("Codex App 手机网关\n账号：admin\n密码：" + password + "\n\n仅用于此网关，与 Codex 模型登录无关。\n修改密码：python run.py --set-password\n", encoding='utf-8')
         first_login.chmod(0o600)
     if args.set_password:
         password = getpass.getpass("新密码（至少 12 位）：")
@@ -89,10 +95,11 @@ def main():
     hosts = addresses() if args.lan else ["127.0.0.1", "localhost"]
     config["origins"] = sorted(set(origins + [f"http://{host}:{args.port}" for host in hosts]))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    bridge = Bridge(args.codex_home, args.config.parent)
+    bridge = Bridge(args.codex_home, args.config.parent, ipc_path=args.ipc_path, codex_bin=args.codex_bin)
     server = GatewayServer(("0.0.0.0" if args.lan else "127.0.0.1", args.port), bridge, config, ROOT / "web")
     pid_file = args.config.parent / "gateway.pid"
-    pid_file.write_text(str(os.getpid()))
+    pid_file.write_text(str(os.getpid()), encoding='utf-8')
+    control = GatewayControl(args.config.parent)
     tunnel = None
     def stop_signal(signum, frame):
         raise KeyboardInterrupt()
@@ -117,6 +124,7 @@ def main():
                 print("外网地址：" + url, flush=True)
             except RuntimeError as exc:
                 print(str(exc), flush=True)
+        control.start(server.shutdown)
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass
@@ -125,8 +133,9 @@ def main():
             tunnel.close()
         bridge.close()
         server.server_close()
-        if pid_file.exists() and pid_file.read_text().strip() == str(os.getpid()):
+        if pid_file.exists() and pid_file.read_text(encoding='utf-8').strip() == str(os.getpid()):
             pid_file.unlink()
+        control.close()
 
 
 if __name__ == "__main__":

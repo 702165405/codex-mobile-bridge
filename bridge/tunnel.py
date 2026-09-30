@@ -23,7 +23,7 @@ class QuickTunnel:
         if not self.executable.is_file():
             raise RuntimeError("缺少 cloudflared，请查看 README 的外网访问配置")
         config = self.data_dir / 'cloudflared.yml'
-        config.write_text('{}\n')
+        config.write_text('{}\n', encoding='utf-8')
         config.chmod(0o600)
         args = [str(self.executable), 'tunnel', '--config', str(config), '--no-autoupdate',
                 '--url', 'http://127.0.0.1:' + str(self.port), '--protocol', 'http2',
@@ -41,7 +41,7 @@ class QuickTunnel:
 
     def _read(self):
         try:
-            with (self.data_dir / 'tunnel.log').open('a') as log:
+            with (self.data_dir / 'tunnel.log').open('a', encoding='utf-8') as log:
                 for line in self.process.stdout:
                     log.write(line)
                     log.flush()
@@ -50,7 +50,7 @@ class QuickTunnel:
                         self.url = match[0]
                         self.on_origin(self.url)
                     if 'Registered tunnel connection' in line and self.url:
-                        (self.data_dir / '外网地址.txt').write_text(self.url + '\n\n账号和密码与局域网网关相同。重启隧道后地址会变化。\n')
+                        (self.data_dir / '外网地址.txt').write_text(self.url + '\n\n账号和密码与局域网网关相同。重启隧道后地址会变化。\n', encoding='utf-8')
                         self.ready.set()
         finally:
             self.finished.set()
@@ -64,5 +64,5 @@ class QuickTunnel:
                 self.process.kill()
                 self.process.wait()
         path = self.data_dir / '外网地址.txt'
-        if path.exists() and self.url and path.read_text().startswith(self.url):
+        if path.exists() and self.url and path.read_text(encoding='utf-8').startswith(self.url):
             path.unlink()

@@ -50,7 +50,7 @@ class WindowsPipe:
         while True:
             try:
                 handle = _winapi.CreateFile(
-                    path, _winapi.GENERIC_READ | _winapi.GENERIC_WRITE, 0, None,
+                    path, _winapi.GENERIC_READ | _winapi.GENERIC_WRITE, 0, _winapi.NULL,
                     _winapi.OPEN_EXISTING, _winapi.FILE_FLAG_OVERLAPPED, 0)
                 return cls(handle)
             except OSError as exc:
@@ -78,11 +78,13 @@ class WindowsPipe:
                 raise ctypes.WinError(error)
             return count if write else operation.getbuffer()
         finally:
-            operation.cancel()
-            operation.GetOverlappedResult(True)
-            with self.condition:
-                self.operations.discard(operation)
-                self.condition.notify_all()
+            try:
+                operation.cancel()
+                operation.GetOverlappedResult(True)
+            finally:
+                with self.condition:
+                    self.operations.discard(operation)
+                    self.condition.notify_all()
 
     def recv(self, length):
         return self._io(length)
