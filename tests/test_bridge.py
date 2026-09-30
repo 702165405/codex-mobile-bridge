@@ -1,6 +1,7 @@
 import copy
 import http.client
 import json
+import os
 import socket
 import sqlite3
 import struct
@@ -34,11 +35,16 @@ class DesktopFixture:
         self.root = root
         (root / "ipc").mkdir()
         # macOS limits Unix socket paths; test data is still under project .tmp.
-        self.path = root / "ipc/ipc.sock"
-        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.listener.bind(str(self.path.relative_to(ROOT)))
-        self.listener.listen()
-        self.listener.settimeout(.2)
+        if os.name == 'nt':
+            from pipe_fixture import PipeListener
+            self.path = r'\\.\pipe\codex-mobile-test-' + uuid.uuid4().hex
+            self.listener = PipeListener(self.path)
+        else:
+            self.path = str((root / 'ipc/ipc.sock').relative_to(ROOT))
+            self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.listener.bind(self.path)
+            self.listener.listen()
+            self.listener.settimeout(.2)
         self.state = state()
         self.revision = 1
         self.host = "local"
@@ -46,7 +52,8 @@ class DesktopFixture:
         self.client = None
         self.write_lock = threading.Lock()
         self.closed = threading.Event()
-        threading.Thread(target=self.serve, daemon=True).start()
+        self.worker = threading.Thread(target=self.serve, daemon=True)
+        self.worker.start()
 
     def send(self, message):
         data = json.dumps(message).encode()
@@ -101,6 +108,7 @@ class DesktopFixture:
                 self.client.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
+        self.worker.join(timeout=2)
 
 
 class IntegrationTests(unittest.TestCase):
@@ -116,7 +124,7 @@ class IntegrationTests(unittest.TestCase):
         db.commit()
         db.close()
         self.bridge = Bridge(self.root, self.root / 'data')
-        self.bridge.ipc.path = str(self.fixture.path.relative_to(ROOT))
+        self.bridge.ipc.path = self.fixture.path
 
     def tearDown(self):
         self.bridge.close()
@@ -361,7 +369,7 @@ class IntegrationTests(unittest.TestCase):
         with self.assertRaises(IPCError):
             self.bridge.send(THREAD, 'maybe delivered', message_id)
         self.assertEqual(self.bridge.send(THREAD, 'maybe delivered', message_id)['status'], 'unknown')
-        saved = json.loads((self.root / 'data/submissions.json').read_text())
+        saved = json.loads((self.root / 'data/submissions.json').read_text(encoding='utf-8'))
         self.assertEqual(saved[THREAD + ':' + message_id]['status'], 'unknown')
 
 
@@ -393,13 +401,29 @@ class ModelTests(unittest.TestCase):
             allowed.write_text('report')
             outside = root / 'private.txt'
             outside.write_text('private')
-            symlink = workspace / 'outside.txt'
-            symlink.symlink_to(outside)
             value = state()
             value['cwd'] = str(workspace)
-            value['turns'] = [{'items': [{'type': 'agentMessage', 'text': f'[report]({allowed}) [private]({outside}) [link]({symlink})'}]}]
+            value['turns'] = [{'items': [{'type': 'agentMessage', 'text': f'[report]({allowed}) [private]({outside})'}]}]
             files = artifact_paths(value, root / '.codex')
             self.assertEqual([v['name'] for v in files.values()], ['report.txt'])
+
+    def test_artifact_symlink_cannot_escape_workspace(self):
+        with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
+            root = Path(directory)
+            workspace = root / 'workspace'
+            workspace.mkdir()
+            outside = root / 'private.txt'
+            outside.write_text('private', encoding='utf-8')
+            link = workspace / 'outside.txt'
+            try:
+                link.symlink_to(outside)
+            except OSError as exc:
+                if getattr(exc, 'winerror', None) == 1314:
+                    self.skipTest('Windows symlink privilege is not enabled')
+                raise
+            value = {**state(), 'cwd': str(workspace), 'turns': [
+                {'items': [{'type': 'agentMessage', 'text': f'[link]({link})'}]}]}
+            self.assertEqual(artifact_paths(value, root / '.codex'), {})
 
     def test_file_approval_includes_actual_pending_diff(self):
         value = state()
