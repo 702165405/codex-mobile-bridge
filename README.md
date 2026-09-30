@@ -446,6 +446,10 @@ python3 -B -m unittest discover -s tests -v
 
 欢迎提交 [Issue](https://github.com/try2love/codex-mobile-bridge/issues) 或 Pull Request。请附上系统、App/运行时版本、连接方式和脱敏后的错误信息。不要提交 API key、网关密码、完整聊天记录或私有配置文件。
 
+## 致谢
+
+感谢 [LINUX DO](https://linux.do/) 社区及各位佬友的支持。
+
 ## 许可证与参考
 
 项目源码使用 [MIT License](LICENSE)。Codex App 和 cloudflared 为独立软件，未随本仓库分发，遵循各自许可。
