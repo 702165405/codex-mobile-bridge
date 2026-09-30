@@ -10,6 +10,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -46,6 +47,9 @@ def save_config(path, config):
 
 
 def main():
+    # Redirected Windows streams may use a codec that cannot encode Chinese.
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8', errors='backslashreplace')
     parser = argparse.ArgumentParser(description="Codex App 手机网关")
     parser.add_argument("--config", type=Path, default=ROOT / ".local/config.json")
     parser.add_argument("--lan", action="store_true", help="监听局域网；默认只监听本机")

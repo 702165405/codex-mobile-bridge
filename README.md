@@ -8,7 +8,15 @@
 
 > 社区项目，与 OpenAI 无隶属关系。支持 macOS 和 Windows，依赖 Codex App 的内部 IPC；各平台的实测范围见 [验证记录](VERIFICATION.md)。App 更新后可能需要适配。
 
-**让 Agent 帮你部署：** 将本仓库地址交给 Agent，并让它按[部署 Agent 执行说明](#agent-deployment)完成部署、验收和交付。该章节包含后台启动示例和最终回复模板。
+## 一句话让 Agent 部署
+
+将下面这段话直接复制给电脑上的 Agent：
+
+```text
+请帮我部署并运行 https://github.com/try2love/codex-mobile-bridge ：先识别当前电脑是 Windows 还是 macOS，阅读仓库 README 中的“给部署 Agent 的执行说明”，按对应平台完成安装、启动和验收；复用现有 Codex App 会话及模型认证，默认启用账号密码和局域网访问，若我需要外网访问则配置临时 HTTPS 隧道；验证聊天读取、实时同步和可用的操作链路，保持服务运行，最后给我可点击的手机访问地址、登录凭据获取方式、启停命令、验证结果及仍需我完成的步骤。
+```
+
+详细流程及交付模板见[部署 Agent 执行说明](#agent-deployment)。
 
 ## 功能
 

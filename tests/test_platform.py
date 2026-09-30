@@ -124,6 +124,13 @@ class PlatformDataTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_help_supports_redirected_non_utf8_output(self):
+        env = dict(os.environ, PYTHONIOENCODING='cp1252')
+        result = subprocess.run([sys.executable, '-B', str(ROOT / 'run.py'), '--help'],
+                                env=env, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('手机网关', result.stdout.decode('utf-8'))
+
     @unittest.skipUnless(os.name == 'nt', 'Windows command launchers')
     def test_launchers_fall_back_when_py_has_no_interpreter(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='launcher ') as folder:
@@ -171,6 +178,7 @@ class LifecycleTests(unittest.TestCase):
             with (root / 'output.log').open('wb') as log:
                 process = subprocess.Popen([sys.executable, '-B', str(ROOT / 'run.py'),
                     '--port', str(port), '--config', str(config), '--codex-home', str(root)],
+                    env=dict(os.environ, PYTHONIOENCODING='cp1252'),
                     stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
                 try:
                     deadline = time.monotonic() + 15
@@ -178,6 +186,7 @@ class LifecycleTests(unittest.TestCase):
                         if process.poll() is not None or time.monotonic() >= deadline:
                             self.fail('Gateway failed to start: ' + (root / 'output.log').read_text(encoding='utf-8', errors='replace'))
                         time.sleep(.05)
+                    self.assertIn('手机网关已启动', (root / 'output.log').read_text(encoding='utf-8'))
                     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=3)
                     conn.request('GET', '/api/auth')
                     response = conn.getresponse()

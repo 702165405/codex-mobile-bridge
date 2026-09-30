@@ -10,6 +10,7 @@ import threading
 import time
 import unittest
 import uuid
+from contextlib import closing
 from pathlib import Path
 
 from bridge.auth import Auth, password_record
@@ -152,7 +153,7 @@ class IntegrationTests(unittest.TestCase):
     def test_legacy_desktop_threads_visible_but_subagents_excluded(self):
         from bridge.store import SessionStore
         legacy, untagged, child, cli = (str(uuid.uuid4()) for _ in range(4))
-        with sqlite3.connect(str(self.root / 'state_5.sqlite')) as db:
+        with closing(sqlite3.connect(str(self.root / 'state_5.sqlite'))) as db, db:
             for tid, origin, source in [(legacy, 'codex_work_desktop', 'vscode'),
                                         (untagged, None, 'vscode'),
                                         (child, 'codex_work_desktop', '{"subagent":{}}'),
@@ -482,6 +483,17 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         return {'Cookie': headers['Set-Cookie'].split(';')[0], 'X-CSRF-Token': body['csrf']}
+
+    def test_startup_does_not_require_reverse_dns(self):
+        from unittest.mock import patch
+        config = {'auth': {'mode': 'none'}, 'origins': []}
+        with patch('socket.getfqdn', side_effect=AssertionError('Reverse DNS must not block startup')):
+            server = GatewayServer(('127.0.0.1', 0), self.server.bridge, config, ROOT / 'web')
+        try:
+            self.assertEqual(server.server_name, '127.0.0.1')
+            self.assertEqual(server.server_port, server.server_address[1])
+        finally:
+            server.server_close()
 
     def test_auth_csrf_origin_host_and_logout(self):
         self.assertEqual(self.request('GET', '/api/sessions')[0], 401)

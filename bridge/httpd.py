@@ -11,6 +11,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit, quote
 
 from .auth import Auth
@@ -40,6 +41,12 @@ class GatewayServer(ThreadingHTTPServer):
         self.web_dir = Path(web_dir)
         self.slots = threading.BoundedSemaphore(48)
         super().__init__(address, Handler)
+
+    def server_bind(self):
+        # HTTPServer resolves the listening IP with getfqdn(), which can stall
+        # startup on machines without working reverse DNS. Origins are explicit.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
     def process_request(self, request, client_address):
         if not self.slots.acquire(blocking=False):

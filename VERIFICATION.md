@@ -30,7 +30,7 @@
 python3 -B -m unittest discover -s tests -v
 ```
 
-当前包含 **40 项测试**。它们使用合成会话、模拟原生 IPC 和临时本机 HTTP 服务，不调用真实模型，也不读取使用者的聊天。Windows 使用真实本机命名管道作为模拟桌面服务；macOS/Linux 使用 Unix socket。Windows 可运行 `python -B -m unittest discover -s tests -v`。
+当前包含 **42 项测试**。它们使用合成会话、模拟原生 IPC 和临时本机 HTTP 服务，不调用真实模型，也不读取使用者的聊天。Windows 使用真实本机命名管道作为模拟桌面服务；macOS/Linux 使用 Unix socket。Windows 可运行 `python -B -m unittest discover -s tests -v`。
 
 覆盖：
 
@@ -47,6 +47,7 @@ python3 -B -m unittest discover -s tests -v
 - 旧版/来源为空的 App 聊天可见，子代理及 CLI 来源仍被排除。
 - 自由输入问题的 `options: null` 能显示并向同一 owner 提交回复。
 - owner 响应延迟时先显示历史，并避免重复后台连接；只读超时不宣称已提交操作。
+- 非 UTF-8 重定向环境中的中文帮助、启动日志和正常停止；HTTP 启动不依赖反向 DNS。
 
 ## 2026-09-30 问题回归
 
@@ -73,7 +74,7 @@ python3 -B -m unittest discover -s tests -v
 
 自动测试增加：大尺寸 Unicode IPC 帧、重连、取消阻塞读取、缺失端点、Windows 路径大小写与最长前缀匹配、远端路径大小写隔离、UTF-8 历史与配置、带中文/空格的目录、真实子进程启动/未登录 401/正常停止、旧实例停止令牌拒绝、批处理入口及解释器回退。
 
-Windows 不允许当前用户创建符号链接时，仅符号链接逃逸测试跳过；普通目录外文件拒绝测试仍执行。CI 已配置 Windows、macOS、Linux，其中 Windows/Linux 覆盖 Python 3.9 与 3.13；本次未运行远程 CI 或 macOS/Linux 实机测试。
+Windows 不允许当前用户创建符号链接时，仅符号链接逃逸测试跳过；普通目录外文件拒绝测试仍执行。CI 已配置 Windows、macOS、Linux，其中 Windows/Linux 覆盖 Python 3.9 与 3.13；上述 Windows 实机验收未包含其他平台，当前 CI 结果见 [GitHub Actions](https://github.com/try2love/codex-mobile-bridge/actions/workflows/tests.yml)。
 
 未向真实工作聊天发送测试消息或更改模型、权限；发送、审批、补充与队列使用命名管道模拟服务验证。Windows 真实 SSH 及手机硬件/蜂窝网络访问尚未实测；外网 HTTPS 检查由本机访问公网域名完成，不能代替手机网络验收。macOS 的既有验证记录不等同于这些 Windows 链路已通过。
 
