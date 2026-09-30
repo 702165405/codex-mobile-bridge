@@ -130,7 +130,7 @@ class LifecycleTests(unittest.TestCase):
             root = Path(folder)
             (root / 'py.cmd').write_text('@exit /b 1\n', encoding='ascii')
             (root / 'python.cmd').write_text('@"' + sys.executable + '" %*\n', encoding='utf-8')
-            env = dict(os.environ, PATH=str(root) + os.pathsep + os.defpath)
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ.get('PATH', os.defpath))
             for script in ('start.cmd', 'start-tunnel.cmd', 'stop.cmd'):
                 with self.subTest(script=script):
                     result = subprocess.run(['cmd.exe', '/d', '/c', str(ROOT / script), '--help'],
