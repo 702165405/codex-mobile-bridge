@@ -150,6 +150,23 @@ class IntegrationTests(unittest.TestCase):
         self.assertNotIn('modelProvider', request)
         self.assertTrue(call['params']['turnStart']['context']['inheritThreadSettings'])
 
+    def test_progressive_read_preserves_metadata_and_pending_requests(self):
+        self.fixture.state['turns'] = [{'turnId': 'turn', 'items': [
+            {'id': str(i), 'type': 'agentMessage', 'text': 'row '+str(i)} for i in range(150)]}]
+        self.fixture.state['requests'] = [{'id': 7, 'method': 'item/commandExecution/requestApproval', 'params': {'command': 'pwd'}}]
+        self.bridge.session(THREAD)
+        page = self.bridge.timeline_read(THREAD)
+        self.assertEqual(len(page['rows']), 20)
+        self.assertEqual(page['meta']['provider'], 'custom-api')
+        self.assertEqual(page['meta']['requests'][0]['id'], 7)
+        self.assertNotIn('turns', page['meta'])
+        older = self.bridge.timeline_read(THREAD, limit=80, before=page['before'])
+        self.assertEqual(len(older['rows']), 80)
+        detail = self.bridge.timeline_read(THREAD, 'detail', cursor=page['before'])
+        self.assertEqual(detail['text'], 'row 130')
+        changes = self.bridge.timeline_read(THREAD, 'changes', after=page['sequence'], epoch=page['epoch'], start=older['before'])
+        self.assertEqual(changes['rows'], [])
+
     def test_legacy_desktop_threads_visible_but_subagents_excluded(self):
         from bridge.store import SessionStore
         legacy, untagged, child, cli = (str(uuid.uuid4()) for _ in range(4))
@@ -493,7 +510,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             scripts = re.findall(r'<script src="([^"]+)"', response.read().decode())
             self.assertEqual(scripts, ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
-                                       '/vendor/texmath.js', '/markdown.js', '/app.js'])
+                                       '/vendor/texmath.js', '/markdown.js', '/timeline.js', '/app.js'])
             for script in scripts:
                 conn.request('GET', script)
                 response = conn.getresponse()
@@ -503,6 +520,22 @@ class HttpTests(unittest.TestCase):
                 self.assertTrue(response.read(), script)
         finally:
             conn.close()
+
+    def test_progressive_routes_require_auth_and_forward_page_and_detail_options(self):
+        calls = []
+        def timeline_read(thread_id, mode='page', **options):
+            calls.append((thread_id, mode, options))
+            return {'rows': []}
+        self.server.bridge.timeline_read = timeline_read
+        path = '/api/sessions/' + THREAD + '/timeline?limit=20&before=epoch.key'
+        self.assertEqual(self.request('GET', path)[0], 401)
+        self.assertEqual(calls, [])
+        auth = self.login()
+        self.assertEqual(self.request('GET', path, headers=auth)[0], 200)
+        self.assertEqual(calls[-1], (THREAD, 'page', {'limit': 20, 'before': 'epoch.key'}))
+        path = '/api/sessions/' + THREAD + '/detail?key=epoch.key&offset=16000&version=v'
+        self.assertEqual(self.request('GET', path, headers=auth)[0], 200)
+        self.assertEqual(calls[-1][1:], ('detail', {'cursor': 'epoch.key', 'offset': 16000, 'version': 'v'}))
 
     def test_formula_css_fonts_and_path_boundary(self):
         conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)

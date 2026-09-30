@@ -24,6 +24,7 @@ LOG = logging.getLogger(__name__)
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"),
           "/markdown.js": ("markdown.js", "text/javascript; charset=utf-8"),
+          "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),
           "/vendor/markdown-it.min.js": ("vendor/markdown-it.min.js", "text/javascript; charset=utf-8"),
           "/vendor/texmath.js": ("vendor/texmath.js", "text/javascript; charset=utf-8"),
           "/vendor/katex/katex.min.js": ("vendor/katex/katex.min.js", "text/javascript; charset=utf-8"),
@@ -31,7 +32,7 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/icon.svg": ("icon.svg", "image/svg+xml")}
-THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll))?$")
+THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail))?$")
 FONT_ROUTE = re.compile(r"^/vendor/katex/fonts/(KaTeX_[A-Za-z0-9_-]+\.(woff2|woff|ttf))$")
 
 
@@ -217,6 +218,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.output(404, {"error": "页面不存在"})
             thread_id, action = match.groups()
             if not write:
+                if action == 'timeline':
+                    return self.output(200, bridge.timeline_read(thread_id, limit=int(query.get('limit', ['20'])[0]), before=query.get('before', [None])[0]))
+                if action == 'detail':
+                    return self.output(200, bridge.timeline_read(thread_id, 'detail', cursor=query.get('key', [''])[0],
+                                                               offset=int(query.get('offset', ['0'])[0]), version=query.get('version', [None])[0]))
+                if action == 'changes':
+                    return self.changes(bridge, thread_id, int(query.get('after', ['-1'])[0]),
+                                        query.get('epoch', [''])[0], query.get('start', [''])[0])
                 if action is None:
                     return self.output(200, bridge.view(thread_id, background=True))
                 if action == "catalog":
@@ -241,7 +250,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("请求回应格式不正确")
                 result = bridge.respond(thread_id, body.get("requestId"), response)
             elif action == "reconnect":
-                result = bridge.view(thread_id, background=True, force=True)
+                if body.get('progressive'):
+                    bridge.session(thread_id, background=True, force=True)
+                    result = {'ok': True}
+                else:
+                    result = bridge.view(thread_id, background=True, force=True)
             elif action == "queue":
                 result = bridge.cancel_queued(thread_id, body.get("id", ""))
             else:
@@ -290,6 +303,20 @@ class Handler(BaseHTTPRequestHandler):
             if not self.authorized():
                 return
             self.output(200, {"state": bridge.view(thread_id, attach=False, background=True) if changed else None})
+        finally:
+            with session.condition:
+                session.viewers -= 1
+                session.touched = time.monotonic()
+
+    def changes(self, bridge, thread_id, after, epoch, start):
+        session = bridge.session(thread_id, background=True)
+        with session.condition:
+            session.viewers += 1
+        try:
+            with session.condition:
+                session.condition.wait_for(lambda: session.sequence != after or epoch != session.timeline.epoch or bridge.closed.is_set(), timeout=12)
+            if self.authorized():
+                self.output(200, bridge.timeline_read(thread_id, 'changes', after=after, epoch=epoch, start=start))
         finally:
             with session.condition:
                 session.viewers -= 1

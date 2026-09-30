@@ -109,7 +109,20 @@ def normalize_state(state, connected=True):
     result = []
     for ordinal, turn in enumerate(turns):
         items = items_array(turn.get("items", []))
-        messages = [normalize_item(item) for item in items]
+        messages, calls = [], {}
+        for item in items:
+            kind = item.get('type')
+            if kind in ('function_call', 'custom_tool_call'):
+                message = {'id': item.get('call_id', item.get('id')), 'kind': 'storedToolEvent',
+                           'role': 'activity', 'title': item.get('name') or '工具调用',
+                           'text': str(item.get('arguments', item.get('input', '')))}
+                calls[message['id']] = message
+                messages.append(message)
+            elif kind in ('function_call_output', 'custom_tool_call_output') and item.get('call_id') in calls:
+                output = item.get('output', '')
+                calls[item['call_id']]['output'] = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
+            else:
+                messages.append(normalize_item(item))
         if not any(x.get("role") == "user" for x in messages):
             opening = text_content(turn.get("params", {}).get("input", []))
             if opening:

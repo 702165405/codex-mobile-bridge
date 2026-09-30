@@ -28,3 +28,5 @@
 .math-display{display:block;max-width:100%;overflow-x:auto;overflow-y:hidden;margin:16px 0;white-space:nowrap;overflow-wrap:normal;word-break:normal}
 .math-display .katex-display{margin:0;padding:6px 0;text-align:left}.math-display .katex-display>.katex{text-align:left}
 .markdown-body .katex{font-size:1.1em}.math-number{display:inline-block;margin-left:16px;color:var(--muted)}
+
+.timeline{overflow-anchor:none}.timeline-row{margin-bottom:20px}.message-body{min-width:0}.newer{position:absolute;bottom:235px;right:22px;z-index:3;border:1px solid #bbccb9;border-radius:24px;background:#eff6eb;color:var(--green);padding:10px 16px;box-shadow:0 3px 12px #18291d18}.chat{position:relative}.detail-more{display:block;margin-top:8px}.activity-body{max-height:60vh;overflow:auto}.activity:not([open]) .activity-body,.activity:not([open]) .detail-more{display:none}

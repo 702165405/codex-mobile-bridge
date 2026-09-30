@@ -16,6 +16,7 @@ from .store import SessionStore
 from .files import artifact_paths
 from .catalog import Catalog
 from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable
+from .timeline import Timeline
 
 
 class LiveSession:
@@ -35,6 +36,7 @@ class LiveSession:
         self.condition = threading.Condition(threading.RLock())
         self.attach_lock = threading.Lock()
         self.action_lock = threading.Lock()
+        self.timeline = Timeline()
 
     def changed(self):
         self.sequence += 1
@@ -330,6 +332,32 @@ class Bridge:
         if artifact_id not in files:
             raise KeyError("文件不属于此聊天的工作目录")
         return files[artifact_id]
+
+    def timeline_read(self, thread_id, mode='page', **options):
+        session = self.session(thread_id, background=True)
+        with session.condition:
+            projection = session.timeline
+            if projection.sequence != session.sequence:
+                projection.update(session.view())
+            if mode == 'detail':
+                result = projection.detail(**options)
+                texts = [projection.details[result['key']]]
+            else:
+                result = projection.changes(**options) if mode == 'changes' else projection.page(**options)
+                result['meta'] = dict(result['meta'], host=self.host,
+                                      hostLabel='此电脑' if self.host == 'local' else self.hosts.hosts().get(self.host, {}).get('displayName', self.host))
+                texts = [row['text'] for row in result['rows'] if row['role'] == 'assistant']
+            cwd = (session.state or {}).get('cwd')
+        # Resolve only links in the delivered page, not every file in the chat.
+        file_state = {'cwd': cwd, 'turns': [{'items': [{'type': 'agentMessage', 'text': text} for text in texts]}]}
+        artifacts = artifact_paths(file_state, self.store.home) if self.host == 'local' else {}
+        result['files'] = [{'id': k, 'name': v['name'], 'reference': v['reference'], 'image': v['image']} for k, v in artifacts.items()]
+        if mode != 'detail':
+            with self.submit_lock:
+                result['meta']['submissions'] = [{'id': k.split(':')[1], 'text': v['text'], 'status': v['status']}
+                                                 for k, v in self.submissions.items()
+                                                 if k.startswith(thread_id + ':') and v['status'] in ('queued', 'unknown')]
+        return result
 
     def catalog(self, thread_id, refresh=False):
         session = self.session(thread_id)
