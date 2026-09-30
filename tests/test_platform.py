@@ -176,7 +176,7 @@ class LifecycleTests(unittest.TestCase):
                     response.read()
                     conn.close()
                     credentials = next(root.glob('*.txt')).read_text(encoding='utf-8')
-                    self.assertIn('admin', json.dumps(json.loads(config.read_text(encoding='utf-8')))))
+                    self.assertEqual(json.loads(config.read_text(encoding='utf-8'))['auth']['username'], 'admin')
                     self.assertIn('\u8d26\u53f7', credentials)
                     result = subprocess.run([sys.executable, '-B', str(ROOT / 'stop.py'), '--config', str(config)],
                                             capture_output=True, timeout=20)
