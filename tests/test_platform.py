@@ -124,6 +124,20 @@ class PlatformDataTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Windows command launchers')
+    def test_launchers_fall_back_when_py_has_no_interpreter(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='launcher ') as folder:
+            root = Path(folder)
+            (root / 'py.cmd').write_text('@exit /b 1\n', encoding='ascii')
+            (root / 'python.cmd').write_text('@"' + sys.executable + '" %*\n', encoding='utf-8')
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.defpath)
+            for script in ('start.cmd', 'start-tunnel.cmd', 'stop.cmd'):
+                with self.subTest(script=script):
+                    result = subprocess.run(['cmd.exe', '/d', '/c', str(ROOT / script), '--help'],
+                        cwd=ROOT, env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn(b'--config', result.stdout)
+
     def test_stale_record_never_signals_a_process(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.tmp') as folder:
             path = Path(folder) / 'gateway-control.json'
