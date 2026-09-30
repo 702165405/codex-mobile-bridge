@@ -484,6 +484,43 @@ class HttpTests(unittest.TestCase):
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         return {'Cookie': headers['Set-Cookie'].split(';')[0], 'X-CSRF-Token': body['csrf']}
 
+    def test_page_scripts_are_served_with_same_origin_csp(self):
+        import re
+        conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
+        try:
+            conn.request('GET', '/')
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            scripts = re.findall(r'<script src="([^"]+)"', response.read().decode())
+            self.assertEqual(scripts, ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
+                                       '/vendor/texmath.js', '/markdown.js', '/app.js'])
+            for script in scripts:
+                conn.request('GET', script)
+                response = conn.getresponse()
+                self.assertEqual(response.status, 200, script)
+                self.assertIn('text/javascript', response.getheader('Content-Type'))
+                self.assertIn("script-src 'self'", response.getheader('Content-Security-Policy'))
+                self.assertTrue(response.read(), script)
+        finally:
+            conn.close()
+
+    def test_formula_css_fonts_and_path_boundary(self):
+        conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
+        try:
+            for path, mime in [('/vendor/katex/katex.min.css', 'text/css'),
+                               ('/vendor/katex/fonts/KaTeX_Main-Regular.woff2', 'font/woff2')]:
+                conn.request('GET', path)
+                response = conn.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertIn(mime, response.getheader('Content-Type'))
+                self.assertTrue(response.read())
+            conn.request('GET', '/vendor/katex/fonts/../../../../.local/config.json')
+            response = conn.getresponse()
+            self.assertNotEqual(response.status, 200)
+            response.read()
+        finally:
+            conn.close()
+
     def test_startup_does_not_require_reverse_dns(self):
         from unittest.mock import patch
         config = {'auth': {'mode': 'none'}, 'origins': []}
@@ -494,6 +531,31 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(server.server_port, server.server_address[1])
         finally:
             server.server_close()
+
+    def test_large_session_response_compression_and_negotiation(self):
+        import gzip
+        view = {'id': THREAD, 'turns': [{'messages': [{'text': '公式与历史内容 ' * 50000}]}]}
+        self.server.bridge.view = lambda *args, **kwargs: view
+        auth = self.login()
+        for encoding, compressed in [('gzip, deflate, br', True), ('gzip;q=0', False), ('identity', False)]:
+            with self.subTest(encoding=encoding):
+                conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
+                try:
+                    conn.request('GET', '/api/sessions/'+THREAD, headers={**auth, 'Accept-Encoding': encoding})
+                    response = conn.getresponse()
+                    self.assertEqual(response.status, 200)
+                    body = response.read()
+                    self.assertEqual(len(body), int(response.getheader('Content-Length')))
+                    if compressed:
+                        self.assertEqual(response.getheader('Content-Encoding'), 'gzip')
+                        self.assertIn('Accept-Encoding', response.getheader('Vary'))
+                        self.assertLess(len(body), 10000)
+                        body = gzip.decompress(body)
+                    else:
+                        self.assertIsNone(response.getheader('Content-Encoding'))
+                    self.assertEqual(json.loads(body), view)
+                finally:
+                    conn.close()
 
     def test_auth_csrf_origin_host_and_logout(self):
         self.assertEqual(self.request('GET', '/api/sessions')[0], 401)

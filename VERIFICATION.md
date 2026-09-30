@@ -57,6 +57,14 @@ python3 -B -m unittest discover -s tests -v
 
 ## 验证边界
 
+### Markdown、公式与大响应修复（2026-10-01）
+
+- macOS 本地回归：45 项 Python 测试中 42 项通过，3 项 Windows 专属测试跳过。
+- 浏览器检查：12 项 Markdown 和 11 项公式检查通过，覆盖代码保持原样、危险 HTML/TeX、文件链接、流式片段、表格与公式在窄屏内滚动。
+- 390px 浏览器实测真实聊天：最后一条回复中的 9 处公式正确显示，本机提供的字体全部成功加载。
+- 真实临时 HTTPS 入口：修复前约 6 MB 聊天响应被截断；启用 gzip 后传输约 1.63 MB，本次完整读取约 3.6 秒。该结果不保证其他网络的相同延迟。
+- 浏览器样例位于 `tests/markdown.test.js` 和 `tests/math.test.js`，可在已加载网关页面的开发者控制台运行；这些前端检查未接入 GitHub Actions。
+
 ### Windows 适配验证（2026-09-30）
 
 环境：Windows 10 build 19045、CPython/Anaconda 3.9.13、Codex App `26.928.1915.0`、桌面内置运行时 `0.159.0`。

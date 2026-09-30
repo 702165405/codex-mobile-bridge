@@ -1,4 +1,5 @@
 """Same-origin HTTP/SSE gateway. Desktop RPC is never exposed directly."""
+import gzip
 import hmac
 import json
 import logging
@@ -22,10 +23,16 @@ from .remote import RemoteUnavailable
 LOG = logging.getLogger(__name__)
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+          "/markdown.js": ("markdown.js", "text/javascript; charset=utf-8"),
+          "/vendor/markdown-it.min.js": ("vendor/markdown-it.min.js", "text/javascript; charset=utf-8"),
+          "/vendor/texmath.js": ("vendor/texmath.js", "text/javascript; charset=utf-8"),
+          "/vendor/katex/katex.min.js": ("vendor/katex/katex.min.js", "text/javascript; charset=utf-8"),
+          "/vendor/katex/katex.min.css": ("vendor/katex/katex.min.css", "text/css; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/icon.svg": ("icon.svg", "image/svg+xml")}
 THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll))?$")
+FONT_ROUTE = re.compile(r"^/vendor/katex/fonts/(KaTeX_[A-Za-z0-9_-]+\.(woff2|woff|ttf))$")
 
 
 class GatewayServer(ThreadingHTTPServer):
@@ -86,14 +93,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
+        # KaTeX emits inline layout styles; scripts and stylesheets stay same-origin.
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
     def output(self, status, data, content_type="application/json; charset=utf-8", cookie=None):
         body = json.dumps(data, ensure_ascii=False).encode() if not isinstance(data, bytes) else data
+        accepts_gzip = re.search(r'(?:^|,)\s*gzip\s*(?:;\s*q=([01](?:\.\d+)?))?\s*(?:,|$)',
+                                 self.headers.get('Accept-Encoding', ''), re.IGNORECASE)
+        compressible = content_type.startswith(('text/', 'application/json', 'image/svg+xml'))
+        compressed = False
+        if compressible and len(body) >= 1024 and accepts_gzip and float(accepts_gzip[1] or '1') > 0:
+            candidate = gzip.compress(body, compresslevel=5, mtime=0)
+            if len(candidate) < len(body):
+                body, compressed = candidate, True
         self.send_response(status)
         self.headers_common()
         self.send_header("Content-Type", content_type)
+        self.send_header('Vary', 'Accept-Encoding')
+        if compressed:
+            self.send_header('Content-Encoding', 'gzip')
         self.send_header("Content-Length", str(len(body)))
         if cookie:
             self.send_header("Set-Cookie", cookie)
@@ -161,6 +180,11 @@ class Handler(BaseHTTPRequestHandler):
             if not write and path in STATIC:
                 name, content_type = STATIC[path]
                 return self.output(200, (self.server.web_dir / name).read_bytes(), content_type)
+            font = FONT_ROUTE.fullmatch(path)
+            if not write and font:
+                file = self.server.web_dir / 'vendor/katex/fonts' / font[1]
+                if file.is_file():
+                    return self.output(200, file.read_bytes(), 'font/'+font[2])
             if not write and path == "/api/auth":
                 session = self.server.auth.get(self.token())
                 return self.output(200, {"authenticated": bool(session), "csrf": session["csrf"] if session else None,
