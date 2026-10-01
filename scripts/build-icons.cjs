@@ -8,7 +8,12 @@ app.whenReady().then(async()=>{
   try{
     const svg=fs.readFileSync(path.join(__dirname,'../web/icon.svg'),'utf8');
     await window.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent('<style>html,body{margin:0;width:256px;height:256px;background:transparent}svg{width:256px;height:256px}</style>'+svg));
-    const png=(await window.webContents.capturePage()).resize({width:256,height:256}).toPNG();
+    const dataUrl=await window.webContents.executeJavaScript(`(async()=>{
+      const image=new Image();image.src=${JSON.stringify('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg))};
+      await image.decode();const canvas=document.createElement('canvas');canvas.width=canvas.height=256;
+      canvas.getContext('2d').drawImage(image,0,0,256,256);return canvas.toDataURL('image/png');
+    })()`);
+    const png=Buffer.from(dataUrl.split(',')[1],'base64');
     const header=Buffer.alloc(22);
     header.writeUInt16LE(1,2);header.writeUInt16LE(1,4);
     header.writeUInt16LE(1,10);header.writeUInt16LE(32,12);
