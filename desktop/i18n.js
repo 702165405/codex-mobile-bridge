@@ -98,10 +98,8 @@
     const entries=[],walker=document.createTreeWalker(document.documentElement,4);
     let node;while((node=walker.nextNode())){
       const source=node.nodeValue,trimmed=source.trim();
-      if(Object.hasOwn(english,trimmed))entries.push(language=>{nodeValue(node);});
-      function nodeValue(){} // Entries below retain their own node, not the walker variable.
       if(Object.hasOwn(english,trimmed)){
-        entries.pop();const target=node;
+        const target=node;
         entries.push(language=>{target.nodeValue=source.replace(trimmed,translate(trimmed,language));});
       }
     }

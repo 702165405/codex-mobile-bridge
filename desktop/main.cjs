@@ -5,6 +5,9 @@ const fs=require('node:fs');
 const {pathToFileURL}=require('node:url');
 const {runWorker,workerFor}=require('./controller.cjs');
 const {createTray}=require('./tray.cjs');
+const {normalize,translate}=require('./i18n.js');
+let language='zh-CN';
+const t=text=>translate(text,language);
 const root=path.resolve(__dirname,'..');
 // An explicit data directory also keeps test caches inside the project.
 if(process.env.CMB_DATA_DIR)app.setPath('userData',path.join(path.resolve(process.env.CMB_DATA_DIR),'desktop-runtime'));
@@ -33,6 +36,14 @@ function showWindow(){
   window.show();window.focus();
 }
 function register(){
+  ipcMain.handle('bridge:language',event=>{authorize(event);return language;});
+  ipcMain.handle('bridge:set-language',(event,value)=>{
+    authorize(event);
+    if(!['zh-CN','en'].includes(value))throw Error('Unsupported language');
+    const directory=app.getPath('userData');fs.mkdirSync(directory,{recursive:true});
+    fs.writeFileSync(path.join(directory,'language.json'),JSON.stringify({language:value}));
+    language=value;window.setTitle(t('Codex 手机网关'));tray?.relabel();return language;
+  });
   for(const action of ['snapshot','save','start','stop','logs','test-notification'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
   ipcMain.handle('bridge:choose',async(event,kind)=>{
     authorize(event);
@@ -74,12 +85,14 @@ if(!app.requestSingleInstanceLock())app.quit();
 else{
   app.on('second-instance',showWindow);
   app.whenReady().then(()=>{
+    language=normalize(app.getLocale());
+    try{language=normalize(JSON.parse(fs.readFileSync(path.join(app.getPath('userData'),'language.json'),'utf8')).language);}catch{}
     dataDir=loadDataDir();register();
     if(process.platform==='win32'){
       app.setAppUserModelId('io.github.try2love.codexmobilebridge');
-      tray=createTray({Tray,Menu,icon:path.join(__dirname,'assets/icon.ico'),show:showWindow,worker,
+      tray=createTray({Tray,Menu,icon:path.join(__dirname,'assets/icon.ico'),show:showWindow,worker,t,
         open:url=>shell.openExternal(url),copy:url=>clipboard.writeText(url),quit:()=>app.quit(),
-        onError:error=>{showWindow();dialog.showErrorBox('网关操作未完成',error.message);}});
+        onError:error=>{showWindow();dialog.showErrorBox(t('网关操作未完成'),t(error.message));}});
     }
     createWindow();
   });
