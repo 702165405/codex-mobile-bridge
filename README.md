@@ -20,11 +20,11 @@
 
 ## 桌面 App 与 ntfy（实验分支）
 
-本节对应 `feature/desktop-ntfy` 分支。桌面 App 是网关的启动与配置界面，继续连接原来的 Codex App，不替代 Codex 的执行或模型认证。
+本节对应 `codex/windows-desktop-app` 分支，基于远程 `feature/desktop-ntfy` 的桌面界面与通知功能继续开发。桌面 App 是网关的启动与配置界面，继续连接原来的 Codex App，不替代 Codex 的执行或模型认证。
 
 ### 使用桌面 App
 
-从本分支的 GitHub Actions → **Desktop prototype** 构建记录下载对应系统的产物。Mac 解压 `.app` 后打开；Windows 使用 portable `.exe`。打包产物内置 Python 网关运行时，日常使用无需安装 Python、Node.js 或打开终端。当前为未签名实验构建，系统可能提示来源未验证；正式签名发行尚未接入。
+本分支推送后，可从 GitHub Actions → **Desktop prototype** 的成功构建记录下载对应系统产物，也可以按下文在本机构建。Mac 解压 `.app` 后打开；Windows x64 提供 `Windows-x64-Setup.exe` 安装包和 `Windows-x64.zip` 解压版。安装包按当前用户安装并创建快捷方式；解压版须完整解压后运行其中的 `Codex Mobile Bridge.exe`，不能只移动单个 exe。打包产物内置 Python 网关运行时，日常使用无需安装 Python、Node.js 或打开终端。当前为未签名实验构建，系统可能提示来源未验证；正式签名发行尚未接入。
 
 打开后可设置：
 
@@ -35,6 +35,10 @@
 - **运行日志**：查看与刷新本机网关日志。
 
 已有命令行部署时，在“运行配置”选择原来的 `.local` 目录，可识别并管理已经运行的网关。运行期间端口、网络和程序路径不可修改；停止后才能调整。关闭 App 窗口会保留网关进程，点击“停止”才会停止手机访问。密码变更在下次启动生效；新版网关会自动读取通知配置变更。
+
+Windows 关闭窗口会收起到系统托盘；双击托盘或再次启动 App 可恢复同一窗口。托盘可打开或复制手机地址（优先 HTTPS，其次局域网），也可选择“停止网关并退出”或“退出控制面板（保留网关）”。默认数据保存在当前用户的 App 数据目录，卸载不自动删除配置与凭据。更新、移动解压版或卸载前，请先停止网关并退出控制面板，避免后台运行时仍占用程序文件。“打开 App 自动启动”不等于 Windows 开机启动。
+
+外网访问仍需在“网络与登录”启用临时 HTTPS，并在“运行配置”选择 `cloudflared.exe`。复用旧 `.local` 时会自动查找其 `bin/cloudflared.exe`；有旧外网地址文件时默认启用隧道。启动后等待新的 HTTPS 地址出现，`127.0.0.1` 不是手机外网入口。默认保留账号密码保护。
 
 未保存修改会在对应设置页的侧栏入口和底部保存栏显示小红点；切换页面仍保留提示，保存成功或改回原值后清除，保存失败时继续保留。
 
@@ -57,7 +61,7 @@ cloudflared 仍为可选的外部程序，App 不自动下载或安装。需要�
 开发环境需要 Node.js 与 Python；只有构建时需要 Electron、electron-builder 和 PyInstaller。Windows 与 Mac 应分别在目标系统上构建。
 
 ```bash
-git switch feature/desktop-ntfy
+git switch codex/windows-desktop-app
 npm ci
 npm run desktop
 ```
@@ -70,7 +74,7 @@ python scripts/build-desktop.py
 npm run pack:desktop
 ```
 
-Windows 可再执行 `npm run build:windows` 生成 portable `.exe`。开发测试可用 `CMB_DATA_DIR` 指定独立数据目录，`CMB_PYTHON` 指定开发用 Python；打包后的 App 使用内置运行时。运行 `python -B -m unittest discover -s tests -v` 和 `npm run test:desktop` 进行自动检查。
+Windows 可再执行 `npm run build:windows` 生成安装包与 ZIP；文件位于 `dist/desktop/`。随后执行 `npm run test:windows-app` 验证实际打包窗口、内置运行时、托盘恢复与启停。此检查使用临时端口和合成数据，不发送模型请求或真实通知，需要可显示窗口的 Windows 会话和 Node.js 24。开发测试可用 `CMB_DATA_DIR` 指定独立数据目录，`CMB_PYTHON` 指定开发用 Python；打包后的 App 使用内置运行时。运行 `python -B -m unittest discover -s tests -v` 和 `npm run test:desktop` 进行自动检查。产品图标源为 `web/icon.svg`，可用 `npm run icons:desktop` 更新桌面 PNG/ICO。
 
 App 设置界面通过本机进程通信管理网关，管理接口不对局域网或隧道开放。配置、推送 Token、凭据和投递记录位于网关数据目录，默认关闭 ntfy；打包与提交不包含 `.local`、`.tmp` 或个人配置。
 
