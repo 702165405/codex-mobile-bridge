@@ -2,6 +2,10 @@
 
 [简体中文](README.md) · [English](README_EN.md)
 
+**[Product tour and screenshots (Chinese) ↗](https://try2love.github.io/codex-mobile-bridge/)** · **[Download the desktop App](https://github.com/try2love/codex-mobile-bridge/releases)**
+
+[![Desktop App: connections and status (demonstration data)](site/assets/desktop-overview.png)](https://try2love.github.io/codex-mobile-bridge/)
+
 Continue **existing chats in the desktop Codex App** from your phone browser, or create an empty chat in a saved project.
 
 The phone and desktop use the same chat. Read replies, send messages, choose models and Skills, and respond to pending confirmations. Local tasks continue on the original computer; SSH tasks continue on the original server. Each chat keeps its model provider and authentication settings.
@@ -308,6 +312,8 @@ Not verified / user steps: clear remaining actions and limitations
 Do not include actual passwords, tokens or API keys in public issues, commits, screenshots or deployment bundles.
 
 ## Development and packaging
+
+The product website lives in `site/` and is hosted on GitHub Pages. Pushing changes under `site/` to `main` automatically publishes them through the **Product website** workflow; no separate build step is required.
 
 This section requires Node.js and Python on the target OS. Release users do not need these tools.
 

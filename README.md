@@ -2,6 +2,10 @@
 
 [简体中文](README.md) · [English](README_EN.md)
 
+**[图文介绍与功能预览 ↗](https://try2love.github.io/codex-mobile-bridge/)** · **[下载桌面 App](https://github.com/try2love/codex-mobile-bridge/releases)**
+
+[![桌面 App：连接与状态（演示数据）](site/assets/desktop-overview.png)](https://try2love.github.io/codex-mobile-bridge/)
+
 在手机浏览器里，继续电脑 **Codex App 已有的聊天**，或在已保存项目中新建聊天。
 
 手机与电脑打开同一个会话，查看回复、发送消息、选择模型与 Skill、回应待确认操作。本地任务继续在原电脑执行，SSH 任务继续在原服务器执行；模型请求沿用该会话的提供商与认证配置。
@@ -583,6 +587,8 @@ PY
 ```
 
 ## 开发与测试
+
+项目图文介绍页位于 `site/`，使用 GitHub Pages 托管。修改 `site/` 并推送到 `main` 后，**Product website** 工作流自动发布；无需额外构建步骤。
 
 ```sh
 python3 -B -m unittest discover -s tests -v
