@@ -8,7 +8,7 @@
 - 真实 Electron 窗口在独立测试目录/端口完成：启动网关、配置保存、网络字段锁定、切换通知页面、停止网关、窗口截图检查。渲染页面无法访问 Node require。
 - Mac arm64 `.app` 已构建；包内 Python 网关执行文件在源码目录之外作为独立进程完成配置读取、启动、重复启动复用、通知能力识别和协作停止。
 - ntfy 默认关闭。用户尚未配置接收端；推送验证只使用本机模拟 HTTP 服务，没有向公共 ntfy 主题发送真实工作信息。不能据此声称 iPhone/Android 锁屏实收通过。
-- Windows portable 与 Mac ZIP 提供独立平台的构建工作流；构建结果见本实验分支的 Desktop prototype Actions。Windows 桌面 GUI 仍需实机验收。
+- Windows portable 与 Mac ZIP 均已构建并上传到 [Desktop prototype Actions](https://github.com/try2love/codex-mobile-bridge/actions/runs/36817237101)，对应代码提交 `de58b19`；[跨平台 Python 检查](https://github.com/try2love/codex-mobile-bridge/actions/runs/36817236968)也已通过。Windows 桌面 GUI 仍需实机验收。
 - 当前 App 未进行 Developer ID/Windows 证书签名及 Mac 公证，作为实验构建交付。桌面模型认证、原 App 数据库与执行 owner 未被修改。
 - 打包命令显式关闭自动发布，不需要 Release Token。长轮询测试等待请求线程完成清理，延迟清理的定向复现通过；POSIX 配置读取优先枚举网卡，避免主机名 DNS 阻塞，已覆盖回归测试。
 
