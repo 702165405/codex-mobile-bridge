@@ -64,11 +64,13 @@ async function main(){
   const settings=await worker('snapshot');
   Object.assign(settings.preferences,{port,lan:false,tunnel:false,codexHome:data,autoStart:false});
   await worker('save',settings);
-  const child=spawn(executable,['--remote-debugging-address=127.0.0.1','--remote-debugging-port='+debugPort],{env,stdio:['ignore','ignore','pipe']});
-  let stderr='',client,started=false;
-  child.stderr.on('data',value=>stderr+=value);
-  const exited=new Promise(resolve=>{child.on('exit',resolve);child.on('error',resolve);});
-  try{
+  let stderr='',client,started=false,child,exited;
+  function launch(){
+    child=spawn(executable,['--remote-debugging-address=127.0.0.1','--remote-debugging-port='+debugPort],{env,stdio:['ignore','ignore','pipe']});
+    child.stderr.on('data',value=>stderr+=value);
+    exited=new Promise(resolve=>{child.on('exit',resolve);child.on('error',resolve);});
+  }
+  async function connectApp(){
     const target=await until(async()=>{
       if(child.exitCode!==null)throw Error('App exited: '+stderr);
       const response=await get('http://127.0.0.1:'+debugPort+'/json/list');
@@ -76,6 +78,10 @@ async function main(){
     },'Packaged app');
     client=await connect(target.webSocketDebuggerUrl);
     await until(()=>client.evaluate('Boolean(snapshot)'), 'Initial settings');
+  }
+  launch();
+  try{
+    await connectApp();
     assert.equal(await client.evaluate('typeof require'),'undefined');
     assert.equal(await client.evaluate('snapshot.preferences.port'),port);
     assert.equal(await client.evaluate('snapshot.notifications.enabled'),false);
@@ -90,6 +96,26 @@ async function main(){
       const filename=path.join(data,name+'.png');await fs.writeFile(filename,Buffer.from(image.data,'base64'));return filename;
     }
     const screenshots=[await screenshot('overview')];
+    await client.evaluate("document.querySelector('[data-tab=notifications]').click();document.getElementById('ntfy-topic').value='unsaved-topic';document.getElementById('ntfy-topic').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('language').value='en';document.getElementById('language').dispatchEvent(new Event('change'))");
+    await until(()=>client.evaluate("document.documentElement.lang==='en'&&!document.getElementById('language').disabled"),'English switch');
+    assert.equal(await client.evaluate("document.getElementById('page-title').textContent"),'Mobile notifications');
+    assert.equal(await client.evaluate("document.getElementById('status').textContent"),'Running');
+    assert.equal(await client.evaluate("document.getElementById('ntfy-topic').value"),'unsaved-topic');
+    assert.equal(await client.evaluate('dirty'),true);
+    assert.equal(await client.evaluate("document.getElementById('save').textContent"),'Save settings');
+    const savedLanguage=JSON.parse(await fs.readFile(path.join(data,'desktop-runtime/language.json'),'utf8'));
+    assert.equal(savedLanguage.language,'en');
+    await client.call('Emulation.setDeviceMetricsOverride',{width:820,height:640,deviceScaleFactor:1,mobile:false});
+    for(const panel of ['overview','network','notifications','advanced','logs']){
+      await client.evaluate(`tab('${panel}')`);
+      assert.equal(await client.evaluate('document.documentElement.scrollWidth>innerWidth'),false,panel);
+      screenshots.push(await screenshot('english-'+panel));
+    }
+    await client.evaluate("document.getElementById('language').value='zh-CN';document.getElementById('language').dispatchEvent(new Event('change'))");
+    await until(()=>client.evaluate("document.documentElement.lang==='zh-CN'&&!document.getElementById('language').disabled"),'Chinese switch');
+    assert.equal(await client.evaluate("document.getElementById('save').textContent"),'保存配置');
+    assert.equal(await client.evaluate("document.getElementById('ntfy-topic').value"),'unsaved-topic');
+    await client.call('Emulation.clearDeviceMetricsOverride');
     await client.evaluate("document.querySelector('[data-tab=notifications]').click();document.getElementById('ntfy-topic').value='windows-smoke';document.getElementById('ntfy-topic').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('settings').requestSubmit()");
     await until(()=>client.evaluate("!dirty&&snapshot.notifications.topic==='windows-smoke'"),'Settings save');
     assert.equal(await client.evaluate('snapshot.notifications.enabled'),false);
@@ -111,7 +137,12 @@ async function main(){
     await client.evaluate("document.querySelector('[data-tab=overview]').click();document.getElementById('stop').click()");
     await until(()=>client.evaluate('!snapshot.runtime.running'),'Graceful stop');started=false;
     assert.equal((await worker('snapshot')).runtime.running,false);
-    console.log(JSON.stringify({ok:true,executable,data,screenshots,checks:['bundled runtime without Python or Node on PATH','Unicode data path','renderer isolation','start and stop','private HTTP routes','local assets','notification settings saved without publishing','close to tray keeps gateway online','second launch restores window','no horizontal overflow']}));
+    await client.evaluate("document.getElementById('language').value='en';document.getElementById('language').dispatchEvent(new Event('change'))");
+    await until(()=>client.evaluate("document.documentElement.lang==='en'&&!document.getElementById('language').disabled"),'Persist English');
+    client.close();child.kill();await exited;launch();await connectApp();
+    assert.equal(await client.evaluate('document.documentElement.lang'),'en');
+    assert.equal(await client.evaluate("document.getElementById('start').textContent"),'Start gateway');
+    console.log(JSON.stringify({ok:true,executable,data,screenshots,checks:['bundled runtime without Python or Node on PATH','Unicode data path','renderer isolation','start and stop','private HTTP routes','local assets','notification settings saved without publishing','close to tray keeps gateway online','second launch restores window','bilingual switch preserves drafts','language survives app restart','English layout at 820x640','no horizontal overflow']}));
   }finally{
     if(started){try{await worker('stop');}catch(error){console.error('Test cleanup:',error.message);}}
     client?.close();
