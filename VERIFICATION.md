@@ -233,11 +233,23 @@ Windows 不允许当前用户创建符号链接时，仅符号链接逃逸测试
 - 一个实测环境的代理路径曾关闭隧道域名 TLS 连接，而直连及另一台主机正常；网络路径可能影响入口可达性。
 - 尚不支持云聊天、SSH 文件下载及部分特殊请求。冷聊天的历史阅读不切换桌面；实际操作时可按需通过原 App 加载，但原 App 自身配置错误仍会阻止恢复。
 
-## 2026-10-02：App 内更新（本地，尚未发布）
+## 2026-10-02：App 内更新（beta.5 发布前验证）
 
 - Node：桌面和更新器共 34 项通过，包括版本顺序、签名篡改/错误密钥、平台不匹配、损坏/截断下载、来源限制、重复安装、草稿过滤、失败重试及未保存配置阻止安装。
 - Python：全量 133 项，129 通过、4 个既有环境条件跳过；新增更新器 10 项覆盖解压路径/链接、真实目录替换、父进程未退出、网关实例变化、应用/网关启动失败的恢复与停止状态保持。
 - macOS arm64：构建实际 ad-hoc 签名 App/ZIP。在 `.tmp/update-smoke-*` 隔离目录通过打包 App、复制的内置运行时与临时端口执行正常安装及人为破坏新版可执行文件后的回滚。两条链路均恢复网关，`config.json`、`desktop.json`、`notifications.json`、`notification-watches.json` 字节保持不变；更新页面无横向溢出，已查看截图。
 - 集成测试的 Release 网络响应使用内存中的测试签名清单；安装包是实际构建 ZIP。测试验证真实替换/重启事务，未发布或下载 GitHub 上的正式新版本，不代表远程发布链路已经启用。
-- 发布签名脚本已用本地受保护私钥及 App 内公钥验证两个平台清单；两个工作流 YAML 可解析。私钥未提交、未上传。
-- Windows 的打包升级与回滚测试已纳入 CI，当前 Mac 环境未执行 Windows 实测。GitHub Actions Secret 配置和正式 Release 发布仍待授权。
+- 发布签名脚本已用本地受保护私钥及 App 内公钥验证两个平台清单；两个工作流 YAML 可解析。私钥未提交；发布前经授权加密保存为仓库 Actions Secret。
+- Windows x64 与 macOS arm64 的打包 App 均通过 GitHub Actions 的真实升级、失败回滚和配置保留测试。运行使用合成网关数据，不向真实 Codex 聊天发送消息。
+
+### 跨平台发布门槛
+
+- [桌面构建与升级回滚验收](https://github.com/try2love/codex-mobile-bridge/actions/runs/36906401249)：Mac 和 Windows 均通过，包括桌面 Node 测试、更新签名/下载测试、PyInstaller/Electron 打包、真实 App 启动、HTTPS 信任验证、二维码检查、更新和回滚。
+- [Python 回归检查](https://github.com/try2love/codex-mobile-bridge/actions/runs/36906401361)：Windows/Linux Python 3.9 与 3.13、macOS Python 3.13 均通过。
+- 发布前修复了 Windows ZIP 路径规范化导致的测试差异，并拒绝原始路径中被 ZIP 读取器改写的名称；构建元数据显式使用 UTF-8，避免 Windows 默认编码读取中文 package.json 失败。
+
+### 已发布的 beta.5
+
+- [签名发布工作流](https://github.com/try2love/codex-mobile-bridge/actions/runs/36907311316) 已通过：校验版本与签名身份、重建两个平台并重复验收、生成清单、上传草稿后发布。
+- [v0.2.0-beta.5 Release](https://github.com/try2love/codex-mobile-bridge/releases/tag/v0.2.0-beta.5) 为公开预发布版，含 macOS arm64 ZIP、Windows x64 Setup/ZIP、`bridge-update.json` 和 `SHA256SUMS.txt`。
+- 从 Release 下载更新清单及校验文件，以 App 内置公钥验签成功。两个平台的签名版本、文件名、长度和 SHA-256，与 GitHub 对三个已上传安装包计算的摘要及校验文件一致。此核对使用 GitHub 资产摘要，没有在本机重新下载全部大文件；最终安装包启动和升级/回滚验收已由该发布工作流完成。

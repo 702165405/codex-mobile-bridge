@@ -20,15 +20,15 @@
 
 ## 下载与快速开始（推荐）
 
-日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v0.2.0-beta.4 预发布版**。
+日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v0.2.0-beta.5 预发布版**。
 
 | 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.4/Codex-Mobile-Bridge-0.2.0-beta.4-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
-| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.4/Codex-Mobile-Bridge-0.2.0-beta.4-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
-| macOS Apple Silicon（M 系列） | [下载 arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.4/Codex-Mobile-Bridge-0.2.0-beta.4-macOS-arm64.zip) | 解压，将 `.app` 放入“应用程序”后打开 |
+| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.5/Codex-Mobile-Bridge-0.2.0-beta.5-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
+| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.5/Codex-Mobile-Bridge-0.2.0-beta.5-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
+| macOS Apple Silicon（M 系列） | [下载 arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.5/Codex-Mobile-Bridge-0.2.0-beta.5-macOS-arm64.zip) | 解压，将 `.app` 放入“应用程序”后打开 |
 
-[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.4/SHA256SUMS.txt)。当前未提供 Intel Mac 或 Windows ARM 专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.5/SHA256SUMS.txt)。当前未提供 Intel Mac 或 Windows ARM 专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
 
 1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
 2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
@@ -45,12 +45,12 @@
 
 ### macOS 首次打开：提示“已损坏”或开发者无法验证
 
-当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v0.2.0-beta.4` 或后续版本。
+当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v0.2.0-beta.5` 或后续版本。
 
 1. 从本仓库的 Release 下载 ZIP 和 `SHA256SUMS.txt`。用下面的命令计算 ZIP 的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.4-macOS-arm64.zip"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.5-macOS-arm64.zip"
    ```
 
 2. 解压，将 `Codex Mobile Bridge.app` 放入“应用程序”。尝试打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。
