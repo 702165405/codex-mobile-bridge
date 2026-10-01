@@ -95,7 +95,7 @@ async function main(){
     assert.equal(await client.evaluate('snapshot.notifications.enabled'),false);
     screenshots.push(await screenshot('notifications'));
     // Closing is a hide-to-tray operation. A second launch must restore the same app.
-    const closed=await execute('powershell.exe',['-NoProfile','-NonInteractive','-Command',`(Get-Process -Id ${child.pid}).CloseMainWindow()`],{env,windowsHide:true,timeout:15000});
+    const closed=await execute(path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoProfile','-NonInteractive','-Command',`(Get-Process -Id ${child.pid}).CloseMainWindow()`],{env,windowsHide:true,timeout:15000});
     assert.equal(closed.stdout.trim(),'True','Native window close must be delivered');
     // Hidden Chromium windows can suspend both evaluation and discovery.
     // Check the independent gateway, then reuse this CDP session after restore.
