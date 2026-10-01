@@ -20,7 +20,11 @@ class ArchiveTests(unittest.TestCase):
         archive = self.root / 'update.zip'
         with zipfile.ZipFile(archive, 'w') as target:
             for name, value, mode in entries:
-                info = zipfile.ZipInfo(name)
+                info = zipfile.ZipInfo('entry')
+                # Preserve malformed wire names; ZipInfo(name) normalizes them
+                # on Windows before the test archive is even written.
+                info.filename = name
+                info.orig_filename = name
                 info.external_attr = mode << 16
                 target.writestr(info, value)
         dest = self.root / 'unpacked'
@@ -29,7 +33,7 @@ class ArchiveTests(unittest.TestCase):
         return dest
 
     def test_reject_path_traversal_before_writing(self):
-        for name in ('../escape', '/absolute', 'x/../../escape', 'x\\escape', 'C:/escape', 'x/./y'):
+        for name in ('../escape', '/absolute', 'x/../../escape', 'x\\escape', 'C:/escape', 'x/./y', 'x\0escape'):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 self.unpack([(name, 'bad', stat.S_IFREG | 0o644)])
         self.assertFalse((self.root / 'escape').exists())

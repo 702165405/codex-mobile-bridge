@@ -39,6 +39,10 @@ def extract(archive, destination):
             raise ValueError('更新包解压大小超出限制。')
         seen, links = set(), {}
         for entry in entries:
+            # ZipInfo normalizes Windows separators and truncates NULs. Validate
+            # the wire name as well, before that normalization can hide it.
+            if entry.orig_filename != entry.filename:
+                raise ValueError('更新包包含无效路径。')
             name = entry.filename.rstrip('/')
             parts = PurePosixPath(name).parts
             if (not name or '\\' in name or ':' in name or name.startswith('/')
