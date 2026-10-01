@@ -2,6 +2,44 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const path=require('node:path');
 const {workerFor,runWorker}=require('../desktop/controller.cjs');
+const {createTray,primaryUrl}=require('../desktop/tray.cjs');
+
+test('tray prefers public HTTPS and rejects non-web addresses',()=>{
+  assert.equal(primaryUrl(['file:///private','http://127.0.0.1:8787','http://192.168.1.2:8787']),'http://192.168.1.2:8787');
+  assert.equal(primaryUrl(['http://192.168.1.2:8787','https://example.com']),'https://example.com');
+  assert.equal(primaryUrl(['javascript:alert(1)','https://user:pass@example.com']),undefined);
+});
+
+async function trayFixture(){
+  let menu,timer,destroyed=false,cleared=false,quit=false,opened=false,copied,error,failStop=false;
+  const state={runtime:{running:true},urls:['http://127.0.0.1:8787','https://example.com']};
+  const actions=[];
+  const tray=createTray({
+    Tray:class{on(){}setToolTip(){}setContextMenu(value){menu=value;}destroy(){destroyed=true;}},
+    Menu:{buildFromTemplate:value=>value},icon:'icon',show:()=>{opened=true;},
+    worker:async action=>{if(action==='snapshot')return state;actions.push(action);if(failStop)throw Error('stop failed');state.runtime.running=false;},
+    open:async()=>{opened=true;},copy:async value=>{copied=value;},quit:()=>{quit=true;},onError:value=>{error=value;},
+    setTimer:callback=>{timer=callback;return 1;},clearTimer:()=>{cleared=true;},
+  });
+  await new Promise(setImmediate);
+  return {tray,state,actions,find:text=>menu.find(item=>item.label?.includes(text)),poll:()=>timer(),
+    fail:()=>{failStop=true;},result:()=>({destroyed,cleared,quit,opened,copied,error})};
+}
+
+test('tray can stop then quit and dispose without duplicate operations',async()=>{
+  const ui=await trayFixture();await ui.find('复制手机').click();assert.equal(ui.result().copied,'https://example.com');
+  await ui.find('停止网关').click();assert.deepEqual(ui.actions,['stop']);assert.equal(ui.result().quit,true);
+  ui.tray.dispose();assert.equal(ui.result().destroyed,true);assert.equal(ui.result().cleared,true);
+});
+
+test('tray never quits after a failed stop or stops an unmanaged port',async()=>{
+  const ui=await trayFixture();ui.fail();await ui.find('停止网关').click();assert.equal(ui.result().quit,false);assert.match(ui.result().error.message,/stop failed/);
+  ui.state.runtime={running:false,portOccupied:true};await ui.poll();assert.equal(ui.find('停止网关').enabled,false);assert.equal(ui.find('打开手机').enabled,false);ui.tray.dispose();
+});
+
+test('quitting only the controller leaves the gateway untouched',async()=>{
+  const ui=await trayFixture();ui.find('保留网关').click();assert.equal(ui.result().quit,true);assert.deepEqual(ui.actions,[]);ui.tray.dispose();
+});
 test('packaged launch uses bundled runtime and literal data directory',()=>{
   const result=workerFor({packaged:true,resources:'/app resources',root:'/source',dataDir:'/my data'});
   assert.equal(result.dataDir,'/my data');assert.equal(result.executable,path.join('/app resources','gateway',process.platform==='win32'?'codex-mobile-gateway.exe':'codex-mobile-gateway'));

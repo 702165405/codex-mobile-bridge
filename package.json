@@ -9,8 +9,9 @@
   "scripts": {
     "desktop": "electron .",
     "test:desktop": "node --test tests/desktop.test.cjs",
+    "icons:desktop": "electron scripts/build-icons.cjs",
     "pack:desktop": "electron-builder --dir --publish never",
-    "build:windows": "electron-builder --win portable --publish never"
+    "build:windows": "electron-builder --win nsis zip --x64 --publish never"
   },
   "devDependencies": {
     "electron": "44.5.1",
@@ -38,7 +39,19 @@
       "identity": null
     },
     "win": {
-      "target": "portable"
+      "icon": "desktop/assets/icon.ico",
+      "target": ["nsis", "zip"],
+      "artifactName": "Codex-Mobile-Bridge-${version}-Windows-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "Codex-Mobile-Bridge-${version}-Windows-${arch}-Setup.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
     }
   }
 }

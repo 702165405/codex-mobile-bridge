@@ -1,13 +1,14 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,dialog,shell,clipboard}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,Tray,Menu}=require('electron');
 const path=require('node:path');
 const fs=require('node:fs');
 const {pathToFileURL}=require('node:url');
 const {runWorker,workerFor}=require('./controller.cjs');
+const {createTray}=require('./tray.cjs');
 const root=path.resolve(__dirname,'..');
 // An explicit data directory also keeps test caches inside the project.
 if(process.env.CMB_DATA_DIR)app.setPath('userData',path.join(path.resolve(process.env.CMB_DATA_DIR),'desktop-runtime'));
-let window,dataDir;
+let window,dataDir,tray,quitting=false,snapshotPending;
 const entry=pathToFileURL(path.join(__dirname,'index.html')).href;
 function loadDataDir(){
   if(process.env.CMB_DATA_DIR)return path.resolve(process.env.CMB_DATA_DIR);
@@ -20,7 +21,17 @@ function loadDataDir(){
 function authorize(event){
   if(!window||event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!==entry)throw Error('不允许的界面来源');
 }
-function worker(action,payload){return runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload);}
+function worker(action,payload){
+  if(action==='snapshot'&&snapshotPending)return snapshotPending;
+  const result=runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload);
+  if(action==='snapshot')snapshotPending=result.finally(()=>{snapshotPending=null;});
+  return action==='snapshot'?snapshotPending:result;
+}
+function showWindow(){
+  if(!window)createWindow();
+  if(window.isMinimized())window.restore();
+  window.show();window.focus();
+}
 function register(){
   for(const action of ['snapshot','save','start','stop','logs','test-notification'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
   ipcMain.handle('bridge:choose',async(event,kind)=>{
@@ -51,18 +62,29 @@ function register(){
   });
 }
 function createWindow(){
-  window=new BrowserWindow({width:1100,height:850,minWidth:820,minHeight:640,title:'Codex 手机网关',backgroundColor:'#f6f7f9',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  window=new BrowserWindow({width:1100,height:850,minWidth:820,minHeight:640,title:'Codex 手机网关',icon:path.join(__dirname,'assets/icon.png'),backgroundColor:'#f6f7f9',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate',event=>event.preventDefault());
   window.loadFile(path.join(__dirname,'index.html'));
+  window.on('close',event=>{if(tray&&!quitting){event.preventDefault();window.hide();}});
   window.on('closed',()=>{window=null;});
   return window;
 }
 if(!app.requestSingleInstanceLock())app.quit();
 else{
-  app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus();}});
-  app.whenReady().then(()=>{dataDir=loadDataDir();register();createWindow();});
-  app.on('activate',()=>{if(!window)createWindow();});
+  app.on('second-instance',showWindow);
+  app.whenReady().then(()=>{
+    dataDir=loadDataDir();register();
+    if(process.platform==='win32'){
+      app.setAppUserModelId('io.github.try2love.codexmobilebridge');
+      tray=createTray({Tray,Menu,icon:path.join(__dirname,'assets/icon.ico'),show:showWindow,worker,
+        open:url=>shell.openExternal(url),copy:url=>clipboard.writeText(url),quit:()=>app.quit(),
+        onError:error=>{showWindow();dialog.showErrorBox('网关操作未完成',error.message);}});
+    }
+    createWindow();
+  });
+  app.on('before-quit',()=>{quitting=true;tray?.dispose();tray=null;});
+  app.on('activate',showWindow);
   // Closing the controller leaves the gateway running for the phone.
   app.on('window-all-closed',()=>app.quit());
 }
