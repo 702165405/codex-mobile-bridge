@@ -55,6 +55,49 @@ async function loadList(reset=false){
   $('host-errors').hidden=!(result.unavailableHosts||[]).length;renderList();
 }
 $('search').oninput=()=>{clearTimeout(loadList.timer);loadList.timer=setTimeout(()=>loadList(true).catch(e=>toast(e.message)),300);};$('refresh').onclick=()=>loadList(true).catch(e=>toast(e.message));$('archived').onchange=$('refresh').onclick;$('more').onclick=()=>loadList().catch(e=>toast(e.message));
+let newChatProjects=[],creatingChat=false;
+$('new-chat').onclick=async()=>{
+  $('new-chat-error').textContent='';$('new-chat-submit').disabled=true;
+  $('new-chat-project').replaceChildren();$('new-chat-path').textContent='正在读取电脑项目…';
+  $('new-chat-dialog').showModal();
+  try{
+    newChatProjects=(await api('/api/projects')).projects;
+    for(const project of newChatProjects)$('new-chat-project').append(new Option(project.name+' · '+project.hostLabel,project.key));
+    const selected=listRows.find(row=>row.id===currentId&&row.host===currentHost)?.projectKey;
+    if(newChatProjects.some(p=>p.key===selected))$('new-chat-project').value=selected;
+    $('new-chat-project').onchange();
+    if(!newChatProjects.length)$('new-chat-error').textContent='请先在电脑 Codex App 添加一个项目。';
+    $('new-chat-submit').disabled=!newChatProjects.length;
+  }catch(e){$('new-chat-error').textContent=e.message;$('new-chat-path').textContent='';}
+};
+$('new-chat-project').onchange=()=>{$('new-chat-path').textContent=newChatProjects.find(p=>p.key===$('new-chat-project').value)?.cwd||'';};
+$('new-chat-dialog').addEventListener('cancel',event=>{if(creatingChat)event.preventDefault();});
+$('new-chat-form').onsubmit=async event=>{
+  event.preventDefault();if(creatingChat)return;
+  const project=$('new-chat-project').value,title=$('new-chat-title').value.trim();
+  if(!project||!title){$('new-chat-error').textContent='请选择项目并填写聊天名称。';return;}
+  let attempt;
+  try{attempt=JSON.parse(sessionStorage.getItem('new-chat-attempt')||'null');}catch{}
+  if(!attempt||attempt.project!==project||attempt.title!==title)attempt={id:uuid(),project,title};
+  sessionStorage.setItem('new-chat-attempt',JSON.stringify(attempt));
+  creatingChat=true;$('new-chat-error').textContent='';$('new-chat-submit').textContent='正在创建…';
+  $('new-chat-form').querySelectorAll('input,select,button').forEach(n=>n.disabled=true);
+  document.querySelector('[data-close="new-chat-dialog"]').disabled=true;
+  try{
+    const result=await api('/api/sessions',attempt);
+    sessionStorage.removeItem('new-chat-attempt');$('new-chat-dialog').close();
+    $('search').value='';$('archived').checked=false;
+    loadList(true).catch(e=>toast(e.message));toast(result.message);
+    await openChat(result.id,result.host);
+  }catch(e){
+    if($('new-chat-dialog').open)$('new-chat-error').textContent=e.message+'；若结果不确定，请先刷新列表检查，避免重复创建。';
+    else toast('聊天已创建，连接暂未完成：'+e.message);
+  }finally{
+    creatingChat=false;$('new-chat-submit').textContent='创建并打开';
+    $('new-chat-form').querySelectorAll('input,select,button').forEach(n=>n.disabled=false);
+    document.querySelector('[data-close="new-chat-dialog"]').disabled=false;
+  }
+};
 function saveDraft(){if(currentId)sessionStorage.setItem('draft:'+chatKey(),$('message').value);}
 $('message').oninput=saveDraft;
 async function openChat(id,host="local"){saveDraft();chatTimeline?.dispose();currentId=id;currentHost=host;state=null;catalogData=null;notificationState={available:false,watching:false};$('notify-button').disabled=true;$('notify-button').textContent='提醒';try{selectedSkills=new Set(JSON.parse(sessionStorage.getItem('skills:'+chatKey(id,host))||'[]'));}catch{selectedSkills=new Set();}renderSkillPills();approvalStamp='';$('messages').replaceChildren();$('approvals').replaceChildren();$('queued').replaceChildren();$('message').value=sessionStorage.getItem('draft:'+chatKey(id,host))||'';$('send-error').textContent='';$('chat-title').textContent='正在连接…';$('chat-meta').textContent='';$('status').textContent='连接中';$('welcome').hidden=true;$('chat').hidden=false;$('app').classList.add('chat-open');$('send').disabled=true;history.replaceState(null,'','#'+id+'~'+encodeURIComponent(host));document.querySelectorAll('.session').forEach(n=>n.classList.toggle('selected',n.dataset.id===id&&n.dataset.host===host));chatTimeline=new ChatTimeline({url:action=>sessionUrl(id,action,host),request:api,renderMeta:renderState,renderText:(node,text,files)=>renderMarkdown(node,text,files,file=>sessionUrl(id,'files/'+file.id,host)),status:text=>{$('status').textContent=text;}});await chatTimeline.start();loadNotificationState(id,host);}

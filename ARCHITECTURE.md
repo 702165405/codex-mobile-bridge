@@ -2,15 +2,15 @@
 
 ## 目标与执行边界
 
-手机网页是 Codex App 现有聊天的控制界面。网关不拥有模型执行器，也不创建替代聊天。每次操作绑定 `hostId + conversationId + ownerClientId`，由 App 中相应 owner 执行。
+手机网页控制 Codex App 聊天，并可在已保存项目中新建空聊天。网关不拥有模型执行器，不替换已有聊天。已有聊天的操作绑定 `hostId + conversationId + ownerClientId`，由 App 中相应 owner 执行。
 
 默认继承已有会话的设置。只有用户显式选择模型时，才更新 `model` 和 `effort`；provider、认证和审批策略不随网关操作迁移。
 
 ## 会话发现
 
-本地通过只读 SQLite 连接读取 `$CODEX_HOME/state_*.sqlite`，筛选桌面聊天并排除子代理。尚无 IPC 快照时，可读取原始会话记录作为历史展示。不会写入原数据库或会话文件。
+本地通过只读 SQLite 连接读取 `$CODEX_HOME/state_*.sqlite`，筛选桌面聊天并排除子代理。尚无 IPC 快照时，可读取原始会话记录作为历史展示。发现与历史读取不直接写入原数据库或会话文件；用户新建聊天时由官方运行时持久化新记录。
 
-发现兼容 `Codex Desktop`、`codex_work_desktop`，以及 `originator` 为空且 `source=vscode` 的旧桌面记录。列表与单会话读取使用同样的来源和子代理限制。
+发现兼容 `Codex Desktop`、`codex_work_desktop`、网关创建来源 `codex_mobile_bridge`，以及 `originator` 为空且 `source=vscode` 的旧桌面记录。列表与单会话读取使用同样的来源和子代理限制。
 
 HTTP 阅读请求先返回，保存历史和实时连接在后台加载，通过原有 SSE/长轮询更新页面。每条会话只发起一个后台连接任务，失败后间隔重试，手动重新连接可跳过重试间隔。SSH/SQLite 元数据读取不占用会话总锁；写操作仍须确认原生 owner 已连接。只读超时与写入结果未知使用不同提示。
 
@@ -19,6 +19,16 @@ HTTP 阅读请求先返回，保存历史和实时连接在后台加载，通过
 SSH 参数包含非交互认证、严格主机指纹检查和禁用额外转发。远端模型/Skill 目录由远端 Codex 运行时读取，不复用 本机文件路径。
 
 本地与远端列表在合并后按最近交互时间排序、分页。项目优先采用显式归属，其次按最长工作目录前缀匹配。项目键带主机 ID，避免同名项目相互混淆。
+
+## 新建聊天
+
+登录后的 `GET /api/projects` 返回 App 已保存的本机及 SSH 项目；`POST /api/sessions` 接受项目键、名称和请求 UUID。服务端重新解析已保存项目，不接受客户端任意目录、主机、程序路径或配置覆盖。创建接口沿用 Host、Origin、登录和 CSRF 校验。
+
+`bridge/create.py` 使用所选主机的官方运行时完成 `initialize → thread/start → thread/name/set → thread/read(includeTurns=true)`，随后关闭 stdio 并等待进程退出。读取完整空历史是必需步骤：仅设置名称会留下目录元数据，却未必落盘可恢复的 rollout。整个辅助进程不调用 `turn/start`，不会发送模型任务。新线程使用该主机、工作目录的运行时默认配置；不克隆已有聊天的临时设置。
+
+创建结果按 UUID 写入网关自己的 `creations.json`，重试复用同一聊天；请求可能提交但结果未知时不自动重放。辅助进程退出后，通过 `codex://threads/<id>?hostId=...` 打开原桌面 App，桌面接管后才允许发送和审批。此步骤会切换桌面当前页面；打开失败保留已创建 ID。SSH 创建借助已有非交互 SSH 通道执行相同辅助代码，不在远端安装网关。
+
+新建入口与原生 IPC 均受 App/运行时版本影响。Mac 空聊天创建和实际 App 接管已验证；Windows 及 SSH 创建目前只有模拟路径检查，不能视为实机通过。
 
 ## 原生 IPC
 
@@ -84,6 +94,8 @@ Windows 自动发现用户目录中的 App 运行时、常见安装目录、MSIX
 | `bridge/store.py` / `remote.py` | 只读发现、SSH、项目与主机映射 |
 | `bridge/model.py` | 历史和请求的规范化 |
 | `bridge/catalog.py` | 模型与 Skill 元数据 |
+| `bridge/create.py` | 创建并持久化空聊天，退出辅助运行时，交给桌面接管 |
+| `deploy/nas/` | NAS HTTPS 反代教程及可选 Docker 入口 |
 | `bridge/auth.py` / `httpd.py` | 登录、同源校验、HTTP、SSE、轮询 |
 | `bridge/files.py` | 引用文件的范围校验与解析 |
 | `bridge/tunnel.py` | 临时 HTTPS 隧道生命周期 |

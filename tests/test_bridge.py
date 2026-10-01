@@ -169,18 +169,20 @@ class IntegrationTests(unittest.TestCase):
 
     def test_legacy_desktop_threads_visible_but_subagents_excluded(self):
         from bridge.store import SessionStore
-        legacy, untagged, child, cli = (str(uuid.uuid4()) for _ in range(4))
+        legacy, untagged, child, cli, mobile = (str(uuid.uuid4()) for _ in range(5))
         with closing(sqlite3.connect(str(self.root / 'state_5.sqlite'))) as db, db:
             for tid, origin, source in [(legacy, 'codex_work_desktop', 'vscode'),
                                         (untagged, None, 'vscode'),
                                         (child, 'codex_work_desktop', '{"subagent":{}}'),
-                                        (cli, 'codex_cli_rs', 'cli')]:
+                                        (cli, 'codex_cli_rs', 'cli'),
+                                        (mobile, 'codex_mobile_bridge', 'vscode')]:
                 db.execute('INSERT INTO threads VALUES(?,?,?,?,?,?,?,?)',
                            (tid, 'Saved chat', '/workspace', 2, 0, origin, source, 'unused'))
         store = SessionStore(self.root)
-        self.assertEqual({r['id'] for r in store.list()}, {THREAD, legacy, untagged})
+        self.assertEqual({r['id'] for r in store.list()}, {THREAD, legacy, untagged, mobile})
         self.assertEqual(store.get(legacy)['id'], legacy)
         self.assertEqual(store.get(untagged)['id'], untagged)
+        self.assertEqual(store.get(mobile)['id'], mobile)
         for tid in (child, cli):
             with self.assertRaises(KeyError):
                 store.get(tid)
@@ -500,6 +502,35 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         return {'Cookie': headers['Set-Cookie'].split(';')[0], 'X-CSRF-Token': body['csrf']}
+
+    def test_create_chat_requires_login_csrf_and_saved_project(self):
+        from types import SimpleNamespace
+        calls=[]
+        self.server.bridge.hosts=SimpleNamespace(projects=lambda:[{'key':'local|p','name':'Test'}])
+        self.server.bridge.create_chat=lambda *args: calls.append(args) or {'id':THREAD,'host':'local'}
+        body={'project':'local|p','title':'New chat','id':str(uuid.uuid4())}
+        self.assertEqual(self.request('GET','/api/projects')[0],401)
+        self.assertEqual(self.request('POST','/api/sessions',body)[0],401)
+        headers=self.login()
+        self.assertEqual(self.request('POST','/api/sessions',body,{'Cookie':headers['Cookie']})[0],403)
+        self.assertEqual(calls,[])
+        self.assertEqual(self.request('GET','/api/projects',headers=headers)[2]['projects'][0]['key'],'local|p')
+        status,_,result=self.request('POST','/api/sessions',body,headers)
+        self.assertEqual(status,200)
+        self.assertEqual(result['id'],THREAD)
+        self.assertEqual(calls,[(body['project'],body['title'],body['id'])])
+
+    def test_reverse_proxy_preserved_host_keeps_secure_login(self):
+        origin='https://codex.example.test:9443'
+        host='codex.example.test:9443'
+        self.server.origins.add(origin);self.server.hosts.add(host);self.server.secure_hosts.add(host)
+        headers={'Host':host,'Origin':origin}
+        status,response,body=self.request('POST','/api/login',{'username':'admin','password':'correct password test'},headers)
+        self.assertEqual(status,200)
+        self.assertIn('; Secure',response['Set-Cookie'])
+        headers['Cookie']=response['Set-Cookie'].split(';')[0]
+        self.assertEqual(self.request('GET','/api/sessions',headers=headers)[0],200)
+        self.assertEqual(self.request('GET','/api/sessions',headers={**headers,'Host':'unconfigured.example','X-Forwarded-Host':host})[0],403)
 
     def test_page_scripts_are_served_with_same_origin_csp(self):
         import re

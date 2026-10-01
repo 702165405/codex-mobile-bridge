@@ -19,6 +19,7 @@ from .auth import Auth
 from .ipc import IPCError
 from .catalog import CatalogError
 from .remote import RemoteUnavailable
+from .create import CreationError
 
 LOG = logging.getLogger(__name__)
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -211,6 +212,11 @@ class Handler(BaseHTTPRequestHandler):
             if not write and path == "/api/sessions":
                 rows = self.server.bridge.list(query=query.get("q", [""])[0][:200], offset=max(0, int(query.get("offset", [0])[0])), archived=query.get("archived", ["false"])[0] == "true")
                 return self.output(200, {"sessions": rows, "unavailableHosts": self.server.bridge.host_errors})
+            if not write and path == '/api/projects':
+                return self.output(200, {'projects': self.server.bridge.hosts.projects()})
+            if write and path == '/api/sessions':
+                body = self.read_json()
+                return self.output(200, self.server.bridge.create_chat(body.get('project'), body.get('title'), body.get('id')))
             bridge = self.server.bridge.for_host(query.get("host", ["local"])[0])
             file_match = re.fullmatch(r"/api/sessions/([0-9a-f-]{36})/files/([a-f0-9]{64})", path)
             if not write and file_match:
@@ -276,7 +282,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self.close_connection = True
             self.output(400, {"error": str(exc)})
-        except (IPCError, CatalogError, RemoteUnavailable) as exc:
+        except (IPCError, CatalogError, RemoteUnavailable, CreationError) as exc:
             self.close_connection = True
             self.output(409, {"error": str(exc), "code": "desktop_unavailable"})
         except (BrokenPipeError, ConnectionResetError, socket.timeout):

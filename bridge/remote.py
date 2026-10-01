@@ -103,6 +103,24 @@ class AppHosts:
         return {h['hostId']: h for h in state.get('codex-managed-remote-connections', [])
                 if h.get('hostId') in relevant and h.get('alias')}
 
+    def projects(self):
+        state = self.state()
+        rows = []
+        for project in state.get('local-projects', {}).values():
+            roots = project.get('rootPaths') or []
+            if roots:
+                rows.append({'key': 'local|' + project['id'], 'host': 'local', 'hostLabel': '此电脑',
+                             'name': project['name'], 'cwd': roots[0]})
+        hosts = self.hosts()
+        for project in state.get('remote-projects', []):
+            host = project['hostId']
+            if host in hosts and project.get('remotePath'):
+                rows.append({'key': host + '|' + project['id'], 'host': host,
+                             'hostLabel': hosts[host].get('displayName') or hosts[host]['alias'],
+                             'name': project.get('label') or project['remotePath'].rsplit('/', 1)[-1],
+                             'cwd': project['remotePath']})
+        return rows
+
     def decorate(self, rows, host, label):
         state = self.state()
         if host == 'local':

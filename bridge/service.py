@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import re
+import subprocess
 import threading
 import time
 import uuid
@@ -15,7 +16,8 @@ from .model import apply_patches, normalize_state, normalize_request, ordered_tu
 from .store import SessionStore
 from .files import artifact_paths
 from .catalog import Catalog
-from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable
+from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh_read, payload
+from .create import create_empty, open_in_desktop, CreationError
 from .timeline import Timeline
 
 
@@ -70,11 +72,66 @@ class Bridge:
         Path(data_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
         self.ledger_path = Path(data_dir) / "submissions.json"
         self.submit_lock = threading.Lock()
+        self.create_lock = threading.Lock()
+        self.creations_path = self.data_dir / 'creations.json'
+        self.creations = json.loads(self.creations_path.read_text(encoding='utf-8')) if self.creations_path.exists() else {}
         self.submissions = json.loads(self.ledger_path.read_text(encoding='utf-8')) if self.ledger_path.exists() else {}
         for key, value in self.submissions.items():
             if value.get("status") == "queued":
                 self.live.setdefault(key.split(":")[0], LiveSession(key.split(":")[0]))
         threading.Thread(target=self._maintain, daemon=True).start()
+
+    def _save_creations(self):
+        target = self.creations_path.with_suffix('.tmp')
+        target.write_text(json.dumps(self.creations, ensure_ascii=False), encoding='utf-8')
+        target.chmod(0o600)
+        target.replace(self.creations_path)
+
+    def create_chat(self, project_key, title, request_id):
+        if not isinstance(request_id, str):
+            raise ValueError('创建请求标识无效')
+        uuid.UUID(request_id)
+        if not isinstance(title, str) or not title.strip() or len(title) > 120:
+            raise ValueError('请输入 1–120 字的聊天名称')
+        project = next((p for p in self.hosts.projects() if p['key'] == project_key), None)
+        if project is None:
+            raise ValueError('请选择电脑 App 中已保存的项目')
+        title = title.strip()
+        with self.create_lock:
+            entry = self.creations.get(request_id)
+            if entry:
+                if entry['project'] != project_key or entry['title'] != title:
+                    raise ValueError('同一创建请求不能用于不同内容')
+                if not entry.get('id'):
+                    raise CreationError('上次创建结果尚不确定，请先刷新聊天列表并检查电脑 App，避免重复创建')
+            else:
+                self.ipc.connect()
+                entry = {'project': project_key, 'title': title, 'host': project['host'], 'at': time.time()}
+                self.creations[request_id] = entry
+                self._save_creations()
+                if project['host'] == 'local':
+                    thread_id = create_empty(self.catalog_reader.executable, self.codex_home, project['cwd'], title)
+                else:
+                    host = self.hosts.hosts()[project['host']]
+                    source = Path(__file__).with_name('create.py').read_text(encoding='utf-8')
+                    source += '\nimport shutil\nhome=Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex")))\n'
+                    source += 'runtime=shutil.which("codex") or str(Path.home()/".local/bin/codex")\n'
+                    source += 'print(json.dumps({"id":create_empty(runtime, home, **' + payload({'cwd': project['cwd'], 'title': title}) + ')}))\n'
+                    thread_id = ssh_read(host['alias'], source, timeout=90)['id']
+                uuid.UUID(thread_id)
+                entry['id'] = thread_id
+                self._save_creations()
+            bridge = self.for_host(entry['host'])
+            if isinstance(bridge.store, RemoteStore):
+                with bridge.store.lock:
+                    bridge.store.cache.clear()
+            try:
+                open_in_desktop(entry['id'], entry['host'])
+                opened = True
+            except (OSError, CreationError, subprocess.SubprocessError):
+                opened = False
+            return {'id': entry['id'], 'host': entry['host'], 'opened': opened,
+                    'message': '已创建，正在连接桌面 App' if opened else '聊天已创建，请在电脑 App 打开后重新连接'}
 
     def for_host(self, host):
         if host == self.host:
