@@ -10,23 +10,32 @@ The phone and desktop use the same chat. Read replies, send messages, choose mod
 
 > Community project, not affiliated with OpenAI. Supports macOS and Windows and depends on internal Codex App IPC. See [verification records](VERIFICATION.md) for what was actually tested. App updates may require compatibility changes.
 
-## One prompt for a deployment Agent
+## Download and quick start (recommended)
 
-Copy this to an Agent on the computer:
+Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v0.2.0-beta.1 (prerelease)**.
 
-```text
-Deploy and run https://github.com/try2love/codex-mobile-bridge for me. Identify whether this computer runs Windows or macOS, read the repository's deployment Agent instructions, and complete installation, startup and verification for that platform. Reuse existing Codex App chats and their model authentication. Keep username/password authentication and LAN access enabled by default. For external access, reuse an existing NAS/HTTPS reverse proxy when available; with an owned server and domain, use an SSH return tunnel and fixed HTTPS; otherwise configure a temporary HTTPS tunnel. Connection methods may run together. Preserve any existing LAN port. Verify chat reading, live updates and the available interaction paths. Keep the service running, then return clickable phone URLs, how to obtain login credentials, start/stop commands, verified results and any steps I still need to complete.
-```
+| Platform | Download | Open |
+| --- | --- | --- |
+| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/Codex-Mobile-Bridge-0.2.0-beta.1-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
+| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/Codex-Mobile-Bridge-0.2.0-beta.1-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
+| macOS Apple Silicon (M series) | [Download arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/Codex-Mobile-Bridge-0.2.0-beta.1-macOS-arm64.zip) | Extract, move the `.app` to Applications, and open it |
 
-See [Deployment Agent instructions](#deployment-agent-instructions) below for the full handoff requirements.
+[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/SHA256SUMS.txt). There are currently no Intel Mac or Windows ARM packages. Builds are unsigned and not notarized, so your OS may display an unverified-source warning.
 
-## Desktop App and ntfy — experimental branch
+1. Open the original **Codex App** on the computer, then open **Codex Mobile Bridge**.
+2. Keep LAN access enabled under **Network and login**, save, and click **Start gateway**. Preserve the existing port if you already have a configuration.
+3. Connect the phone to the same LAN. Expand **Scan to sign in** below its address in the App and scan with the phone camera to sign in without typing a password. Alternatively, open the address manually and use the login credentials provided by the App.
+4. Select an existing chat or create a new one in the phone browser. Keep the computer awake with Codex App and the gateway running.
 
-The cross-platform integration branch, **`integration/desktop-cross-platform`**, combines the desktop and mobile features from `feature/desktop-ntfy` with the Windows installer, tray and compatibility changes from `codex/windows-desktop-app`. The desktop launcher manages the gateway; the original Codex App still owns execution and model authentication.
+For access outside your LAN, add temporary HTTPS, an own-server connection or a NAS connection in the App. Temporary HTTPS requires a separately installed `cloudflared`; fixed domains and NAS access need initial server or reverse-proxy setup. See [Parallel connections](#parallel-connections). For source deployment, custom networking or help from an Agent, see the optional [Deployment Agent instructions](#deployment-agent-instructions).
+
+## Desktop App guide
+
+`main` includes the integrated macOS and Windows version. Use a Release package above for everyday use. The desktop launcher manages the gateway; the original Codex App still owns execution and model authentication.
 
 ### Install and use the App
 
-Download **`v0.2.0-beta.1` prerelease** from [GitHub Releases](https://github.com/try2love/codex-mobile-bridge/releases): Windows x64 Setup / full ZIP, or macOS Apple Silicon (arm64) ZIP. `SHA256SUMS.txt` contains download checksums. Development artifacts are also available from successful **GitHub Actions → Desktop builds** runs, or build locally. On Mac, extract and open the `.app`. Windows x64 provides a per-user `Setup.exe` installer and a ZIP; extract the entire ZIP before running `Codex Mobile Bridge.exe`. Do not move only the executable. The packaged App includes the Python gateway runtime; Python, Node.js and a terminal are not required for everyday use. Builds are currently unsigned and are not notarized.
+Download links are in the quick start above. Development artifacts are available from successful **GitHub Actions → Desktop builds** runs, or you can build locally as described below.
 
 On Windows, closing the window hides it to the tray; launching again restores it. The tray offers separate actions to stop the gateway and quit, or quit only the controller. Stop the gateway and exit before upgrading or moving the app. Select Chinese or English at the top right; existing Windows language preferences are retained, and tray labels follow the selection. Phone language is independent. Uninstalling does not automatically remove gateway settings or credentials.
 
@@ -138,19 +147,22 @@ Large history pages also have a byte budget, so a large reply may require multip
 ## Requirements
 
 - macOS or Windows 10/11 with the original Codex App running.
+- Release packages include the gateway runtime; no Python or Node.js installation is needed.
 - For command-line deployment: native Python 3.9+. The gateway uses only the Python standard library; no WSL or pip dependencies are needed.
+- Desktop App development and packaging additionally require Node.js and the build dependencies below.
 - Keep the computer awake, network reachable and gateway running.
 - For SSH chats: the host is configured in the App, the SSH alias works non-interactively, and remote Python 3 is available. Model/Skill discovery also needs the remote Codex runtime. On Windows, OpenSSH `ssh.exe` must be on PATH.
 - Optional temporary tunnel: an installed `cloudflared` executable.
 
-## Quick start: LAN
+## Command-line LAN setup (advanced)
+
+Skip this section if you downloaded the desktop App. These commands are for running the gateway from source.
 
 ### Windows PowerShell
 
 ```powershell
 git clone https://github.com/try2love/codex-mobile-bridge.git
 cd codex-mobile-bridge
-git switch feature/desktop-ntfy
 py -3 -B .\run.py --lan
 ```
 
@@ -171,7 +183,6 @@ If Windows Firewall prompts, allow only the network scope you need. Files use UT
 ```sh
 git clone https://github.com/try2love/codex-mobile-bridge.git
 cd codex-mobile-bridge
-git switch feature/desktop-ntfy
 python3 -B "$PWD/run.py" --lan
 ```
 
@@ -236,6 +247,12 @@ The local desktop management interface uses guarded Electron IPC and a private s
 
 ## Deployment Agent instructions
 
+An Agent is optional for everyday App use. For source deployment, custom network setup or troubleshooting, copy this to an Agent on the computer:
+
+```text
+Deploy and run https://github.com/try2love/codex-mobile-bridge for me. Identify whether this computer runs Windows or macOS and read the repository's deployment Agent instructions. Prefer a published desktop App or reuse an existing installation; configure, start and verify it for my needs. Reuse existing Codex App chats and their model authentication. Keep username/password authentication and LAN access enabled by default, preserving any existing LAN port. For external access, reuse an existing NAS/HTTPS reverse proxy when available; with an owned server and domain, use an SSH return tunnel and fixed HTTPS; otherwise configure a temporary HTTPS tunnel. Connection methods may run together. Verify chat reading, live updates and the available interaction paths. Keep the service running, then return clickable phone URLs, how to obtain login credentials, App start/stop actions or commands, verified results and any steps I still need to complete.
+```
+
 ### 1. Inspect the environment
 
 Read the README and verification records. Identify the OS, project version/branch, running Codex App, current gateway/config directory and protected LAN port. Preserve existing chat owners, model authentication, providers, permission policies and SSH credentials. Reuse an existing gateway rather than starting duplicates.
@@ -292,8 +309,10 @@ Do not include actual passwords, tokens or API keys in public issues, commits, s
 
 ## Development and packaging
 
+This section requires Node.js and Python on the target OS. Release users do not need these tools.
+
 ```sh
-git switch feature/desktop-ntfy
+git switch main
 npm ci
 npm run desktop
 ```
@@ -306,7 +325,7 @@ python scripts/build-desktop.py
 npm run pack:desktop
 ```
 
-On Windows, `npm run build:windows` produces a portable executable. Development can use `CMB_DATA_DIR` for isolated gateway data and `CMB_PYTHON` for the Python executable. Packaged builds use their bundled runtime.
+On Windows, `npm run build:windows` produces a Setup installer and a full ZIP under `dist/desktop/`. Development can use `CMB_DATA_DIR` for isolated gateway data and `CMB_PYTHON` for the Python executable. Packaged builds use their bundled runtime.
 
 ```sh
 python -B -m unittest discover -s tests -v

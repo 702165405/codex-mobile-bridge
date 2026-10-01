@@ -10,23 +10,32 @@
 
 > 社区项目，与 OpenAI 无隶属关系。支持 macOS 和 Windows，依赖 Codex App 的内部 IPC；各平台的实测范围见 [验证记录](VERIFICATION.md)。App 更新后可能需要适配。
 
-## 一句话让 Agent 部署
+## 下载与快速开始（推荐）
 
-将下面这段话直接复制给电脑上的 Agent：
+日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v0.2.0-beta.1 预发布版**。
 
-```text
-请帮我部署并运行 https://github.com/try2love/codex-mobile-bridge ：先识别当前电脑是 Windows 还是 macOS，阅读仓库 README 中的“给部署 Agent 的执行说明”，按对应平台完成安装、启动和验收；复用现有 Codex App 会话及模型认证，默认启用账号密码和局域网访问，若我需要外网访问，优先复用已有 NAS/HTTPS 反向代理，有自有服务器和域名时可配置 SSH 回程与固定 HTTPS，没有现成入口再配置临时 HTTPS 隧道；验证聊天读取、实时同步和可用的操作链路，保持服务运行，最后给我可点击的手机访问地址、登录凭据获取方式、启停命令、验证结果及仍需我完成的步骤。
-```
+| 系统 | 下载 | 打开方式 |
+| --- | --- | --- |
+| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/Codex-Mobile-Bridge-0.2.0-beta.1-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
+| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/Codex-Mobile-Bridge-0.2.0-beta.1-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
+| macOS Apple Silicon（M 系列） | [下载 arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/Codex-Mobile-Bridge-0.2.0-beta.1-macOS-arm64.zip) | 解压，将 `.app` 放入“应用程序”后打开 |
 
-详细流程及交付模板见[部署 Agent 执行说明](#agent-deployment)。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/SHA256SUMS.txt)。当前未提供 Intel Mac 或 Windows ARM 专用安装包。构建尚未签名或公证，系统可能提示来源未验证。
 
-## 桌面 App 与 ntfy（实验分支）
+1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
+2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
+3. 手机连接同一局域网，在 App 首页展开对应地址下的 **扫码登录**，用手机相机扫描即可进入，无需输入密码。也可以手动打开地址，使用 App 提供的登录凭据。
+4. 在手机网页选择已有聊天或新建聊天，即可继续交互。使用期间保持电脑唤醒、Codex App 和网关运行。
 
-本节对应双端整合分支 `integration/desktop-cross-platform`，包含 `feature/desktop-ntfy` 的桌面/手机功能及 `codex/windows-desktop-app` 的 Windows 安装包、托盘和兼容改动。桌面 App 是网关的启动与配置界面，继续连接原来的 Codex App，不替代 Codex 的执行或模型认证。
+需要外网访问时，可在 App 添加临时 HTTPS、自有服务器或 NAS 连接。临时 HTTPS 需要自行准备 `cloudflared`；固定域名和 NAS 需要首次配置服务器或反向代理，详见[连接方式说明](#connections)。源码运行、自定义部署或需要 Agent 协助时，使用后面的[部署 Agent 执行说明](#agent-deployment)。
+
+## 桌面 App 使用说明
+
+`main` 已包含 macOS 与 Windows 的整合版本；直接使用上方 Release 安装包即可。桌面 App 是网关的启动与配置界面，继续连接原来的 Codex App，任务执行和模型认证仍由原 Codex App 管理。
 
 ### 使用桌面 App
 
-推荐从 [GitHub Releases](https://github.com/try2love/codex-mobile-bridge/releases) 下载 **`v0.2.0-beta.1` 预发布版**：Windows x64 安装包 / 完整 ZIP、macOS Apple Silicon（arm64）ZIP。选择对应平台的文件，`SHA256SUMS.txt` 用于核对下载摘要。开发构建也可从 GitHub Actions → **Desktop builds** 获取，或按下文在本机构建。Mac 解压 `.app` 后打开；Windows x64 提供 `Windows-x64-Setup.exe` 安装包和 `Windows-x64.zip` 解压版。安装包按当前用户安装并创建快捷方式；解压版须完整解压后运行其中的 `Codex Mobile Bridge.exe`，不能只移动单个 exe。打包产物内置 Python 网关运行时，日常使用无需安装 Python、Node.js 或打开终端。当前为未签名实验构建，系统可能提示来源未验证；正式签名发行尚未接入。
+下载方式见上方快速开始。开发构建可从 GitHub Actions → **Desktop builds** 获取，也可按下文在本机构建。
 
 打开后可设置：
 
@@ -56,6 +65,8 @@ cloudflared 仍为可选的外部程序，App 不自动下载或安装。需要�
 4. 二维码 **5 分钟内有效、仅可使用一次**。收起、刷新会撤销旧码；网关重启后全部失效。过期或已使用会显示状态，可点击“刷新二维码”。已经登录的浏览器会话仍可使用 12 小时，退出或重启网关后需重新登录。
 
 二维码相当于短期登录凭据，请勿分享截图。它不包含账号密码，不会关闭普通地址的密码保护；手动打开普通地址仍按原认证方式登录。图片在本机生成，不发送到在线二维码服务。扫码不会建立网络通道：LAN 要求手机可访问电脑网络，外网需要可达的 HTTPS 入口。相机扫码、真实手机浏览器和蜂窝网络仍需在自己的设备上验收。
+
+<a id="connections"></a>
 
 ### 固定域名、自有服务器和 NAS / Docker
 
@@ -103,7 +114,7 @@ NAS 方案：Docker 只部署 HTTP 入口，原电脑仍需保持唤醒并运行
 开发环境需要 Node.js 与 Python；只有构建时需要 Electron、electron-builder 和 PyInstaller。Windows 与 Mac 应分别在目标系统上构建。
 
 ```bash
-git switch integration/desktop-cross-platform
+git switch main
 npm ci
 npm run desktop
 ```
@@ -153,12 +164,15 @@ App 设置界面通过本机进程通信管理网关，管理接口不对局域�
 ## 运行要求
 
 - macOS 或 Windows 10/11，已安装并运行 Codex App。
-- Python 3.9 或更高版本；网关本身只使用 Python 标准库，无需 `pip install` 或前端构建。
-- 电脑保持唤醒、联网，网关进程保持运行。Windows 使用原生 CPython 3.9+，无需 WSL。
+- 使用发布的桌面 App 时无需安装 Python 或 Node.js，网关运行时已内置。
+- 仅从源码或命令行运行时需要 Python 3.9+；网关本身只使用 Python 标准库，无需 `pip install` 或前端构建。Windows 使用原生 CPython，无需 WSL。桌面 App 的开发与打包另需 Node.js 及构建依赖。
+- 电脑保持唤醒、联网，网关进程保持运行。
 - 使用 SSH 聊天时：App 中已配置该主机，电脑上相应 SSH 别名可非交互连接，远端有 Python 3。Windows 需要 PATH 中可用的 OpenSSH `ssh.exe`。模型/Skill 目录还需要远端可用的 Codex 运行时。
 - 外网临时隧道可选依赖：`cloudflared`，需要自行安装；仓库不包含该程序。
 
-## 快速开始：局域网
+## 命令行启动：局域网（进阶）
+
+已下载桌面 App 的用户无需执行本节命令。以下适用于希望从源码启动网关的用户。
 
 ### Windows
 
@@ -391,11 +405,13 @@ flowchart TD
 
 ## 给部署 Agent 的执行说明
 
+桌面 App 的日常使用无需 Agent。需要源码部署、自定义网络入口或协助排错时，可将下面这段话直接复制给电脑上的 Agent：
+
+```text
+请帮我部署并运行 https://github.com/try2love/codex-mobile-bridge ：先识别当前电脑是 Windows 还是 macOS，阅读仓库 README 中的“给部署 Agent 的执行说明”，优先使用已发布的桌面 App 或复用现有安装，按我的需求完成配置、启动和验收；复用现有 Codex App 会话及模型认证，默认启用账号密码和局域网访问，保持已有局域网端口。若我需要外网访问，优先复用已有 NAS/HTTPS 反向代理，有自有服务器和域名时可配置 SSH 回程与固定 HTTPS，没有现成入口再配置临时 HTTPS 隧道；验证聊天读取、实时同步和可用的操作链路，保持服务运行，最后给我可点击的手机访问地址、登录凭据获取方式、App 启停操作或命令、验证结果及仍需我完成的步骤。
+```
+
 本节面向替用户部署本项目的 Agent。交付目标是：**用户拿到可用的手机访问地址和登录方式，打开原 Codex App 的同一条会话，消息仍由原 电脑 或 SSH 服务器执行，并能收到结果与待确认请求。** 用户只要求其中一部分时，按其范围部署；已有选择和授权可以复用。
-
-用户可以直接把下面这段话和仓库地址交给 Agent：
-
-> 请按 README 的“给部署 Agent 的执行说明”，在运行我 Codex App 的 电脑 上部署手机网关。复用已有聊天、模型认证和 SSH 连接，默认使用账号密码。根据我已说明的联网需求配置访问入口，完成当前环境的验收，保持网关可继续使用，最后给我访问链接、登录方式、启停方法、验证结果及仍需我完成的步骤。
 
 ### 1. 确定目标环境与访问方式
 
@@ -405,7 +421,7 @@ flowchart TD
 | --- | --- |
 | 部署主机 | 在运行 Codex App 的 电脑 上部署网关；SSH 服务器保留原有 Codex 执行环境 |
 | 安装目录 | 使用用户指定目录；已有仓库先检查版本与本地修改，保留 `.local/` 内的账号、去重和队列记录 |
-| 系统与运行时 | 检查 macOS/Windows、Python 3.9+、App 是否运行，以及 App 内置 Codex 运行时版本；不要因版本不同就宣称兼容 |
+| 系统与运行时 | 检查 macOS/Windows、App 是否运行，以及 App 内置 Codex 运行时版本；仅源码运行时检查 Python 3.9+，不要给安装包用户额外安装 Python；不要因版本不同就宣称兼容 |
 | 数据目录 | 按实际 `--codex-home`、`CODEX_HOME` 或默认 `~/.codex` 定位；检查会话数据库和 macOS 的 `ipc/ipc.sock` 或 Windows 的 `\\.\pipe\codex-ipc`，保留已有认证配置 |
 | 端口与进程 | 检查计划使用的端口及本项目 `gateway.pid`；已有可用服务优先复用，停止或重启前核对进程归属 |
 | 登录 | 默认账号密码；仅在用户明确选择免密时启用 `--no-auth`；不要求用户提供模型 API key |
@@ -419,11 +435,13 @@ flowchart TD
 
 ### 2. 准备并启动服务
 
-1. 按本 README 的快速开始准备仓库。在仓库根目录运行自动测试；测试不需要真实模型账号。受限工具环境若禁止临时 TCP、Unix socket 或 Windows 命名管道，应按该环境的权限流程处理并如实记录。
+1. 优先使用已发布的桌面 App，按快速开始配置并启动。只有源码部署才需要准备仓库并在仓库根目录运行自动测试；测试不需要真实模型账号。受限工具环境若禁止临时 TCP、Unix socket 或 Windows 命名管道，应按该环境的权限流程处理并如实记录。
 2. 只有选择隧道时才准备 `cloudflared`。复用已有可执行文件，核对路径；缺少时按用户授权使用官方安装来源。
-3. 按上文选择 **一套** 启动参数：局域网 `--lan`；临时外网 `--lan --tunnel --cloudflared <实际路径>`；自有入口 `--origin <实际 HTTPS 源>`。需要同时保留局域网入口时再加 `--lan`。
-4. 使用 `run.py` 的绝对路径启动，让 `stop.py` 可以验证进程。默认使用项目内 `.local/` 配置；换端口时统一更新检查命令和交付地址。
+3. App 用户在“网络与登录”添加并启用所需连接，可同时保留局域网、临时隧道和固定入口。命令行用户组合所需参数：局域网 `--lan`；临时外网追加 `--tunnel --cloudflared <实际路径>`；已有自有入口追加 `--origin <实际 HTTPS 源>`。
+4. 沿用已有数据目录与端口。源码启动时使用 `run.py` 的绝对路径，让 `stop.py` 可以验证进程，默认使用项目内 `.local/` 配置；用户要求换端口时统一更新检查命令和交付地址。
 5. 为用户保留可以持续运行的进程，并记录启动方式、PID、日志和停止方式。
+
+以下终端方式仅用于源码部署，App 用户直接使用界面启停。
 
 **前台方式：** 在用户可以保留的终端中执行前面的启动命令。交付时说明该终端需要保持运行，以及如何用 `Ctrl+C` 停止。
 
