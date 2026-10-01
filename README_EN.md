@@ -20,15 +20,15 @@ The phone and desktop use the same chat. Read replies, send messages, choose mod
 
 ## Download and quick start (recommended)
 
-Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v0.2.0-beta.1 (prerelease)**.
+Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v0.2.0-beta.2 (prerelease)**.
 
 | Platform | Download | Open |
 | --- | --- | --- |
-| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/Codex-Mobile-Bridge-0.2.0-beta.1-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
-| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/Codex-Mobile-Bridge-0.2.0-beta.1-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
-| macOS Apple Silicon (M series) | [Download arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/Codex-Mobile-Bridge-0.2.0-beta.1-macOS-arm64.zip) | Extract, move the `.app` to Applications, and open it |
+| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/Codex-Mobile-Bridge-0.2.0-beta.2-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
+| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/Codex-Mobile-Bridge-0.2.0-beta.2-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
+| macOS Apple Silicon (M series) | [Download arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/Codex-Mobile-Bridge-0.2.0-beta.2-macOS-arm64.zip) | Extract, move the `.app` to Applications, and open it |
 
-[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.1/SHA256SUMS.txt). There are currently no Intel Mac or Windows ARM packages. Builds are unsigned and not notarized, so your OS may display an unverified-source warning.
+[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/SHA256SUMS.txt). There are currently no Intel Mac or Windows ARM packages. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
 
 1. Open the original **Codex App** on the computer, then open **Codex Mobile Bridge**.
 2. Keep LAN access enabled under **Network and login**, save, and click **Start gateway**. Preserve the existing port if you already have a configuration.
@@ -36,6 +36,27 @@ Download the desktop App for everyday use. **No deployment Agent, Python, Node.j
 4. Select an existing chat or create a new one in the phone browser. Keep the computer awake with Codex App and the gateway running.
 
 For access outside your LAN, add temporary HTTPS, an own-server connection or a NAS connection in the App. Temporary HTTPS requires a separately installed `cloudflared`; fixed domains and NAS access need initial server or reverse-proxy setup. See [Parallel connections](#parallel-connections). For source deployment, custom networking or help from an Agent, see the optional [Deployment Agent instructions](#deployment-agent-instructions).
+
+### First launch on macOS: “damaged” or unidentified developer
+
+The Mac build has an **ad-hoc integrity signature**, but **no Apple Developer ID signature or notarization**. macOS can still block the first launch. The older `v0.2.0-beta.1` also has a bundle-signing defect; use `v0.2.0-beta.2` or later.
+
+1. Download the ZIP and `SHA256SUMS.txt` from this repository's Release. Calculate the ZIP hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app.
+
+   ```sh
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.2-macOS-arm64.zip"
+   ```
+
+2. Extract and move `Codex Mobile Bridge.app` to Applications. Try opening it, then go to **System Settings → Privacy & Security → Open Anyway** and confirm.
+3. If Open Anyway is unavailable, or macOS still reports the app as damaged, only after verifying the source and hash, remove the download quarantine attribute from this specific app and open it again:
+
+   ```sh
+   xattr -dr com.apple.quarantine "/Applications/Codex Mobile Bridge.app"
+   ```
+
+   Substitute the actual path if installed elsewhere. This does not confer Apple trust or notarization. Do not disable Gatekeeper, SIP or global security checks.
+
+An ad-hoc signature checks bundle integrity; it does not identify the publisher or mean Apple has checked the app. Only allow downloads you trust. See [Apple: Safely open apps on your Mac](https://support.apple.com/102445).
 
 ## Desktop App guide
 

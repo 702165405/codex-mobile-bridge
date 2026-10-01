@@ -1,6 +1,6 @@
 {
   "name": "codex-mobile-bridge-desktop",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "description": "Codex App 手机网关桌面启动器",
   "author": "try2love",
   "license": "MIT",
@@ -42,7 +42,7 @@
     "mac": {
       "icon": "desktop/assets/icon.png",
       "category": "public.app-category.developer-tools",
-      "identity": null,
+      "identity": "-",
       "artifactName": "Codex-Mobile-Bridge-${version}-macOS-${arch}.${ext}"
     },
     "win": {

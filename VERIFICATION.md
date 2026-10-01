@@ -1,5 +1,13 @@
 # 验证记录
 
+## macOS 下载包签名修复（2026-10-01）
+
+- 用户下载的 `v0.2.0-beta.1` Mac ZIP 与 GitHub Release SHA-256 完全一致，ZIP 内部 CRC 全部通过；重新解压后 `codesign --verify --deep --strict` 和 `spctl --assess` 均报告 `code has no resources but signature indicates they must be present`。确认是发布包签名问题，不是下载传输损坏。
+- 原构建显式设置 `mac.identity: null`，跳过最终包签名；改为 `"-"` 生成 ad-hoc 完整性签名。它不提供 Developer ID 身份信任或 Apple 公证，浏览器下载后的首次打开仍可能需要用户手动允许。
+- 新增 `scripts/verify-macos.py`，对实际 ZIP 重新解压并检查包、嵌套代码和内置运行时。旧 Release 稳定失败，本地 `beta.2` 构建通过。
+- 新增 `scripts/smoke-macos.cjs`，实际启动打包 App，验证渲染器与内置 worker 初始化、隔离数据目录、Node 隔离以及网关保持停止。本地检查通过；没有连接真实聊天、启动正式网关或发送通知。两个检查均加入 macOS CI。
+- 18 项 Node 桌面测试通过。新版包包含统一的手机与编程符号图标；README、英文说明与介绍页增加首次打开步骤。Windows 安装和运行的既有验证继续由 Windows CI 执行。
+
 ## 可折叠扫码登录与预发布版（2026-10-01）
 
 - 在整合分支实现每个入口独立的可折叠扫码区域：展开生成、刷新替换、收起撤销、5 分钟过期、单次使用、源绑定、重启失效；手动密码登录与 12 小时网页登录保持原规则。签发仅由本机控制通道提供。
