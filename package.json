@@ -9,6 +9,7 @@
   "scripts": {
     "desktop": "electron .",
     "test:desktop": "node --test tests/desktop.test.cjs",
+    "test:windows-app": "node scripts/smoke-windows.cjs",
     "icons:desktop": "electron scripts/build-icons.cjs",
     "pack:desktop": "electron-builder --dir --publish never",
     "build:windows": "electron-builder --win nsis zip --x64 --publish never"
