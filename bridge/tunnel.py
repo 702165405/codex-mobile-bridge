@@ -18,8 +18,12 @@ class QuickTunnel:
         self.ready = threading.Event()
         self.finished = threading.Event()
         self.failure = None
+        self.closed = threading.Event()
+        self.lifecycle_lock = threading.Lock()
 
     def start(self):
+        if self.closed.is_set():
+            raise RuntimeError("隧道已停止")
         if not self.executable.is_file():
             raise RuntimeError("缺少 cloudflared，请查看 README 的外网访问配置")
         config = self.data_dir / 'cloudflared.yml'
@@ -28,13 +32,16 @@ class QuickTunnel:
         args = [str(self.executable), 'tunnel', '--config', str(config), '--no-autoupdate',
                 '--url', 'http://127.0.0.1:' + str(self.port), '--protocol', 'http2',
                 '--metrics', '127.0.0.1:0', '--grace-period', '2s']
-        self.process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                        stderr=subprocess.STDOUT, text=True, encoding='utf-8', start_new_session=True)
-        threading.Thread(target=self._read, daemon=True).start()
+        with self.lifecycle_lock:
+            if self.closed.is_set():
+                raise RuntimeError("隧道已停止")
+            self.process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT, text=True, encoding='utf-8', start_new_session=True)
+            threading.Thread(target=self._read, daemon=True).start()
         for _ in range(60):
             if self.ready.wait(1):
                 return self.url
-            if self.finished.is_set():
+            if self.finished.is_set() or self.closed.is_set():
                 break
         self.close()
         raise RuntimeError("外网隧道未连接，请查看 .local/tunnel.log（校园网需允许向外连接 TCP 7844）")
@@ -46,23 +53,29 @@ class QuickTunnel:
                     log.write(line)
                     log.flush()
                     match = self.URL.search(line)
-                    if match and not self.url:
-                        self.url = match[0]
-                        self.on_origin(self.url)
-                    if 'Registered tunnel connection' in line and self.url:
-                        (self.data_dir / '外网地址.txt').write_text(self.url + '\n\n账号和密码与局域网网关相同。重启隧道后地址会变化。\n', encoding='utf-8')
-                        self.ready.set()
+                    with self.lifecycle_lock:
+                        if self.closed.is_set():
+                            break
+                        if match and not self.url:
+                            self.url = match[0]
+                            self.on_origin(self.url)
+                        if 'Registered tunnel connection' in line and self.url:
+                            (self.data_dir / '外网地址.txt').write_text(self.url + '\n\n账号和密码与局域网网关相同。重启隧道后地址会变化。\n', encoding='utf-8')
+                            self.ready.set()
         finally:
             self.finished.set()
 
     def close(self):
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
-        path = self.data_dir / '外网地址.txt'
-        if path.exists() and self.url and path.read_text(encoding='utf-8').startswith(self.url):
-            path.unlink()
+        # Mark closed before waiting for a concurrent spawn to finish.
+        self.closed.set()
+        with self.lifecycle_lock:
+            if self.process and self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
+            path = self.data_dir / '外网地址.txt'
+            if path.exists() and self.url and path.read_text(encoding='utf-8').startswith(self.url):
+                path.unlink()

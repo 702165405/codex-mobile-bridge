@@ -24,6 +24,7 @@ from .create import CreationError
 
 LOG = logging.getLogger(__name__)
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
+          "/i18n.js": ("i18n.js", "text/javascript; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"),
           "/markdown.js": ("markdown.js", "text/javascript; charset=utf-8"),
           "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),

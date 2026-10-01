@@ -11,6 +11,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -50,7 +51,7 @@ def save_config(path, config):
     temp.replace(path)
 
 
-def main():
+def main(connections=None):
     # Redirected Windows streams may use a codec that cannot encode Chinese.
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8', errors='backslashreplace')
@@ -76,8 +77,6 @@ def main():
     if args.ssh_target:
         from bridge.access import validate
         validate({'sshTarget': args.ssh_target, 'sshRemotePort': args.ssh_remote_port})
-        if args.tunnel:
-            parser.error('SSH 与临时 Cloudflare 入口请选择一种')
     os.umask(0o077)
     args.config.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     first_login = args.config.parent / "首次登录.txt"
@@ -102,7 +101,14 @@ def main():
         parser.error("auth.mode 只能为 password 或 none")
     if args.no_auth:
         config["auth"]["mode"] = "none"
-    origins = config.get("origins", []) + args.origin
+    from bridge.access import validate_connections, public_urls, public_url
+    preferences = {'connections': config.get('connections', []) if connections is None else connections,
+                   'lan': args.lan, 'port': args.port}
+    entries = validate_connections(preferences)
+    args.tunnel = args.tunnel or any(c['enabled'] and c['accessMode'] == 'quick' for c in entries)
+    if entries:
+        config['publicUrl'] = public_url(preferences)
+    origins = config.get("origins", []) + args.origin + public_urls(preferences)
     for origin in origins:
         parsed = urlsplit(origin)
         if parsed.scheme != "https" or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -116,7 +122,8 @@ def main():
     pid_file.write_text(str(os.getpid()), encoding='utf-8')
     control = GatewayControl(args.config.parent)
     tunnel = None
-    ssh_tunnel = None
+    tunnel_thread = None
+    ssh_tunnels = []
     notifications = Notifications(bridge, args.config.parent, lambda: server.origins, lambda: config.get('publicUrl', ''))
     server.notifications = notifications
     def stop_signal(signum, frame):
@@ -129,8 +136,12 @@ def main():
     if first_login.exists():
         print("首次登录凭据：" + str(first_login), flush=True)
     try:
+        forwards = [c for c in entries if c['enabled'] and c['accessMode'] == 'server']
         if args.ssh_target:
-            ssh_tunnel = SSHTunnel(args.ssh_target, args.ssh_remote_port, args.port, args.config.parent)
+            forwards.append({'sshTarget': args.ssh_target, 'sshRemotePort': args.ssh_remote_port, 'id': 'cli'})
+        for entry in forwards:
+            ssh_tunnel = SSHTunnel(entry['sshTarget'], entry['sshRemotePort'], args.port, args.config.parent, entry['id'])
+            ssh_tunnels.append(ssh_tunnel)
             ssh_tunnel.start()
         if args.tunnel:
             print("正在建立临时 HTTPS 外网连接…", flush=True)
@@ -140,11 +151,14 @@ def main():
                 server.hosts.add(host)
                 server.secure_hosts.add(host)
             tunnel = QuickTunnel(args.cloudflared, args.port, args.config.parent, allow_origin)
-            try:
-                url = tunnel.start()
-                print("外网地址：" + url, flush=True)
-            except RuntimeError as exc:
-                print(str(exc), flush=True)
+            def connect_tunnel():
+                try:
+                    url = tunnel.start()
+                    print("外网地址：" + url, flush=True)
+                except (RuntimeError, OSError) as exc:
+                    print(str(exc), flush=True)
+            tunnel_thread = threading.Thread(target=connect_tunnel, daemon=True)
+            tunnel_thread.start()
         notifications.start()
         control.start(server.shutdown)
         server.serve_forever(poll_interval=0.5)
@@ -154,7 +168,9 @@ def main():
         notifications.close()
         if tunnel:
             tunnel.close()
-        if ssh_tunnel:
+            if tunnel_thread:
+                tunnel_thread.join(timeout=5)
+        for ssh_tunnel in ssh_tunnels:
             ssh_tunnel.close()
         bridge.close()
         server.server_close()

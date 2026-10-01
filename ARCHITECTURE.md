@@ -104,8 +104,12 @@ Windows 自动发现用户目录中的 App 运行时、常见安装目录、MSIX
 
 ## 固定 HTTPS 入口
 
-桌面 `accessMode` 选择局域网、Quick Tunnel、自有服务器 SSH 或 NAS。`bridge/access.py` 验证地址，生成不含凭据的 Caddy/Nginx Compose 部署包；固定 URL 自动加入允许源，优先用于通知链接（显式 clickBase 仍优先）。切换模式移除旧的托管固定源，保留其他手动 HTTPS 源。
+桌面 `connections` 保存可独立启用的 Quick Tunnel、自有服务器 SSH 和 NAS 配置，局域网监听由 `lan` 控制。旧单入口配置在读取时转换，保存前不改写文件。`bridge/access.py` 验证地址，生成不含凭据的 Caddy/Nginx Compose 部署包；所有启用的固定 URL 自动加入允许源，第一个启用的固定 URL 优先用于通知链接（显式 clickBase 仍优先）。停用或删除配置时移除对应托管固定源，保留其他手动 HTTPS 源。
 
-`bridge/ssh_tunnel.py` 管理独立 OpenSSH 子进程，复用已有 SSH 目标和身份，以 `-R 127.0.0.1:服务器端口:127.0.0.1:电脑端口` 回程。启用 BatchMode、StrictHostKeyChecking、ExitOnForwardFailure 与保活，不复用 ControlMaster。失败后台退避重连，不阻塞 LAN 服务。状态关联当前网关 PID；服务器 GatewayPorts 应使用 no/clientspecified，不能强制公网绑定。
+`bridge/ssh_tunnel.py` 管理独立 OpenSSH 子进程，复用已有 SSH 目标和身份，以 `-R 127.0.0.1:服务器端口:127.0.0.1:电脑端口` 回程。启用 BatchMode、StrictHostKeyChecking、ExitOnForwardFailure 与保活，不复用 ControlMaster。失败后台退避重连，不阻塞 LAN 服务。各 SSH 配置独立保存状态与日志，状态关联当前网关 PID；服务器 GatewayPorts 应使用 no/clientspecified，不能强制公网绑定。
 
 `/api/auth` 返回非秘密的本次运行 instanceId。固定入口检测仅从本机管理进程请求本机与已保存 HTTPS 地址，核对实例一致，不携带登录凭据，不跟随重定向。配置包导出、剪贴板和入口检测仅经受保护的本机 Electron IPC 提供，手机 HTTP 无管理接口。
+
+临时 Cloudflare 握手在后台进行，避免等待外网隧道拖延 LAN 和其他入口的服务。关闭网关时停止各隧道。
+
+`web/i18n.js` 是电脑与手机共享的简体中文 / English 文案表，无外部翻译服务。静态节点通过 data-i18n 标记，动态界面显式翻译；聊天正文、命令、用户输入及外部模型/Skill 描述不进入翻译流程。语言保存在各界面的 localStorage，切换不重载会话或提交表单。日志按源展示最新记录优先，保留多行错误记录的内部顺序。

@@ -66,8 +66,73 @@ def validate(preferences):
     return p
 
 
+def connections(preferences):
+    """Migrate the previous single-entry preferences without changing saved files."""
+    if 'connections' in preferences:
+        return preferences['connections']
+    mode = preferences.get('accessMode', 'quick' if preferences.get('tunnel') else 'lan')
+    if mode == 'lan':
+        return []
+    return [{**DEFAULTS, **{k: preferences[k] for k in DEFAULTS if k in preferences},
+             'id': 'legacy-'+mode, 'name': '', 'enabled': True, 'accessMode': mode}]
+
+
+def validate_connections(preferences):
+    rows = connections(preferences)
+    if not isinstance(rows, list):
+        raise ValueError('连接配置须为列表')
+    result, ids, urls, forwards = [], set(), set(), set()
+    quick = False
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get('id'), str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', row['id']):
+            raise ValueError('连接配置 ID 不正确')
+        if row['id'] in ids:
+            raise ValueError('连接配置 ID 重复')
+        ids.add(row['id'])
+        if not isinstance(row.get('enabled'), bool) or row.get('accessMode') not in ('quick', 'server', 'nas'):
+            raise ValueError('连接类型或开关格式不正确')
+        if not isinstance(row.get('name', ''), str) or len(row.get('name', '')) > 100:
+            raise ValueError('连接名称最多 100 个字符')
+        current = {**DEFAULTS, **{k: row[k] for k in DEFAULTS if k in row},
+                   'id': row['id'], 'name': row.get('name', '').strip(), 'enabled': row['enabled']}
+        for key in ('publicUrl', 'sshTarget', 'proxyUpstream'):
+            if isinstance(current[key], str):
+                current[key] = current[key].strip()
+        if current['enabled']:
+            checked = validate({**current, 'lan': preferences.get('lan', False), 'port': preferences.get('port', 8787)})
+            for key in DEFAULTS:
+                current[key] = checked[key]
+            if current['accessMode'] == 'quick':
+                if quick:
+                    raise ValueError('每个网关只需启用一个临时 Cloudflare 入口；可同时启用其他连接方式')
+                quick = True
+            else:
+                if current['publicUrl'] in urls:
+                    raise ValueError('已启用的连接不能使用相同 HTTPS 地址')
+                urls.add(current['publicUrl'])
+            if current['accessMode'] == 'server':
+                forward = (current['sshTarget'], current['sshRemotePort'])
+                if forward in forwards:
+                    raise ValueError('同一 SSH 目标的回环端口不能重复')
+                forwards.add(forward)
+        result.append(current)
+    return result
+
+
+def public_urls(preferences):
+    return [c['publicUrl'] for c in connections(preferences)
+            if c['enabled'] and c['accessMode'] in ('server', 'nas')]
+
+
 def public_url(preferences):
-    return preferences.get('publicUrl', '') if preferences.get('accessMode') in ('server', 'nas') else ''
+    return next(iter(public_urls(preferences)), '')
+
+
+def select_connection(preferences, value):
+    selected = next((c for c in connections(preferences) if c['id'] == value.get('id')), None)
+    if not selected or not selected['enabled'] or selected['accessMode'] not in ('server', 'nas'):
+        raise ValueError('请先保存并启用需要操作的固定连接配置')
+    return validate({**selected, 'lan': preferences['lan'], 'port': preferences['port']})
 
 
 def deployment(preferences):
@@ -182,6 +247,41 @@ docker compose logs --tail=50
 
 项目：https://github.com/try2love/codex-mobile-bridge
 仅使用用户授权的服务器/NAS；执行前确认现有站点、端口和 DNS，禁止覆盖已有服务。部署依赖缺失时先说明。不要复制 Codex 凭据或私钥，不更改电脑网关端口。完成后返回固定 HTTPS 地址、原局域网地址、密码获取方式、部署目录、启停命令、已通过和未通过的验收项。没有权限或真实入口时，说明尚未部署，不声称连通。
+'''
+    if p['accessMode'] == 'server':
+        english_steps = f'''1. Verify `ssh {p['sshTarget']}` from your computer. Confirm the host fingerprint yourself first. Background access uses existing keys or an unlocked ssh-agent; the App never stores an SSH password or bypasses host verification.
+2. The server must allow remote forwarding (`AllowTcpForwarding remote` or `yes`). Keep `GatewayPorts no` or `clientspecified`, never `yes`. Port {p['sshRemotePort']} must be free and restricted to loopback.
+3. Point the domain's A/AAAA records to this server. Install Docker Compose if authorized and ensure public TCP 80/443 are reachable and free. Extract this bundle into a new directory. The Caddy service uses host networking on Linux Docker Engine, on the same host as SSH; do not run this bundle on Mac/Windows Docker Desktop.
+4. Start the computer gateway. It connects out to the server over SSH, including behind NAT or on a campus network.
+5. On the server run `docker compose config`, then `docker compose up -d`. Caddy obtains and renews certificates, persisted in the named Docker volumes. If an existing proxy already owns 80/443, keep it and use {upstream} as its upstream, preserving the public Host header; do not start another Caddy instance.
+'''
+    else:
+        english_steps = f'''1. From the NAS, verify that {upstream}/ is reachable. It must be the computer's address, not the NAS loopback address. A home NAS cannot directly reach an isolated campus computer without a working network route; use the SSH server option or an existing VPN route in that case.
+2. Prefer an existing NAS HTTPS reverse proxy directly to {upstream}. Preserve Host, Origin, Cookie and X-CSRF-Token. Disable caching/buffering and use 300-second read/send timeouts.
+3. To manage an optional HTTP intermediary in Docker, extract this bundle and run `docker compose config`, then `docker compose up -d`. Set the NAS HTTPS proxy's upstream to http://127.0.0.1:18787. The container does not issue certificates: the existing NAS proxy handles HTTPS.
+4. If the outer proxy is also containerized, copy .env.example to .env and set BIND_ADDRESS to the NAS LAN IP. Point the outer proxy there, restrict access to that proxy, and do not expose port 18787 publicly.
+'''
+    files['DEPLOYMENT_EN.md'] = f'''# Codex Mobile Bridge — fixed entry deployment
+
+Phone URL: {url}/
+Computer gateway port: {p['port']} (keep unchanged)
+Proxy upstream: {upstream}
+
+Keep the computer, gateway and original Codex App running. Docker hosts the access entry; it does not replace the desktop App. This ZIP contains no passwords, tokens, Codex data or SSH keys. Obtain gateway credentials from the computer App or the user's configured login. Use a dedicated domain root, not a subpath such as /codex/.
+
+## Setup
+
+{english_steps}
+## Verification and maintenance
+
+Click Check fixed entry in the desktop App, then disable phone Wi-Fi and verify HTTPS login, chat synchronization and ntfy links over mobile data. The built-in check verifies the current gateway instance from this computer only. A 502/504 suggests an unreachable upstream or SSH forwarding failure; a 403 suggests the public Host is not preserved or the gateway needs a restart after saving its allowlist. Check DNS and Caddy logs for certificate failures.
+
+Start/update: `docker compose up -d`. Logs: `docker compose logs --tail=50`. Stop the public entry: `docker compose down` (keep certificate volumes; the computer gateway stays running).
+
+## Instructions for deployment Agents
+
+Project: https://github.com/try2love/codex-mobile-bridge
+Use only authorized servers or NAS devices. Check existing sites, DNS and ports before deploying; do not overwrite existing services. Explain missing dependencies before installing them. Keep the computer gateway port, model authentication and SSH keys unchanged. Return the fixed HTTPS URL, original LAN URL, credential retrieval method, deployment directory, start/stop commands, verified results and remaining checks. If access is unavailable, deliver the prepared configuration and clearly say deployment is pending.
 '''
     return files
 

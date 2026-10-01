@@ -16,23 +16,23 @@ test('development launch keeps script as its own argument',()=>{
 async function renderer(){
   const fs=require('node:fs'),vm=require('node:vm');
   const nodes=new Map();
-  function node(){return {value:'',checked:false,hidden:false,textContent:'',dataset:{},
+  function node(){return {closest(){return null;},value:'',checked:false,hidden:false,textContent:'',dataset:{},
     classList:{toggle(){}},append(){},replaceChildren(){},setAttribute(){},querySelectorAll(){return [];}};}
   const html=fs.readFileSync(path.join(__dirname,'../desktop/index.html'),'utf8');
   for(const match of html.matchAll(/\bid="([^"]+)"/g))nodes.set(match[1],node());
   const value={runtime:{running:false,portOccupied:false,supportsNotifications:true},
-    preferences:{port:8787,lan:true,tunnel:false,autoStart:false},
+    preferences:{port:8787,lan:true,tunnel:false,autoStart:false,connections:[]},
     auth:{mode:'password',username:'admin'},notifications:{enabled:false,server:'https://ntfy.sh',topic:''},
     notificationStatus:{},watches:[],origins:[],urls:[],dataDir:'/test',credentialsAvailable:false};
   let now=1000,poll;
   const api={snapshot:async()=>structuredClone(value),start:async()=>({started:true,message:'正在启动网关'}),
-    save:async()=>structuredClone(value),logs:async()=>({text:''})};
+    save:async payload=>{value.preferences={...value.preferences,...payload.preferences};return structuredClone(value);},logs:async()=>({text:''})};
   const context=vm.createContext({window:{bridgeDesktop:api},
-    document:{getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
+    localStorage:{getItem(){return null;},setItem(){}},document:{documentElement:{},getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
     Date:class extends Date{static now(){return now;}},setInterval:callback=>{poll=callback;}});
-  vm.runInContext(fs.readFileSync(path.join(__dirname,'../desktop/renderer.js'),'utf8'),context);
+  for(const name of ['web/i18n.js','desktop/connections.js','desktop/renderer.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',name),'utf8'),context);
   await new Promise(setImmediate);
-  return {nodes,value,context,api,poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
+  return {nodes,value,context,api,run:code=>vm.runInContext(code,context),poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
 }
 
 test('startup feedback follows readiness, page changes and later shutdown',async()=>{
@@ -78,36 +78,26 @@ test('runtime polling preserves a newer save notification',async()=>{
   assert.equal(ui.nodes.get('feedback').textContent,saved);
 });
 
-test('fixed entry modes use form values, mark unsaved changes and block export until saved',async()=>{
+test('connection additions and removals are unsaved, and language changes preserve edits',async()=>{
   const ui=await renderer();
-  const fields=['access-mode','public-url','ssh-target','ssh-remote-port','proxy-upstream'].map(id=>ui.nodes.get(id));
-  fields.forEach((node,i)=>{node.id=['access-mode','public-url','ssh-target','ssh-remote-port','proxy-upstream'][i];node.closest=()=>({dataset:{panel:'network'}});});
-  ui.nodes.get('settings').querySelectorAll=()=>fields;
-  ui.context.render(ui.value);
-  ui.nodes.get('access-mode').value='server';
-  ui.nodes.get('public-url').value='https://codex.example.com';
-  ui.nodes.get('ssh-target').value='my-server';
-  ui.nodes.get('settings').oninput();
+  ui.run(`connectionDraft=[{id:'example',name:'Home',enabled:true,accessMode:'server',publicUrl:'https://codex.example.com',sshTarget:'my-server',sshRemotePort:18787,proxyUpstream:''}];renderConnections();updateDirty();`);
   assert.equal(ui.nodes.get('dirty-dot').hidden,false);
-  assert.equal(ui.nodes.get('export-deployment').disabled,true);
-  assert.equal(ui.nodes.get('server-fields').hidden,false);
-  assert.equal(ui.nodes.get('nas-fields').hidden,true);
-  const preferences=ui.context.collect().preferences;
-  assert.equal(preferences.port,8787);assert.equal(preferences.accessMode,'server');assert.equal(preferences.sshRemotePort,18787);
-  ui.value.preferences={...ui.value.preferences,...preferences};
+  ui.nodes.get('language').value='en';ui.nodes.get('language').onchange();
+  assert.equal(ui.context.collect().preferences.connections[0].name,'Home');
+  assert.equal(ui.nodes.get('dirty-dot').hidden,false);
+  assert.equal(ui.nodes.get('status').textContent,'Stopped');
   await ui.nodes.get('settings').onsubmit({preventDefault(){}});
   assert.equal(ui.nodes.get('dirty-dot').hidden,true);
-  assert.equal(ui.nodes.get('export-deployment').disabled,false);
-  ui.value.runtime.running=true;await ui.poll();
-  for(const id of ['access-mode','public-url','port','origins'])assert.equal(ui.nodes.get(id).disabled,true);
+  ui.run('connectionDraft=[];updateDirty();');
+  assert.equal(ui.nodes.get('dirty-dot').hidden,false);
+  ui.nodes.get('language').value='zh';ui.nodes.get('language').onchange();
+  assert.equal(ui.nodes.get('status').textContent,'未启动');
 });
 
-test('polling cannot reenable or repeat an ongoing fixed entry check',async()=>{
-  const ui=await renderer();let resolve,calls=0;
-  ui.api.checkEntry=()=>{calls++;return new Promise(done=>{resolve=done;});};
-  const action=ui.nodes.get('check-entry').onclick();
-  await ui.poll();assert.equal(ui.nodes.get('check-entry').disabled,true);
-  await ui.nodes.get('check-entry').onclick();assert.equal(calls,1);
-  resolve({message:'入口已检测'});await action;
-  assert.equal(ui.nodes.get('check-entry').disabled,false);
+test('opening logs starts at the newest records without changing their contents',async()=>{
+  const ui=await renderer();ui.api.logs=async()=>({text:'new\nold'});
+  ui.nodes.get('log-output').scrollTop=500;
+  await ui.context.loadLogs();
+  assert.equal(ui.nodes.get('log-output').textContent,'new\nold');
+  assert.equal(ui.nodes.get('log-output').scrollTop,0);
 });

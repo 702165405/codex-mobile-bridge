@@ -24,6 +24,7 @@
     },
     "files": [
       "desktop/**",
+      "web/i18n.js",
       "package.json",
       "LICENSE"
     ],

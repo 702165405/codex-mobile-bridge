@@ -17,11 +17,11 @@ def main():
     if args.action == 'serve':
         import run
         sys.argv = [sys.argv[0], *desktop.argv()]
-        run.main()
+        run.main(connections=desktop.preferences()['connections'])
         return
     try:
-        if args.action == 'save':
-            result = desktop.save(json.loads(sys.stdin.read(100000)))
+        if args.action in ('save', 'deployment', 'export-deployment', 'check-entry'):
+            result = getattr(desktop, args.action.replace('-', '_'))(json.loads(sys.stdin.read(100000)))
         else:
             method = getattr(desktop, args.action.replace('-', '_'))
             result = method()
