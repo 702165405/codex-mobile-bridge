@@ -1,5 +1,12 @@
 # 验证记录
 
+## Mac / Windows 整合基线（2026-10-01）
+
+- `integration/desktop-cross-platform` 基于 Windows 分支 `d293fe1`；该提交已包含桌面/手机分支 `339324b`，通过 Git 祖先关系确认两边改动完整纳入，无需再做有冲突的内容合并。保留 Windows 托盘、NSIS 安装包、ZIP、语言记忆及手机和 Mac 的并行连接功能。
+- 在 Mac 上重新运行整合代码：96 项 Python 检查中 92 项通过、4 项平台相关检查跳过，17 项 Node 桌面测试通过；Mac App 本地构建完成，内置运行时使用隔离数据目录和端口完成启动、双语网页资源检查及停止。
+- Windows 原分支同一代码基线的 [跨平台 Python 检查](https://github.com/try2love/codex-mobile-bridge/actions/runs/36856184998)和 [Mac / Windows 桌面构建](https://github.com/try2love/codex-mobile-bridge/actions/runs/36856185018)均已在 GitHub 成功。Windows 工作流包含实际打包 App 的启停、托盘恢复及手机双语检查；不等同于安装、升级、卸载或真实公网链路验收。
+- 本轮只整合代码和构建入口，当前在用的网关配置与局域网端口未修改。Release 和一次性二维码登录仍处于方案阶段，尚未发布或实现。
+
 ## Windows 同步最新桌面分支（2026-10-01）
 
 - 将远程 `feature/desktop-ntfy` 从 `b00b503` 到 `339324b` 的四次提交合入 `codex/windows-desktop-app`：手机新建聊天、固定域名部署向导、并行连接、桌面/手机共用双语及最新日志优先显示。保留 Windows 托盘、安装包、ZIP 与旧语言偏好。

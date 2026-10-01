@@ -22,7 +22,7 @@
 
 ## 桌面 App 与 ntfy（实验分支）
 
-本节对应 `codex/windows-desktop-app` 分支，基于远程 `feature/desktop-ntfy` 的桌面界面与通知功能继续开发。桌面 App 是网关的启动与配置界面，继续连接原来的 Codex App，不替代 Codex 的执行或模型认证。
+本节对应双端整合分支 `integration/desktop-cross-platform`，包含 `feature/desktop-ntfy` 的桌面/手机功能及 `codex/windows-desktop-app` 的 Windows 安装包、托盘和兼容改动。桌面 App 是网关的启动与配置界面，继续连接原来的 Codex App，不替代 Codex 的执行或模型认证。
 
 ### 使用桌面 App
 
@@ -94,7 +94,7 @@ NAS 方案：Docker 只部署 HTTP 入口，原电脑仍需保持唤醒并运行
 开发环境需要 Node.js 与 Python；只有构建时需要 Electron、electron-builder 和 PyInstaller。Windows 与 Mac 应分别在目标系统上构建。
 
 ```bash
-git switch codex/windows-desktop-app
+git switch integration/desktop-cross-platform
 npm ci
 npm run desktop
 ```

@@ -2,7 +2,7 @@ name: Desktop prototype
 on:
   workflow_dispatch:
   push:
-    branches: [feature/desktop-ntfy, codex/windows-desktop-app]
+    branches: [feature/desktop-ntfy, codex/windows-desktop-app, integration/desktop-cross-platform]
     paths: ['desktop/**', 'desktop.py', 'bridge/**', 'web/**', 'run.py', 'scripts/**', 'tests/**', 'package*.json', 'requirements-desktop.txt', '.github/workflows/desktop.yml']
 permissions:
   contents: read

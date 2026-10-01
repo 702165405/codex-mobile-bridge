@@ -22,7 +22,7 @@ See [Deployment Agent instructions](#deployment-agent-instructions) below for th
 
 ## Desktop App and ntfy — experimental branch
 
-This Windows branch, **`codex/windows-desktop-app`**, includes the latest desktop and mobile features from `feature/desktop-ntfy` through `339324b`. The desktop launcher manages the gateway; the original Codex App still owns execution and model authentication.
+The cross-platform integration branch, **`integration/desktop-cross-platform`**, combines the desktop and mobile features from `feature/desktop-ntfy` with the Windows installer, tray and compatibility changes from `codex/windows-desktop-app`. The desktop launcher manages the gateway; the original Codex App still owns execution and model authentication.
 
 ### Install and use the App
 
