@@ -64,7 +64,7 @@ async function main(){
   const settings=await worker('snapshot');
   Object.assign(settings.preferences,{port,lan:false,tunnel:false,codexHome:data,autoStart:false});
   await worker('save',settings);
-  const child=spawn(executable,['--remote-debugging-address=127.0.0.1','--remote-debugging-port='+debugPort],{env,windowsHide:true,stdio:['ignore','ignore','pipe']});
+  const child=spawn(executable,['--remote-debugging-address=127.0.0.1','--remote-debugging-port='+debugPort],{env,stdio:['ignore','ignore','pipe']});
   let stderr='',client,started=false;
   child.stderr.on('data',value=>stderr+=value);
   const exited=new Promise(resolve=>{child.on('exit',resolve);child.on('error',resolve);});
@@ -102,7 +102,7 @@ async function main(){
     await delay(300);
     assert.equal(child.exitCode,null);
     assert.equal((await get(base+'/api/auth')).status,200);
-    await execute(executable,[],{env,windowsHide:true,timeout:15000});
+    await execute(executable,[],{env,timeout:15000});
     await until(()=>client.evaluate("document.visibilityState==='visible'"),'Single-instance restore');
     await client.evaluate("document.querySelector('[data-tab=advanced]').click()");
     assert.equal(await client.evaluate("document.getElementById('data-dir').textContent"),data);
