@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('bridgeDesktop',{
   stop:()=>ipcRenderer.invoke('bridge:stop'),
   logs:()=>ipcRenderer.invoke('bridge:logs'),
   testNotification:()=>ipcRenderer.invoke('bridge:test-notification'),
+  exportDeployment:value=>ipcRenderer.invoke('bridge:export-deployment',value),
+  copyDeployment:value=>ipcRenderer.invoke('bridge:copy-deployment',value),
+  checkEntry:value=>ipcRenderer.invoke('bridge:check-entry',value),
   choose:kind=>ipcRenderer.invoke('bridge:choose',kind),
   open:target=>ipcRenderer.invoke('bridge:open',target),
   copy:target=>ipcRenderer.invoke('bridge:copy',target)

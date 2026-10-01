@@ -10,20 +10,20 @@ def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stdin.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'serve'])
+    parser.add_argument('action', choices=['snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'deployment', 'export-deployment', 'check-entry', 'serve'])
     parser.add_argument('--data-dir', required=True)
     args = parser.parse_args()
     desktop = Desktop(args.data_dir)
     if args.action == 'serve':
         import run
         sys.argv = [sys.argv[0], *desktop.argv()]
-        run.main()
+        run.main(connections=desktop.preferences()['connections'])
         return
     try:
-        if args.action == 'save':
-            result = desktop.save(json.loads(sys.stdin.read(100000)))
+        if args.action in ('save', 'deployment', 'export-deployment', 'check-entry'):
+            result = getattr(desktop, args.action.replace('-', '_'))(json.loads(sys.stdin.read(100000)))
         else:
-            method = {'test-notification': desktop.test_notification}.get(args.action) or getattr(desktop, args.action)
+            method = getattr(desktop, args.action.replace('-', '_'))
             result = method()
         print(json.dumps({'ok': True, 'result': result}, ensure_ascii=False))
     except Exception as exc:

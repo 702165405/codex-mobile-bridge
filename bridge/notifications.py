@@ -94,8 +94,9 @@ def publish(config, title, body, click=''):
 
 
 class Notifications:
-    def __init__(self, bridge, data_dir, origins=lambda: []):
+    def __init__(self, bridge, data_dir, origins=lambda: [], public_url=lambda: ''):
         self.bridge, self.data_dir, self.origins = bridge, Path(data_dir), origins
+        self.public_url = public_url
         self.lock = threading.RLock()
         self.closed = threading.Event()
         self.ledger = read_json(self.data_dir/'notification-delivery.json', {})
@@ -141,7 +142,7 @@ class Notifications:
 
     def click_url(self, config, thread_id, host):
         origins = sorted(self.origins())
-        base = config.get('clickBase') or next((o for o in origins if o.startswith('https://')), '')
+        base = config.get('clickBase') or self.public_url() or next((o for o in origins if o.startswith('https://')), '')
         if not base:
             base = next((o for o in origins if urlsplit(o).hostname not in ('127.0.0.1', 'localhost')), '')
         return base.rstrip('/') + '/#' + thread_id + '~' + quote(host, safe='') if base else ''

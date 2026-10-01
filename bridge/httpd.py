@@ -5,6 +5,7 @@ import json
 import logging
 import mimetypes
 import re
+import secrets
 import socket
 import threading
 import time
@@ -19,9 +20,11 @@ from .auth import Auth
 from .ipc import IPCError
 from .catalog import CatalogError
 from .remote import RemoteUnavailable
+from .create import CreationError
 
 LOG = logging.getLogger(__name__)
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
+          "/i18n.js": ("i18n.js", "text/javascript; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"),
           "/markdown.js": ("markdown.js", "text/javascript; charset=utf-8"),
           "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),
@@ -43,6 +46,7 @@ class GatewayServer(ThreadingHTTPServer):
     def __init__(self, address, bridge, config, web_dir):
         self.bridge = bridge
         self.notifications = None
+        self.instance_id = secrets.token_hex(16)
         self.auth = Auth(config["auth"])
         self.origins = set(config["origins"])
         self.hosts = {urlsplit(o).netloc for o in self.origins}
@@ -190,6 +194,7 @@ class Handler(BaseHTTPRequestHandler):
             if not write and path == "/api/auth":
                 session = self.server.auth.get(self.token())
                 return self.output(200, {"authenticated": bool(session), "csrf": session["csrf"] if session else None,
+                                         "instanceId": self.server.instance_id,
                                          "notifications": self.server.notifications is not None,
                                          "passwordless": self.server.auth.config.get("mode") == "none",
                                          "transport": "poll" if self.headers.get("Host", "").endswith(".trycloudflare.com") else "sse"})
@@ -211,6 +216,11 @@ class Handler(BaseHTTPRequestHandler):
             if not write and path == "/api/sessions":
                 rows = self.server.bridge.list(query=query.get("q", [""])[0][:200], offset=max(0, int(query.get("offset", [0])[0])), archived=query.get("archived", ["false"])[0] == "true")
                 return self.output(200, {"sessions": rows, "unavailableHosts": self.server.bridge.host_errors})
+            if not write and path == '/api/projects':
+                return self.output(200, {'projects': self.server.bridge.hosts.projects()})
+            if write and path == '/api/sessions':
+                body = self.read_json()
+                return self.output(200, self.server.bridge.create_chat(body.get('project'), body.get('title'), body.get('id')))
             bridge = self.server.bridge.for_host(query.get("host", ["local"])[0])
             file_match = re.fullmatch(r"/api/sessions/([0-9a-f-]{36})/files/([a-f0-9]{64})", path)
             if not write and file_match:
@@ -276,7 +286,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self.close_connection = True
             self.output(400, {"error": str(exc)})
-        except (IPCError, CatalogError, RemoteUnavailable) as exc:
+        except (IPCError, CatalogError, RemoteUnavailable, CreationError) as exc:
             self.close_connection = True
             self.output(409, {"error": str(exc), "code": "desktop_unavailable"})
         except (BrokenPipeError, ConnectionResetError, socket.timeout):

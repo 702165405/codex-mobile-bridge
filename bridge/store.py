@@ -25,7 +25,7 @@ class SessionStore:
             params = [int(archived)]
             if "originator" in columns:
                 # Older desktop imports have no originator but retain their app source.
-                where.append("(originator IN ('Codex Desktop', 'codex_work_desktop') OR (originator IS NULL AND source = 'vscode'))")
+                where.append("(originator IN ('Codex Desktop', 'codex_work_desktop', 'codex_mobile_bridge') OR (originator IS NULL AND source = 'vscode'))")
             if "thread_source" in columns:
                 where.append("COALESCE(thread_source, '') != 'subagent'")
             if "source" in columns:
@@ -44,7 +44,7 @@ class SessionStore:
             if not row:
                 raise KeyError("找不到这个桌面会话")
             result = dict(row)
-            desktop = result.get("originator") in ("Codex Desktop", "codex_work_desktop") or (result.get("originator") is None and result.get("source") == "vscode")
+            desktop = result.get("originator") in ("Codex Desktop", "codex_work_desktop", "codex_mobile_bridge") or (result.get("originator") is None and result.get("source") == "vscode")
             if not desktop or result.get("thread_source") == "subagent" or '"subagent"' in (result.get("source") or ""):
                 raise KeyError("不是桌面 App 会话")
             return result

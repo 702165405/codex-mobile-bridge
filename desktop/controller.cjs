@@ -2,7 +2,7 @@
 const {spawn}=require('node:child_process');
 const path=require('node:path');
 function runWorker({executable,prefix=[],dataDir},action,payload){
-  const allowed=new Set(['snapshot','save','start','stop','logs','test-notification']);
+  const allowed=new Set(['snapshot','save','start','stop','logs','test-notification','deployment','export-deployment','check-entry']);
   if(!allowed.has(action))return Promise.reject(Error('未知操作'));
   return new Promise((resolve,reject)=>{
     const child=spawn(executable,[...prefix,action,'--data-dir',dataDir],{stdio:['pipe','pipe','pipe'],windowsHide:true});

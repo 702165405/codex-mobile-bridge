@@ -9,7 +9,7 @@ test('language normalization and error translation preserve unknown details',()=
   assert.equal(i18n.normalize('en-US'),'en');assert.equal(i18n.normalize('zh-TW'),'zh-CN');
   assert.equal(i18n.normalize(null),'zh-CN');
   assert.equal(i18n.translate('运行中','en'),'Running');
-  assert.equal(i18n.translate("Error invoking remote method 'bridge:save': Error: 新密码至少需要 12 个字符",'en'),'The new password must contain at least 12 characters');
+  assert.equal(i18n.translate("Error invoking remote method 'bridge:save': Error: 新密码至少需要 12 个字符",'en'),i18n.english['新密码至少需要 12 个字符']);
   assert.equal(i18n.translate('C:\\private\\未知.log','en'),'C:\\private\\未知.log');
 });
 
@@ -70,23 +70,23 @@ test('development launch keeps script as its own argument',()=>{
 async function renderer(){
   const fs=require('node:fs'),vm=require('node:vm');
   const nodes=new Map();
-  function node(){return {value:'',checked:false,hidden:false,textContent:'',dataset:{},
-    classList:{toggle(){}},append(){},prepend(){},replaceChildren(){},setAttribute(){},querySelectorAll(){return [];}};}
+  function node(){return {closest(){return null;},value:'',checked:false,hidden:false,textContent:'',dataset:{},
+    classList:{toggle(){}},append(){},replaceChildren(){},setAttribute(){},querySelectorAll(){return [];}};}
   const html=fs.readFileSync(path.join(__dirname,'../desktop/index.html'),'utf8');
   for(const match of html.matchAll(/\bid="([^"]+)"/g))nodes.set(match[1],node());
   const value={runtime:{running:false,portOccupied:false,supportsNotifications:true},
-    preferences:{port:8787,lan:true,tunnel:false,autoStart:false},
+    preferences:{port:8787,lan:true,tunnel:false,autoStart:false,connections:[]},
     auth:{mode:'password',username:'admin'},notifications:{enabled:false,server:'https://ntfy.sh',topic:''},
     notificationStatus:{},watches:[],origins:[],urls:[],dataDir:'/test',credentialsAvailable:false};
   let now=1000,poll;
   const api={language:async()=>'zh-CN',setLanguage:async value=>value,snapshot:async()=>structuredClone(value),start:async()=>({started:true,message:'正在启动网关'}),
-    save:async()=>structuredClone(value),logs:async()=>({text:''})};
-  const context=vm.createContext({window:{bridgeDesktop:api,desktopI18n:{...i18n,bind:()=>()=>{}}},
-    document:{getElementById:id=>nodes.get(id),createElement:node,querySelector:()=>node(),querySelectorAll:()=>[]},
+    save:async payload=>{value.preferences={...value.preferences,...payload.preferences};return structuredClone(value);},logs:async()=>({text:''})};
+  const context=vm.createContext({window:{bridgeDesktop:api},
+    localStorage:{getItem(){return null;},setItem(){}},document:{documentElement:{},getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
     Date:class extends Date{static now(){return now;}},setInterval:callback=>{poll=callback;}});
-  vm.runInContext(fs.readFileSync(path.join(__dirname,'../desktop/renderer.js'),'utf8'),context);
+  for(const name of ['web/i18n.js','desktop/connections.js','desktop/renderer.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',name),'utf8'),context);
   await new Promise(setImmediate);
-  return {nodes,value,context,poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
+  return {nodes,value,context,api,run:code=>vm.runInContext(code,context),poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
 }
 
 test('startup feedback follows readiness, page changes and later shutdown',async()=>{
@@ -136,7 +136,31 @@ test('language changes update runtime feedback and preserve entered values',asyn
   const ui=await renderer();await ui.start();
   ui.nodes.get('password').value='private draft';ui.context.applyLanguage('en');
   assert.equal(ui.nodes.get('status').textContent,'Starting');
-  assert.equal(ui.nodes.get('feedback').textContent,'Starting gateway');
+  assert.equal(ui.nodes.get('feedback').textContent,i18n.english['正在启动网关']);
   assert.equal(ui.nodes.get('password').value,'private draft');
   ui.context.applyLanguage('zh-CN');assert.equal(ui.nodes.get('status').textContent,'启动中');
+});
+
+test('connection additions and removals are unsaved, and language changes preserve edits',async()=>{
+  const ui=await renderer();
+  ui.run(`connectionDraft=[{id:'example',name:'Home',enabled:true,accessMode:'server',publicUrl:'https://codex.example.com',sshTarget:'my-server',sshRemotePort:18787,proxyUpstream:''}];renderConnections();updateDirty();`);
+  assert.equal(ui.nodes.get('dirty-dot').hidden,false);
+  ui.nodes.get('language').value='en';await ui.nodes.get('language').onchange();
+  assert.equal(ui.context.collect().preferences.connections[0].name,'Home');
+  assert.equal(ui.nodes.get('dirty-dot').hidden,false);
+  assert.equal(ui.nodes.get('status').textContent,'Stopped');
+  await ui.nodes.get('settings').onsubmit({preventDefault(){}});
+  assert.equal(ui.nodes.get('dirty-dot').hidden,true);
+  ui.run('connectionDraft=[];updateDirty();');
+  assert.equal(ui.nodes.get('dirty-dot').hidden,false);
+  ui.nodes.get('language').value='zh';await ui.nodes.get('language').onchange();
+  assert.equal(ui.nodes.get('status').textContent,'未启动');
+});
+
+test('opening logs starts at the newest records without changing their contents',async()=>{
+  const ui=await renderer();ui.api.logs=async()=>({text:'new\nold'});
+  ui.nodes.get('log-output').scrollTop=500;
+  await ui.context.loadLogs();
+  assert.equal(ui.nodes.get('log-output').textContent,'new\nold');
+  assert.equal(ui.nodes.get('log-output').scrollTop,0);
 });

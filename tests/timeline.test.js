@@ -69,7 +69,7 @@ async function runTimelineTests() {
   const second=new ChatTimeline({url:action=>'/fixture/'+action+'?host=local',request:detailRequest,renderMeta:()=>{},renderText:(node,text)=>{const p=document.createElement('p');p.textContent=text;node.append(p);},status:()=>{}});
   second.apply({...page(1,2,4),rows:[long]},true);
   await until(()=>second.retryCount>0);
-  check(second.older.textContent.includes('重试'),'Failed history exposes a retry button');
+  check(second.older.textContent===timelineText('历史加载失败，点击重试'),'Failed history exposes a retry button');
   fail=false;await second.loadOlder(100);
   check(!second.hasMore&&second.older.hidden,'EOF stops history loading');
   check(detailCalls===0,'Collapsed tool bodies are not fetched');

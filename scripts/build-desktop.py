@@ -9,7 +9,7 @@ command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--one
            '--distpath', str(root/'dist'), '--workpath', str(root/'.tmp/pyinstaller'), '--specpath', str(root/'.tmp'),
            '--add-data', str(root/'web')+':web']
 # The SSH adapter intentionally injects these source modules into remote Python.
-for name in ('store.py', 'catalog.py'):
+for name in ('store.py', 'catalog.py', 'create.py'):
     command.extend(['--add-data', str(root/'bridge'/name)+':bridge'])
 command.append(str(root/'desktop.py'))
 subprocess.run(command, cwd=root, check=True)

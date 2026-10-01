@@ -1,0 +1,11 @@
+services:
+  codex-entry:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${ENTRY_PORT:-18787}:8080"
+    environment:
+      GATEWAY_UPSTREAM: "${GATEWAY_UPSTREAM:?请在 .env 中填写电脑的局域网 IP 和网关端口}"
+      NGINX_ENVSUBST_FILTER: '^GATEWAY_UPSTREAM$'
+    volumes:
+      - ./default.conf.template:/etc/nginx/templates/default.conf.template:ro
