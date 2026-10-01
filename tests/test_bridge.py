@@ -54,6 +54,7 @@ class DesktopFixture:
         self.write_lock = threading.Lock()
         self.closed = threading.Event()
         self.worker = threading.Thread(target=self.serve, daemon=True)
+        self.loaded = True
         self.worker.start()
 
     def send(self, message):
@@ -83,7 +84,7 @@ class DesktopFixture:
                     message = json.loads(DesktopIPC._exact(client, length))
                     method = message.get('method')
                     if message.get('type') == 'broadcast':
-                        if method == 'thread-stream-following-changed' and message['params']['following']:
+                        if method == 'thread-stream-following-changed' and message['params']['following'] and self.loaded:
                             self.snapshot()
                         continue
                     self.requests.append(message)
@@ -150,6 +151,20 @@ class IntegrationTests(unittest.TestCase):
         self.assertNotIn('modelProvider', request)
         self.assertTrue(call['params']['turnStart']['context']['inheritThreadSettings'])
 
+    def test_local_database_failure_keeps_other_hosts_in_list(self):
+        from types import SimpleNamespace
+        from bridge.store import StoreUnavailable
+        def unavailable(**kwargs):
+            raise StoreUnavailable('Database temporarily unavailable')
+        self.bridge.store.list = unavailable
+        remote = SimpleNamespace(host='remote:test', lock=threading.RLock(), live={},
+                                 store=SimpleNamespace(list=lambda **kw: [{'id': THREAD, 'title': 'Remote chat', 'cwd': '/remote', 'updated_at': 1}]))
+        self.bridge.hosts.hosts = lambda: {'remote:test': {'alias': 'test'}}
+        self.bridge.for_host = lambda host: remote
+        rows = self.bridge.list()
+        self.assertEqual(rows[0]['host'], 'remote:test')
+        self.assertEqual(self.bridge.host_errors, [{'host': 'local', 'label': '此电脑', 'error': 'Database temporarily unavailable'}])
+
     def test_progressive_read_preserves_metadata_and_pending_requests(self):
         self.fixture.state['turns'] = [{'turnId': 'turn', 'items': [
             {'id': str(i), 'type': 'agentMessage', 'text': 'row '+str(i)} for i in range(150)]}]
@@ -200,12 +215,11 @@ class IntegrationTests(unittest.TestCase):
     def test_background_read_shows_history_without_waiting_for_owner(self):
         entered, release = threading.Event(), threading.Event()
         attempts = []
-        def slow_owner(*args):
+        def slow_attach(*args):
             attempts.append(args)
             entered.set()
             release.wait(2)
-            raise IPCError('Desktop read timed out')
-        self.bridge.ipc.owner = slow_owner
+        self.bridge._attach = slow_attach
         history = {**state(), 'title': 'Saved history'}
         self.bridge.store.history = lambda tid: history
         try:
@@ -224,6 +238,64 @@ class IntegrationTests(unittest.TestCase):
             if session:
                 with session.condition:
                     session.condition.wait_for(lambda: not session.connecting, timeout=3)
+
+    def test_cold_read_never_opens_desktop_and_late_snapshot_can_connect(self):
+        from unittest.mock import patch
+        self.fixture.loaded = False
+        self.bridge.store.history = lambda tid: {**state(), 'title': 'Saved history'}
+        with patch('bridge.service.open_in_desktop') as opened:
+            session = self.bridge.session(THREAD, background=True)
+            with session.condition:
+                self.assertTrue(session.condition.wait_for(lambda: not session.connecting, timeout=3))
+            self.assertEqual(session.view()['title'], 'Saved history')
+            self.assertFalse(session.connected)
+            self.assertIsNone(session.error)
+            opened.assert_not_called()
+            self.fixture.snapshot()
+            with session.condition:
+                self.assertTrue(session.condition.wait_for(lambda: session.connected, timeout=2))
+
+    def test_explicit_activation_recovers_cold_chat_without_a_model_request(self):
+        from unittest.mock import patch
+        self.fixture.loaded = False
+        self.bridge.store.history = lambda tid: state()
+        with patch('bridge.service.open_in_desktop', side_effect=lambda *args: setattr(self.fixture, 'loaded', True)) as opened:
+            session = self.bridge.activate(THREAD)
+            self.assertTrue(session.connected)
+            opened.assert_called_once_with(THREAD, 'local')
+            self.bridge.activate(THREAD)
+            self.assertEqual(opened.call_count, 1)
+        self.assertFalse(any(r['method'].startswith('thread-follower-') for r in self.fixture.requests))
+
+    def test_existing_owner_needs_no_desktop_navigation(self):
+        from unittest.mock import patch
+        with patch('bridge.service.open_in_desktop') as opened:
+            self.assertTrue(self.bridge.activate(THREAD).connected)
+            opened.assert_not_called()
+
+    def test_cold_send_inherits_original_provider_after_activation(self):
+        from unittest.mock import patch
+        self.fixture.loaded = False
+        self.bridge.host = self.fixture.host = 'remote:test'
+        self.bridge.store.history = lambda tid: state()
+        with patch('bridge.service.open_in_desktop', side_effect=lambda *args: setattr(self.fixture, 'loaded', True)) as opened:
+            self.bridge.send(THREAD, 'hello', str(uuid.uuid4()))
+            opened.assert_called_once_with(THREAD, 'remote:test')
+        call = next(r for r in self.fixture.requests if r['method'] == 'thread-follower-start-turn')
+        self.assertEqual(call['hostId'], 'remote:test')
+        self.assertEqual(call['targetClientId'], 'owner')
+        self.assertTrue(call['params']['turnStart']['context']['inheritThreadSettings'])
+        self.assertNotIn('model', call['params']['turnStart']['request'])
+
+    def test_failed_activation_never_sends_or_marks_message_submitted(self):
+        from unittest.mock import patch
+        self.fixture.loaded = False
+        self.bridge.store.history = lambda tid: state()
+        with patch('bridge.service.open_in_desktop', side_effect=OSError('handler unavailable')):
+            with self.assertRaisesRegex(IPCError, '未发送'):
+                self.bridge.send(THREAD, 'hello', str(uuid.uuid4()))
+        self.assertFalse(self.bridge.submissions)
+        self.assertFalse(any(r['method'] == 'thread-follower-start-turn' for r in self.fixture.requests))
 
     def test_read_timeout_does_not_claim_a_write_was_submitted(self):
         from concurrent.futures import TimeoutError
@@ -519,6 +591,31 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status,200)
         self.assertEqual(result['id'],THREAD)
         self.assertEqual(calls,[(body['project'],body['title'],body['id'])])
+
+    def test_explicit_reconnect_requires_auth_csrf_and_activation_flag(self):
+        from types import SimpleNamespace
+        calls = []
+        self.server.bridge.activate = lambda tid: calls.append(tid) or SimpleNamespace(connected=True)
+        path = '/api/sessions/' + THREAD + '/reconnect'
+        self.assertEqual(self.request('POST', path, {'activate': True})[0], 401)
+        headers = self.login()
+        self.assertEqual(self.request('POST', path, {'activate': True}, {'Cookie': headers['Cookie']})[0], 403)
+        self.assertEqual(calls, [])
+        self.assertEqual(self.request('GET', path, headers=headers)[0], 404)
+        status, _, body = self.request('POST', path, {'activate': True}, headers)
+        self.assertEqual(status, 200)
+        self.assertTrue(body['connected'])
+        self.assertEqual(calls, [THREAD])
+
+    def test_database_read_failure_has_actionable_http_error(self):
+        from bridge.store import StoreUnavailable
+        def unavailable(*args, **kwargs):
+            raise StoreUnavailable('Database temporarily unavailable; retry')
+        self.server.bridge.timeline_read = unavailable
+        status, _, body = self.request('GET', '/api/sessions/' + THREAD + '/timeline', headers=self.login())
+        self.assertEqual(status, 409)
+        self.assertIn('retry', body['error'])
+        self.assertNotIn('日志', body['error'])
 
     def test_reverse_proxy_preserved_host_keeps_secure_login(self):
         origin='https://codex.example.test:9443'

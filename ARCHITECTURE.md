@@ -8,11 +8,13 @@
 
 ## 会话发现
 
-本地通过只读 SQLite 连接读取 `$CODEX_HOME/state_*.sqlite`，筛选桌面聊天并排除子代理。尚无 IPC 快照时，可读取原始会话记录作为历史展示。发现与历史读取不直接写入原数据库或会话文件；用户新建聊天时由官方运行时持久化新记录。
+本地通过只读 SQLite 连接读取 `$CODEX_HOME/state_*.sqlite`，筛选桌面聊天并排除子代理。尚无 IPC 快照时，可读取原始会话记录作为历史展示。WAL 模式且 `-wal` 缺失时，先复制到私有临时目录，并核对复制前后主文件的身份、大小和修改时间以及 WAL 仍不存在，再读取副本；并发变化时丢弃副本并等待重试。已有 WAL 时直接只读查询，保留最新提交。发现与历史读取不直接写入原数据库或会话文件；用户新建聊天时由官方运行时持久化新记录。
 
 发现兼容 `Codex Desktop`、`codex_work_desktop`、网关创建来源 `codex_mobile_bridge`，以及 `originator` 为空且 `source=vscode` 的旧桌面记录。列表与单会话读取使用同样的来源和子代理限制。
 
 HTTP 阅读请求先返回，保存历史和实时连接在后台加载，通过原有 SSE/长轮询更新页面。每条会话只发起一个后台连接任务，失败后间隔重试，手动重新连接可跳过重试间隔。SSH/SQLite 元数据读取不占用会话总锁；写操作仍须确认原生 owner 已连接。只读超时与写入结果未知使用不同提示。
+
+网页点击或打开会话时，并行读取渐进历史并通过带 CSRF 的重连接口自动连接原生 owner。首屏不等待激活完成，切换会话取消旧页面请求，首次历史读取失败会自动重试。后台阅读、轮询和通知监听本身只订阅状态。打开会话、发送、处理授权或点击“重新连接”时，优先等待后台订阅；仍无 owner 才通过已有 `codex://threads/…` 链接让原 App 加载聊天，最多等待约 20 秒。该兜底可能切换桌面当前聊天，不调用第二个 app-server，不改 provider。连接失败时操作尚未发送，草稿保留。原 App 因 provider 缺失等配置问题无法恢复的聊天，网关也不会擅自迁移。
 
 项目与 SSH 主机映射来自 App 的 `.codex-global-state.json`。远端只读取 App 已保存且有关联项目/会话的 SSH 别名；只读辅助脚本使用 `ssh` 和远端 Python，不向远端安装文件。
 
@@ -39,7 +41,7 @@ Windows 使用 CPython 标准库 `_winapi` 的 overlapped I/O 读取原始字节
 | 操作 | 当前实现 |
 | --- | --- |
 | 初始化 | `initialize`，获得当前 IPC client ID |
-| 本地 owner 查询 | `thread-owner-discovery` |
+| owner 识别 | 匹配 host / conversation 的订阅快照来源 |
 | 会话订阅 | `thread-stream-following-changed` |
 | 状态 | `thread-stream-state-changed` 的 snapshot / patches |
 | 新消息 | `thread-follower-start-turn` |
@@ -48,13 +50,15 @@ Windows 使用 CPython 标准库 `_winapi` 的 overlapped I/O 读取原始字节
 | 历史加载 | `thread-follower-load-complete-history` |
 | 授权与回答 | 对应的 command/file/permissions/user-input/MCP follower 方法 |
 
-SSH owner 在已验证版本中不能总由本地 owner 查询获得。网关先广播带 `hostId` 的订阅，从匹配会话的快照识别 owner，后续只接受该 owner 的状态。远端 follower 操作携带外层 `hostId`，协议版本按当前 App 约定调整。
+本地和 SSH 均先广播带 `hostId` 的订阅，从匹配会话的快照识别 owner，后续只接受该 owner 的状态。首次短等待结束后保留订阅，以接收延迟到达的快照；不把尚未加载的聊天当作历史读取错误。远端 follower 操作携带外层 `hostId`，协议版本按当前 App 约定调整。
 
 这些方法来自当前安装版本的协议适配，不代表 OpenAI 对该接口稳定性的承诺。仓库仅分发网关实现，不分发 App 包或提取出的 App 源文件。
 
 ## 状态与重连
 
 网页接收规范化后的会话快照。原生 patches 只有在 `baseRevision` 与本地一致时应用；失配时重新订阅完整快照。历史、工具输出、文件差异和待回答请求来自该状态。
+
+桌面分页快照只含最近若干轮时，展示层按首个重合 turn ID 保留保存历史的前缀，再接上实时内容；完整快照仍具有最终权威，可正确反映回退或删除。此合并不改变原生 patch 基础，也不从保存历史推断新的待授权请求。
 
 局域网默认使用 SSE，Cloudflare Quick Tunnel 使用有登录校验的长轮询；SSE 连续失败后也会回退。切换聊天时用代次标识排除旧连接回包，浏览器草稿和 Skill 选择按主机与会话隔离。
 
@@ -128,3 +132,9 @@ Windows `desktop/tray.cjs` 管理托盘状态、手机地址和两种退出动�
 Electron 主进程使用 qrcode 本地生成 PNG，渲染器接收图片、授权 ID 与有效期。每张地址卡片的折叠区域独立保留状态，收起撤销、刷新替换、轮询显示已使用/已过期；语言和常规状态刷新不重新签发。
 
 手机首次加载时捕获 `#pair=` 片段并立即通过 `history.replaceState` 清除，随后 `POST /api/pair` 换取 HttpOnly/SameSite Cookie 和 CSRF。兑换要求 HTTP Host 对应的完整 Origin 与授权源一致；HTTPS Cookie 使用 Secure。片段不会作为 HTTP 请求路径或查询串发送，接口也不记录请求体。手机失败时提供原有密码登录入口。二维码仅授予与普通登录相同的访问权限，不绕过 Codex 原生人工确认。
+
+## 桌面应用更新
+
+`desktop/updater.cjs` 从固定 GitHub Release 源获取签名清单，使用内置 Ed25519 公钥验证原始载荷，再流式下载并核对长度与 SHA-256。自动检查不自动安装；安装按钮只通过受来源校验的桌面 IPC 调用，HTTP 网关无更新管理接口。
+
+`bridge/updater.py` 负责原安装目录旁的准备、替换与恢复。准备阶段拒绝路径穿越和危险链接，核对包版本、平台、macOS 签名和内置运行时。独立复制的旧运行时等控制面板退出、协作停止原网关后替换目录，再等待新面板确认加载并恢复此前运行的网关。失败时尝试回滚；配置目录保持独立。发布签名身份和事务恢复操作见 [桌面更新文档](docs/desktop-updates.md)。

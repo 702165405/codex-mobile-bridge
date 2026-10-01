@@ -4,7 +4,7 @@ let connectionDraft=[],savedConnections='[]';
 let snapshot,dirty=false,loading=false,startingUntil=0,activeTab='overview',savedFields={},feedbackKind='',lastFeedback;
 const busyActions=new Set();
 let startPending=false,cloudflaredBusy=false,cloudflaredResult=null,cloudflaredProgress=null;
-const titles={overview:t('连接与状态'),network:t('网络与登录'),notifications:t('手机通知'),advanced:t('运行配置'),logs:t('运行日志')};
+const titles={overview:t('连接与状态'),network:t('网络与登录'),notifications:t('手机通知'),advanced:t('运行配置'),updates:t('应用更新'),logs:t('运行日志')};
 function fields(){return [...$('settings').querySelectorAll('input,textarea,select')].filter(node=>!node.closest('#connections')&&node.id!=='connection-kind');}
 function fieldValues(){return Object.fromEntries(fields().map(node=>[node.id,node.type==='checkbox'?node.checked:node.value]));}
 function updateDirty(){
@@ -23,7 +23,7 @@ function updateDirty(){
   document.querySelectorAll('[data-connection-action]').forEach(button=>button.disabled=dirty||busyActions.has(button.dataset.key)||!connectionDraft.find(c=>c.id===button.dataset.connection)?.enabled);
 }
 function feedback(text,error=false,kind=''){lastFeedback=[text,error,kind];text=t(text.replace(/^Error invoking remote method '[^']+': (?:Error: )?/,''));feedbackKind=kind;$('error').hidden=!error;$('feedback').hidden=error;const target=$(error?'error':'feedback');if(target.textContent!==text)target.textContent=text;}
-function tab(name){activeTab=name;document.querySelectorAll('[data-panel]').forEach(node=>node.hidden=node.dataset.panel!==name);document.querySelectorAll('[data-tab]').forEach(node=>node.classList.toggle('active',node.dataset.tab===name));$('page-title').textContent=t(titles[name]);if(snapshot)updateDirty();if(name==='logs')loadLogs();}
+function tab(name){activeTab=name;document.querySelectorAll('[data-panel]').forEach(node=>node.hidden=node.dataset.panel!==name);document.querySelectorAll('[data-tab]').forEach(node=>node.classList.toggle('active',node.dataset.tab===name));$('page-title').textContent=t(titles[name]);if(snapshot)updateDirty();if(name==='logs')loadLogs();if(snapshot)renderUpdate();}
 document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>tab(button.dataset.tab));
 document.querySelectorAll('[data-jump]').forEach(button=>button.onclick=()=>tab(button.dataset.jump));
 $('settings').oninput=$('settings').onchange=()=>{if(snapshot){updateDirty();}};
@@ -72,6 +72,7 @@ function render(value){
   for(const node of document.querySelectorAll('[data-connection-status]'))node.textContent=t(value.externalStatus?.[node.dataset.connectionStatus]?.message||(!running?t('网关未启动。可先保存配置并导出部署包。'):t('网关正在运行；固定入口是否可用，请点击检测。')));
   document.querySelectorAll('[data-pick]').forEach(button=>button.disabled=running);
   renderCloudflared();
+  renderUpdate();
 }
 async function refresh(){if(loading)return;loading=true;try{render(await api.snapshot());}catch(e){feedback(e.message,true);}finally{loading=false;}}
 function collect(){return {preferences:{autoStart:$('auto-start').checked,port:Number($('port').value),lan:$('lan').checked,connections:connectionDraft,cloudflared:$('cloudflared').value.trim(),codexHome:$('codex-home').value.trim(),ipcPath:$('ipc-path').value.trim(),codexBin:$('codex-bin').value.trim()},auth:{mode:$('auth-mode').value,username:$('username').value.trim(),password:$('password').value},origins:$('origins').value.split('\n').map(s=>s.trim()).filter(Boolean),notifications:{enabled:$('ntfy-enabled').checked,server:$('ntfy-server').value.trim(),topic:$('ntfy-topic').value.trim(),token:$('ntfy-token').value,clearToken:$('clear-token').checked,clickBase:$('click-base').value.trim(),includeTitle:$('include-title').checked}};}
@@ -133,7 +134,7 @@ $('quick-setup').onclick=()=>tab('advanced');
 $('cloudflared').oninput=()=>{renderCloudflared();updateDirty();};
 async function loadLogs(){try{$('log-output').textContent=(await api.logs()).text||t('暂无运行日志');$('log-output').scrollTop=0;}catch(e){feedback(e.message,true);}}
 $('refresh-logs').onclick=loadLogs;
-api.language().then(applyLanguage).catch(error=>feedback(error.message,true)).then(()=>refresh()).then(()=>{if(snapshot?.preferences.autoStart&&!snapshot.runtime.running&&!snapshot.runtime.portOccupied)$('start').click();});setInterval(refresh,3000);
+api.language().then(applyLanguage).catch(error=>feedback(error.message,true)).then(()=>refresh()).then(()=>{if(snapshot?.preferences.autoStart&&!snapshot.updateManaged&&!snapshot.runtime.running&&!snapshot.runtime.portOccupied)$('start').click();});setInterval(refresh,3000);
 
 function applyLanguage(value){
   BridgeI18n.setLanguage(value==='en'?'en':'zh');BridgeI18n.apply();
@@ -153,3 +154,38 @@ $('language').onchange=async()=>{
 };
 BridgeI18n.apply();
 $('add-connection').onclick=addConnection;
+
+const updateMessages={idle:'检查是否有新版本。',checking:'正在检查更新…',current:'当前已是最新可用版本。',available:'有新版本可用。',downloading:'正在下载更新…',preparing:'正在验证并准备更新…',restarting:'即将重启应用…',unsupported:'请使用安装版 App 检查更新。'};
+let updateBusy=false;
+function renderUpdate(){
+  const value=snapshot?.update;if(!value)return;
+  const busy=['downloading','preparing','restarting'].includes(value.state)||updateBusy;
+  $('update-version').textContent=t('当前版本：')+value.current+(value.version?' → '+value.version:'');
+  $('update-state').textContent=value.message?t(value.message):t(updateMessages[value.state]||'');
+  $('update-badge').hidden=value.state!=='available';
+  $('update-banner').hidden=value.state!=='available'||activeTab==='updates';
+  $('update-banner').textContent=t('发现新版本，点击查看：')+(value.version||'');
+  $('check-update').disabled=busy||value.state==='checking'||value.state==='unsupported';
+  $('install-update').hidden=!value.version||['current','unsupported'].includes(value.state);
+  $('install-update').disabled=busy||value.state==='checking';
+  $('update-notes').hidden=!value.notes;$('update-notes').textContent=value.notes||'';
+  $('update-progress').hidden=value.state!=='downloading';
+  $('update-progress').value=value.total?100*value.received/value.total:0;
+  const result=snapshot.updateResult;
+  $('update-result').hidden=!result;
+  $('update-result').textContent=result?(result.state==='updated'?t('已更新到 ')+result.version:result.recovered?t('上次更新未完成，已恢复原版本。')+' '+t(result.message):t('更新恢复未完成，请查看数据目录中的 desktop-update.log。')):'';
+  if(busy){
+    $('settings').inert=true;
+    for(const id of ['start','stop','choose-data','install-cloudflared'])$(id).disabled=true;
+  }else $('settings').inert=false;
+}
+$('check-update').onclick=async()=>{try{await api.checkUpdate();await refresh();}catch(error){feedback(error.message,true);}};
+$('install-update').onclick=async()=>{
+  if(updateBusy)return;
+  if(dirty){feedback('请先保存配置，再更新应用。',true);return;}
+  if(cloudflaredBusy||startPending||$('save').disabled||busyActions.size){feedback('请等待当前操作完成后再更新。',true);return;}
+  updateBusy=true;renderUpdate();
+  try{await api.installUpdate();await refresh();}catch(error){feedback(error.message,true);}
+  finally{updateBusy=false;renderUpdate();}
+};
+$('update-releases').onclick=()=>api.open('releases').catch(error=>feedback(error.message,true));

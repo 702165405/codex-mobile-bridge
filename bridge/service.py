@@ -13,7 +13,7 @@ from pathlib import Path
 from .ipc import DesktopIPC, IPCError
 from .transport import ipc_endpoint
 from .model import apply_patches, normalize_state, normalize_request, ordered_turns, async_requests
-from .store import SessionStore
+from .store import SessionStore, StoreUnavailable
 from .files import artifact_paths
 from .catalog import Catalog
 from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh_read, payload
@@ -27,10 +27,13 @@ class LiveSession:
         self.owner = None
         self.discovering = False
         self.state = None
+        self.saved_view = None
         self.revision = None
         self.sequence = 0
         self.connected = False
         self.connecting = False
+        self.activating = False
+        self.last_activation = None
         self.retry_at = 0
         self.error = None
         self.viewers = 0
@@ -38,6 +41,7 @@ class LiveSession:
         self.touched = time.monotonic()
         self.condition = threading.Condition(threading.RLock())
         self.attach_lock = threading.Lock()
+        self.activation_lock = threading.Lock()
         self.action_lock = threading.Lock()
         self.timeline = Timeline()
 
@@ -45,12 +49,28 @@ class LiveSession:
         self.sequence += 1
         self.condition.notify_all()
 
+    def set_history(self, state):
+        self.saved_view = normalize_state(state, False)
+        if self.state is None:
+            self.state = state
+        self.changed()
+
     def view(self):
         with self.condition:
             result = normalize_state(self.state or {"id": self.id}, self.connected)
+            # Native paginated snapshots only contain the loaded tail. Keep the
+            # saved prefix in the presentation, never in the IPC patch base.
+            if self.saved_view and not result['historyComplete']:
+                saved = self.saved_view['turns']
+                turns = result['turns']
+                first = next((i for i, turn in enumerate(saved) if turns and turn['id'] == turns[0]['id']), None)
+                if not turns or first is not None:
+                    result['turns'] = saved[:first] + turns if turns else saved
+                    result['historyComplete'] = True
             result["sequence"] = self.sequence
             result["connectionError"] = self.error
             result["connecting"] = self.connecting
+            result["activating"] = self.activating
             result["loadingHistory"] = self.state is None
             return result
 
@@ -160,7 +180,7 @@ class Bridge:
                         row['connected'] = bool(session and session.connected)
                         row['title'] = row.get('name') or row.get('title') or '未命名聊天'
                 return rows, None
-            except RemoteUnavailable as exc:
+            except (RemoteUnavailable, StoreUnavailable) as exc:
                 return [], {'host': bridge.host, 'label': label, 'error': str(exc)}
         with ThreadPoolExecutor(max_workers=min(4, len(sources))) as pool:
             results = list(pool.map(read, sources))
@@ -189,8 +209,7 @@ class Bridge:
             fallback = self.store.history(thread_id)
             with session.condition:
                 if session.state is None:
-                    session.state = fallback
-                    session.changed()
+                    session.set_history(fallback)
         return session
 
     def _refresh_async(self, session, force=False):
@@ -207,10 +226,8 @@ class Bridge:
                     try:
                         fallback = self.store.history(session.id)
                         with session.condition:
-                            if session.state is None:
-                                session.state = fallback
-                                session.changed()
-                    except (OSError, ValueError, KeyError, RemoteUnavailable):
+                            session.set_history(fallback)
+                    except (OSError, ValueError, KeyError, RemoteUnavailable, StoreUnavailable):
                         # A missing saved rollout must not prevent a live snapshot.
                         logging.getLogger(__name__).warning("Saved history unavailable; trying desktop snapshot")
                 if not self.closed.is_set():
@@ -226,38 +243,68 @@ class Bridge:
                     session.changed()
         threading.Thread(target=refresh, daemon=True).start()
 
-    def _attach(self, session):
+    def _attach(self, session, timeout=1.5):
         with session.attach_lock:
-            if session.connected:
+            if session.connected or self.closed.is_set():
                 return
             try:
-                if self.host == "local":
-                    owner = self.ipc.owner(session.id, self.host)
-                    with session.condition:
-                        session.owner = owner
-                        session.revision = None
-                    self.ipc.follow(session.id, owner, host=self.host)
-                else:
-                    # Remote owners publish snapshots but are not registered by local discovery.
-                    self.ipc.connect()
-                    with session.condition:
-                        session.owner = None
-                        session.revision = None
-                        session.discovering = True
-                    self.ipc.follow(session.id, None, host=self.host)
+                # Owners answer a follow with a fresh snapshot. This also works
+                # for remote/background owners absent from owner-discovery.
+                self.ipc.connect()
                 with session.condition:
-                    if not session.condition.wait_for(lambda: session.connected or self.closed.is_set(), timeout=8):
-                        raise IPCError("尚未收到桌面实时快照。请在电脑 App 打开此聊天后重新连接。")
+                    session.owner = None
+                    session.revision = None
+                    session.discovering = True
+                self.ipc.follow(session.id, None, host=self.host)
+                with session.condition:
+                    session.condition.wait_for(lambda: session.connected or self.closed.is_set(), timeout=timeout)
+                    # Keep following: a cold chat can publish after this short
+                    # wait. Missing live state does not make saved history fail.
             except IPCError as exc:
-                if self.host != "local":
-                    try:
-                        self.ipc.follow(session.id, None, False, host=self.host)
-                    except IPCError:
-                        pass
                 with session.condition:
                     session.discovering = False
                     session.connected = False
-                    session.error = "请先在电脑 Codex App 中打开这条聊天，再点击重新连接。" if "no-client-found" in str(exc) else str(exc)
+                    session.error = str(exc)
+                    session.changed()
+
+    def activate(self, thread_id):
+        """Explicit phone operation only; reads and notification watches never navigate."""
+        session = self.session(thread_id, background=True)
+        with session.activation_lock:
+            if session.connected:
+                return session
+            with session.condition:
+                session.activating = True
+                session.changed()
+            try:
+                # Reuse an in-flight passive attach before considering navigation.
+                self._attach(session)
+                if session.connected:
+                    return session
+                if self.closed.is_set():
+                    raise IPCError('网关正在停止；操作未发送，请稍后重试。')
+                if session.last_activation is not None and time.monotonic() - session.last_activation < 20:
+                    raise IPCError(session.error or '桌面仍在加载此聊天；操作未发送，请稍后重试。')
+                session.last_activation = time.monotonic()
+                try:
+                    open_in_desktop(session.id, self.host)
+                except (OSError, CreationError, subprocess.SubprocessError) as exc:
+                    raise IPCError('无法在电脑 Codex 中加载此聊天；操作未发送，请检查 Codex 是否已安装并运行。') from exc
+                deadline = time.monotonic() + 20
+                while not session.connected and not self.closed.is_set() and time.monotonic() < deadline:
+                    self._attach(session, timeout=.75)
+                    if not session.connected:
+                        self.closed.wait(.25)
+                if not session.connected:
+                    raise IPCError('桌面仍在加载此聊天；操作未发送，请稍后重试。')
+                return session
+            except IPCError as exc:
+                with session.condition:
+                    session.error = str(exc)
+                raise
+            finally:
+                with session.condition:
+                    session.activating = False
                     session.changed()
 
     def _event(self, message):
@@ -345,7 +392,7 @@ class Bridge:
                         if session.viewers != 0 or session.watched:
                             continue
                         self.live.pop(session.id, None)
-                    if session.connected:
+                    if session.connected or session.discovering:
                         try:
                             self.ipc.follow(session.id, session.owner, False, host=self.host)
                         except IPCError:
@@ -353,7 +400,7 @@ class Bridge:
             delay = 3 if self.ipc.client_id else min(30, delay * 2)
 
     def _target(self, thread_id):
-        session = self.session(thread_id)
+        session = self.activate(thread_id)
         with session.condition:
             if not session.connected or not session.owner:
                 raise IPCError(session.error or "请先在桌面 App 打开此聊天")
@@ -626,7 +673,7 @@ class Bridge:
             sessions = list(self.live.values())
         for session in sessions:
             try:
-                if session.connected:
+                if session.connected or session.discovering:
                     self.ipc.follow(session.id, session.owner, False, host=self.host)
             except IPCError:
                 pass

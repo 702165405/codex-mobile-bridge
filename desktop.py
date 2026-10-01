@@ -10,8 +10,9 @@ def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stdin.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'deployment', 'export-deployment', 'check-entry', 'pairing', 'serve'])
+    parser.add_argument('action', choices=['snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'deployment', 'export-deployment', 'check-entry', 'pairing', 'serve', 'update-prepare', 'update-apply'])
     parser.add_argument('--data-dir', required=True)
+    parser.add_argument('--plan')
     args = parser.parse_args()
     desktop = Desktop(args.data_dir)
     if args.action == 'serve':
@@ -20,7 +21,13 @@ def main():
         run.main(connections=desktop.preferences()['connections'])
         return
     try:
-        if args.action in ('save', 'deployment', 'export-deployment', 'check-entry', 'pairing'):
+        if args.action == 'update-prepare':
+            from bridge.updater import prepare
+            result = prepare(args.data_dir, json.loads(sys.stdin.read(100000)))
+        elif args.action == 'update-apply':
+            from bridge.updater import apply
+            result = apply(args.plan)
+        elif args.action in ('save', 'deployment', 'export-deployment', 'check-entry', 'pairing'):
             result = getattr(desktop, args.action.replace('-', '_'))(json.loads(sys.stdin.read(100000)))
         else:
             method = getattr(desktop, args.action.replace('-', '_'))

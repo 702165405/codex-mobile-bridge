@@ -1,5 +1,6 @@
 name: Desktop builds
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches: [main, feature/desktop-ntfy, codex/windows-desktop-app, integration/desktop-cross-platform]
@@ -26,6 +27,7 @@ jobs:
       - run: npm ci
       - run: python -B -m unittest discover -s tests -v
       - run: npm run test:desktop
+      - run: npm run test:updater
       - run: python scripts/build-desktop.py
       - if: runner.os == 'macOS'
         run: npx electron-builder --mac zip --publish never
@@ -52,6 +54,9 @@ jobs:
         run: npm run test:pairing
         env:
           CMB_TEST_RUNTIME: ${{ github.workspace }}/dist/gateway/codex-mobile-gateway.exe
+      - name: Exercise packaged update and recovery
+        shell: bash
+        run: node scripts/smoke-update.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ runner.os }}

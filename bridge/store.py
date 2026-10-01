@@ -1,24 +1,62 @@
 """Read-only discovery and history for existing desktop chats."""
 import json
+import logging
+import shutil
 import sqlite3
-from contextlib import closing
+import tempfile
+from contextlib import closing, contextmanager, ExitStack
 from pathlib import Path
+
+
+class StoreUnavailable(RuntimeError):
+    pass
 
 
 class SessionStore:
     def __init__(self, codex_home):
         self.home = Path(codex_home).resolve()
 
+    @contextmanager
     def _connect(self):
-        databases = sorted(self.home.glob("state_*.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
-        if not databases:
-            raise RuntimeError("找不到 Codex 会话数据库")
-        conn = sqlite3.connect(databases[0].as_uri() + "?mode=ro", uri=True, timeout=3)
-        conn.row_factory = sqlite3.Row
-        return conn
+        database = None
+        try:
+            databases = sorted(self.home.glob("state_*.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if not databases:
+                raise StoreUnavailable("暂时找不到 Codex 会话数据库，请打开电脑 Codex 后重试。")
+            database = databases[0]
+            with ExitStack() as stack:
+                target = database
+                wal = Path(str(database) + '-wal')
+                with database.open('rb') as source:
+                    wal_mode = source.read(20)[18:20] == b'\x02\x02'
+                if wal_mode and not wal.exists():
+                    # macOS SQLite can fail on a read-only WAL database with no
+                    # sidecars. Read a stable, private copy; never initialize or
+                    # mark the live database immutable, which would miss WAL data.
+                    def fingerprint():
+                        stat = database.stat()
+                        return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+                    before = fingerprint()
+                    folder = stack.enter_context(tempfile.TemporaryDirectory(prefix='codex-mobile-history-'))
+                    target = Path(folder) / 'history.sqlite'
+                    if wal.exists():
+                        raise StoreUnavailable("Codex 会话数据库正在更新，请稍后重试。")
+                    shutil.copyfile(database, target)
+                    if wal.exists() or fingerprint() != before:
+                        raise StoreUnavailable("Codex 会话数据库正在更新，请稍后重试。")
+                mode = 'ro' if target == database else 'rw'
+                conn = stack.enter_context(closing(sqlite3.connect(target.as_uri() + '?mode=' + mode, uri=True, timeout=3)))
+                conn.row_factory = sqlite3.Row
+                yield conn
+        except (OSError, sqlite3.Error) as exc:
+            logging.getLogger(__name__).warning('Session database read failed: database=%s sqlite=%s wal=%s shm=%s error=%s',
+                database, getattr(exc, 'sqlite_errorname', type(exc).__name__),
+                bool(database and Path(str(database) + '-wal').exists()),
+                bool(database and Path(str(database) + '-shm').exists()), exc)
+            raise StoreUnavailable("暂时无法读取 Codex 会话数据库，请稍后重试或重新打开电脑 Codex。") from exc
 
     def list(self, query="", limit=100, offset=0, archived=False):
-        with closing(self._connect()) as conn:
+        with self._connect() as conn:
             columns = {r[1] for r in conn.execute("PRAGMA table_info(threads)")}
             fields = [name for name in ("id", "name", "title", "cwd", "updated_at", "updated_at_ms", "recency_at", "recency_at_ms", "model_provider", "model", "originator", "source", "archived", "is_pinned") if name in columns]
             where = ["archived = ?"]
@@ -39,7 +77,7 @@ class SessionStore:
             return [dict(row) for row in rows]
 
     def get(self, thread_id):
-        with closing(self._connect()) as conn:
+        with self._connect() as conn:
             row = conn.execute("SELECT * FROM threads WHERE id = ?", (thread_id,)).fetchone()
             if not row:
                 raise KeyError("找不到这个桌面会话")

@@ -244,3 +244,22 @@ test('missing Cloudflare opens setup before start and installing preserves draft
   assert.equal(ui.nodes.get('password').value,'unsaved password');assert.equal(ui.nodes.get('ntfy-topic').value,'draft-topic');
   assert.match(ui.nodes.get('feedback').textContent,/保存配置/);
 });
+
+
+test('update UI blocks installation while settings are unsaved and preserves drafts',async()=>{
+  const ui=await renderer();let installs=0;ui.api.installUpdate=async()=>{installs++;};
+  ui.value.update={state:'available',current:'0.2.0-beta.5',version:'0.2.0-beta.6',notes:'<b>plain text</b>'};
+  await ui.poll();ui.run("connectionDraft=[{id:'unsaved'}];updateDirty()");
+  await ui.nodes.get('install-update').onclick();assert.equal(installs,0);
+  assert.match(ui.nodes.get('error').textContent,/先保存/);
+  assert.equal(ui.nodes.get('update-notes').textContent,'<b>plain text</b>');
+  ui.context.applyLanguage('en');assert.equal(ui.context.collect().preferences.connections[0].id,'unsaved');
+});
+
+test('download and retry states disable updates without permanently locking settings',async()=>{
+  const ui=await renderer();
+  ui.value.update={state:'downloading',current:'0.2.0-beta.5',version:'0.2.0-beta.6',received:20,total:100};
+  await ui.poll();assert.equal(ui.nodes.get('install-update').disabled,true);assert.equal(ui.nodes.get('settings').inert,true);assert.equal(ui.nodes.get('update-progress').value,20);
+  ui.value.update.state='error';ui.value.update.message='download failed';await ui.poll();
+  assert.equal(ui.nodes.get('install-update').disabled,false);assert.equal(ui.nodes.get('settings').inert,false);
+});

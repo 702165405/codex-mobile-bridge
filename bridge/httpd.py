@@ -20,6 +20,7 @@ from .pairing import Pairing
 from .auth import Auth
 from .ipc import IPCError
 from .catalog import CatalogError
+from .store import StoreUnavailable
 from .remote import RemoteUnavailable
 from .create import CreationError
 
@@ -278,7 +279,10 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("请求回应格式不正确")
                 result = bridge.respond(thread_id, body.get("requestId"), response)
             elif action == "reconnect":
-                if body.get('progressive'):
+                if body.get('activate') is True:
+                    session = bridge.activate(thread_id)
+                    result = {'ok': True, 'connected': session.connected}
+                elif body.get('progressive'):
                     bridge.session(thread_id, background=True, force=True)
                     result = {'ok': True}
                 else:
@@ -297,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self.close_connection = True
             self.output(400, {"error": str(exc)})
-        except (IPCError, CatalogError, RemoteUnavailable, CreationError) as exc:
+        except (IPCError, CatalogError, RemoteUnavailable, CreationError, StoreUnavailable) as exc:
             self.close_connection = True
             self.output(409, {"error": str(exc), "code": "desktop_unavailable"})
         except (BrokenPipeError, ConnectionResetError, socket.timeout):

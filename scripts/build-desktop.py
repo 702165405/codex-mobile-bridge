@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build on the target OS; use a project-local venv with requirements-desktop.txt."""
 import os
+import json
+import platform
 import subprocess
 import sys
 from importlib.metadata import distribution
@@ -25,3 +27,5 @@ import shutil
 shutil.rmtree(root/'dist/gateway', ignore_errors=True)
 source.rename(root/'dist/gateway')
 print('Gateway runtime ready:', root/'dist/gateway')
+
+(root/'dist/update-version.json').write_text(json.dumps({'version': json.loads((root/'package.json').read_text())['version'], 'platform': sys.platform, 'arch': {'aarch64':'arm64', 'arm64':'arm64', 'AMD64':'x64', 'x86_64':'x64'}.get(platform.machine(), platform.machine())}))

@@ -1,0 +1,68 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict');
+const fs=require('node:fs/promises'),path=require('node:path');
+const {generateKeyPairSync,sign,createHash}=require('node:crypto');
+const {Updater,manifest,compare,assetName,releaseUrl,allowedUrl,RELEASES}=require('../desktop/updater.cjs');
+const keys=generateKeyPairSync('ed25519');
+const current='0.2.0-beta.5',next='0.2.0-beta.6',platform='darwin',arch='arm64';
+function signed(value,key=keys.privateKey){const payload=Buffer.from(JSON.stringify(value));return Buffer.from(JSON.stringify({payload:payload.toString('base64'),signature:sign(null,payload,key).toString('base64')}));}
+const bytes=Buffer.from('fixture zip');
+const info=()=>({schema:1,version:next,notes:'Notes <script> are text',assets:{'darwin-arm64':{name:assetName(next,platform,arch),size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}}});
+const validate=value=>manifest(value,keys.publicKey,{current,platform,arch,expected:next});
+test('versions order beta, rc and stable numerically and reject ambiguous versions',()=>{
+  assert.ok(compare('0.2.0-beta.10','0.2.0-beta.9')>0);assert.ok(compare('0.2.0-rc.0','0.2.0-beta.99')>0);
+  assert.ok(compare('0.2.0','0.2.0-rc.99')>0);assert.ok(compare('0.3.0-beta.0','0.2.99')>0);
+  for(const bad of ['v0.2.0','0.2','0.2.0-beta','0.02.0','0.2.0-beta.01','1.0.0/../../'])assert.throws(()=>compare(bad,current));
+});
+test('signatures authenticate exact payload and reject another release identity',()=>{
+  assert.equal(validate(signed(info())).version,next);
+  const envelope=JSON.parse(signed(info()));envelope.payload=Buffer.from(JSON.stringify({...info(),notes:'tampered'})).toString('base64');
+  assert.throws(()=>validate(Buffer.from(JSON.stringify(envelope))),/签名/);
+  assert.throws(()=>validate(signed(info(),generateKeyPairSync('ed25519').privateKey)),/签名/);
+});
+test('manifest rejects downgrades, wrong architecture, incomplete hashes and filename injection',()=>{
+  const data=info();data.version=current;assert.throws(()=>validate(signed(data)),/版本/);
+  for(const patch of [{name:'../../app.zip'},{size:0},{sha256:'123'}]){
+    const value=info();Object.assign(value.assets['darwin-arm64'],patch);assert.throws(()=>validate(signed(value)),/校验/);
+  }
+  assert.throws(()=>manifest(signed(info()),keys.publicKey,{current,platform,arch:'x64',expected:next}),/校验/);
+  assert.throws(()=>manifest(signed(info()),keys.publicKey,{current:'0.1.0',platform,arch,expected:next}),/版本/);
+});
+test('network allowlist rejects external destinations, credentials and non-HTTPS URLs',()=>{
+  assert.equal(allowedUrl(RELEASES),RELEASES);
+  assert.ok(allowedUrl(releaseUrl(next,'bridge-update.json')));
+  for(const url of ['http://github.com/try2love/codex-mobile-bridge/releases/download/v1/x','https://evil.example/update','https://user@github.com/try2love/codex-mobile-bridge/releases/download/v1/x','https://github.com/other/repo/releases/download/v1/x'])assert.throws(()=>allowedUrl(url));
+});
+async function fixture(t,{packageBytes=bytes,releases,key=keys.publicKey,apply=async()=>{}}={}){
+  await fs.mkdir(path.join(__dirname,'../.tmp'),{recursive:true});const directory=await fs.mkdtemp(path.join(__dirname,'../.tmp/update-test-'));
+  t.after(()=>fs.rm(directory,{recursive:true,force:true}));const requests=[];let installed=0;
+  const fetch=async url=>{requests.push(url);return new Response(url===RELEASES?JSON.stringify(releases||[{tag_name:'v'+next,assets:[{name:'bridge-update.json'}]}]):url.endsWith('.json')?signed(info()):packageBytes);};
+  const updater=new Updater({current,platform,arch,key,fetch,directory,install:async value=>{installed++;assert.equal(await fs.readFile(value.archive,'utf8'),bytes.toString());await apply(value);}});
+  return {updater,requests,directory,installed:()=>installed};
+}
+test('checking never installs and installation only receives verified bytes',async t=>{
+  const f=await fixture(t);assert.equal((await f.updater.check()).state,'available');assert.equal(f.installed(),0);
+  assert.equal((await f.updater.install()).state,'restarting');assert.equal(f.installed(),1);assert.deepEqual(await fs.readdir(f.directory),[]);
+});
+test('corrupt and truncated downloads cannot stop the gateway or invoke installation',async t=>{
+  for(const packageBytes of [Buffer.from('fixture bad'),Buffer.from('short'),Buffer.alloc(100)]){
+    const f=await fixture(t,{packageBytes});await f.updater.check();assert.equal((await f.updater.install()).state,'error');assert.equal(f.installed(),0);assert.deepEqual(await fs.readdir(f.directory),[]);
+  }
+});
+test('concurrent update clicks cause a single installation; checking cannot replace an active update',async t=>{
+  let done;const wait=new Promise(resolve=>{done=resolve;});const f=await fixture(t,{apply:()=>wait});await f.updater.check();
+  const pending=f.updater.install();await new Promise(setImmediate);await f.updater.install();await f.updater.check();done();await pending;assert.equal(f.installed(),1);
+});
+test('unpublished/draft releases are excluded and stable users stay on stable',async t=>{
+  const f=await fixture(t,{releases:[{tag_name:'v99.0.0',draft:true,assets:[{name:'bridge-update.json'}]},{tag_name:'v98.0.0',assets:[]}]});
+  assert.equal((await f.updater.check()).state,'current');assert.equal(f.requests.length,1);
+  f.updater.current='0.1.0';f.updater.fetch=async()=>new Response(JSON.stringify([{tag_name:'v'+next,prerelease:true,assets:[{name:'bridge-update.json'}]}]));
+  assert.equal((await f.updater.check()).state,'current');
+});
+test('a signature failure leaves no installable candidate',async t=>{
+  const f=await fixture(t,{key:generateKeyPairSync('ed25519').publicKey});assert.equal((await f.updater.check()).state,'error');await assert.rejects(f.updater.install(),/检查/);assert.equal(f.installed(),0);
+});
+test('failed preparation reports an error and preserves the candidate for retry',async t=>{
+  let tries=0;const f=await fixture(t,{apply:async()=>{if(!tries++)throw Error('unwritable directory');}});await f.updater.check();
+  assert.equal((await f.updater.install()).message,'unwritable directory');assert.equal((await f.updater.install()).state,'restarting');
+});

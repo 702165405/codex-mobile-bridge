@@ -3,6 +3,7 @@ import unittest
 
 from bridge.model import normalize_state
 from bridge.timeline import Timeline, PAGE_BYTES, DETAIL_CHARS
+from bridge.service import LiveSession
 
 
 def view(count=320, sequence=1):
@@ -12,6 +13,33 @@ def view(count=320, sequence=1):
 
 
 class TimelineTests(unittest.TestCase):
+    def test_partial_desktop_snapshot_keeps_saved_prefix_without_changing_patch_state(self):
+        session = LiveSession('chat')
+        saved = {'id': 'chat', 'turns': [
+            {'turnId': str(i), 'items': [{'type': 'agentMessage', 'id': str(i), 'text': 'saved '+str(i)}]}
+            for i in range(3)]}
+        with session.condition:
+            session.set_history(saved)
+            session.state = {'id': 'chat', 'turns': [
+                {'turnId': '2', 'items': [{'type': 'agentMessage', 'id': '2', 'text': 'live'}]}],
+                'turnsPagination': {'hasLoadedOldest': False}, 'requests': []}
+            session.connected = True
+        result = session.view()
+        self.assertEqual([t['id'] for t in result['turns']], ['0', '1', '2'])
+        self.assertEqual(result['turns'][-1]['messages'][0]['text'], 'live')
+        self.assertEqual(len(session.state['turns']), 1)
+        self.assertTrue(result['historyComplete'])
+        # A subsequent authoritative complete snapshot (including rollback) wins.
+        session.state['turnsPagination']['hasLoadedOldest'] = True
+        self.assertEqual([t['id'] for t in session.view()['turns']], ['2'])
+
+    def test_empty_incomplete_snapshot_does_not_clear_saved_history(self):
+        session = LiveSession('chat')
+        with session.condition:
+            session.set_history({'id': 'chat', 'turns': [{'turnId': 'old', 'items': []}]})
+            session.state = {'id': 'chat', 'turns': [], 'turnsPagination': {'hasLoadedOldest': False}}
+        self.assertEqual([t['id'] for t in session.view()['turns']], ['old'])
+
     def test_initial_backfill_and_older_are_contiguous_despite_new_arrivals(self):
         timeline = Timeline()
         timeline.update(view())

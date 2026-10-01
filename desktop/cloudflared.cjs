@@ -22,17 +22,17 @@ function allowedUrl(value){
   if(!valid)throw Error('下载地址未通过官方来源检查。');
   return url.href;
 }
-function electronFetch(net){
+function electronFetch(net,validate=allowedUrl){
   // net.fetch cancels manual redirects instead of returning their Location.
   // net.request lets us inspect each hop before following it, with system proxy support.
   return (url,{signal,headers})=>new Promise((resolve,reject)=>{
-    const request=net.request({url:allowedUrl(url),redirect:'manual',credentials:'omit',useSessionCookies:false});
+    const request=net.request({url:validate(url),redirect:'manual',credentials:'omit',useSessionCookies:false});
     let redirects=0;
     const abort=()=>{reject(signal.reason);request.abort();};
     request.on('error',reject);
     request.on('close',()=>signal.removeEventListener('abort',abort));
     request.on('redirect',(_status,_method,next)=>{
-      try{allowedUrl(next);if(++redirects>5)throw Error('官方下载跳转次数过多。');request.followRedirect();}
+      try{validate(next);if(++redirects>5)throw Error('官方下载跳转次数过多。');request.followRedirect();}
       catch(error){reject(error);request.abort();}
     });
     request.on('response',response=>{

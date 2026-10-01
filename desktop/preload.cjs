@@ -1,6 +1,8 @@
 'use strict';
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('bridgeDesktop',{
+  checkUpdate:()=>ipcRenderer.invoke('bridge:check-update'),
+  installUpdate:()=>ipcRenderer.invoke('bridge:install-update'),
   language:()=>ipcRenderer.invoke('bridge:language'),
   setLanguage:value=>ipcRenderer.invoke('bridge:set-language',value),
   pairing:value=>ipcRenderer.invoke('bridge:pairing',value),

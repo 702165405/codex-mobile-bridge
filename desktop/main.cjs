@@ -8,15 +8,19 @@ const {pairingImage}=require('./qr.cjs');
 const {createTray}=require('./tray.cjs');
 const {normalize,translate}=require('./i18n.js');
 const cloudflared=require('./cloudflared.cjs');
+const {Updater,allowedUrl}=require('./updater.cjs');
+const {spawn}=require('node:child_process');
+const {randomUUID}=require('node:crypto');
 let language='zh-CN';
 const t=text=>translate(text,language);
 const root=path.resolve(__dirname,'..');
 // An explicit data directory also keeps test caches inside the project.
 if(process.env.CMB_DATA_DIR)app.setPath('userData',path.join(path.resolve(process.env.CMB_DATA_DIR),'desktop-runtime'));
-let window,dataDir,tray,quitting=false,snapshotPending;
-let installPending,installStatus={};
+let window,dataDir,tray,quitting=false,snapshotPending,lastSnapshot,updateQuitting=false;
+let installPending,installStatus={},updater,workerWrites=0;
 const entry=pathToFileURL(path.join(__dirname,'index.html')).href;
 function loadDataDir(){
+  if(process.env.CMB_UPDATE_DATA_DIR)return path.resolve(process.env.CMB_UPDATE_DATA_DIR);
   if(process.env.CMB_DATA_DIR)return path.resolve(process.env.CMB_DATA_DIR);
   const saved=path.join(app.getPath('userData'),'bridge-location.json');
   if(fs.existsSync(saved))return JSON.parse(fs.readFileSync(saved,'utf8')).dataDir;
@@ -27,11 +31,50 @@ function loadDataDir(){
 function authorize(event){
   if(!window||event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!==entry)throw Error('不允许的界面来源');
 }
+function updateResult(){try{return JSON.parse(fs.readFileSync(path.join(dataDir,'desktop-update-result.json'),'utf8'));}catch{return null;}}
+let updateHandoffPending=!!process.env.CMB_UPDATE_TRANSACTION;
+function updateManaged(){
+  if(updateHandoffPending&&fs.existsSync(path.join(process.env.CMB_UPDATE_TRANSACTION,'result.json')))updateHandoffPending=false;
+  return updateHandoffPending;
+}
 function worker(action,payload){
+  if(action==='snapshot'&&updateQuitting)return Promise.resolve({...lastSnapshot,update:updater.status()});
+  const writes=['save','start','stop'].includes(action);
+  if(writes&&updater?.busy)return Promise.reject(Error('正在更新应用，请稍候。'));
+  if(writes)workerWrites++;
   if(action==='snapshot'&&snapshotPending)return snapshotPending;
-  const result=runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload).then(value=>action==='snapshot'?{...value,cloudflaredInstall:installStatus}:value);
-  if(action==='snapshot')snapshotPending=result.finally(()=>{snapshotPending=null;});
+  const result=runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload).then(value=>action==='snapshot'?{...value,cloudflaredInstall:installStatus,update:updater?.status(),updateResult:updateResult(),updateManaged:updateManaged()}:value).finally(()=>{if(writes)workerWrites--;});
+  if(action==='snapshot')snapshotPending=result.then(value=>{lastSnapshot=value;return value;}).finally(()=>{snapshotPending=null;});
   return action==='snapshot'?snapshotPending:result;
+}
+async function installUpdate(candidate){
+  const target=process.platform==='darwin'?path.resolve(process.execPath,'../../..'):path.dirname(process.execPath);
+  const token=randomUUID();
+  const prepared=await worker('update-prepare',{archive:candidate.archive,sha256:candidate.asset.sha256,version:candidate.version,
+    platform:process.platform,arch:process.arch,target,parentPid:process.pid,token});
+  // Preserve selected data location even when an old local bundle carried it inside Resources.
+  fs.mkdirSync(app.getPath('userData'),{recursive:true});
+  fs.writeFileSync(path.join(app.getPath('userData'),'bridge-location.json'),JSON.stringify({dataDir}),{mode:0o600});
+  const log=fs.openSync(path.join(dataDir,'desktop-update.log'),'a',0o600);
+  const child=spawn(prepared.helper,['update-apply','--data-dir',dataDir,'--plan',prepared.plan],{
+    detached:true,windowsHide:true,stdio:['ignore',log,log],env:{...process.env,PYINSTALLER_RESET_ENVIRONMENT:'1'}});
+  fs.closeSync(log);
+  let spawnError;child.on('error',error=>{spawnError=error;});child.unref();
+  const ready=path.join(path.dirname(prepared.plan),'ready.json'),end=Date.now()+15000;
+  while(Date.now()<end){
+    if(spawnError)throw spawnError;
+    if(child.exitCode!==null)throw Error('无法启动应用更新进程。');
+    try{if(JSON.parse(fs.readFileSync(ready,'utf8')).token===token){updateQuitting=true;if(snapshotPending)await snapshotPending;setTimeout(()=>app.quit(),300);return;}}catch{}
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  throw Error('无法启动应用更新进程。');
+}
+function setupUpdater(){
+  updater=new Updater({current:app.getVersion(),key:fs.readFileSync(path.join(__dirname,'update-public-key.pem')),
+    fetch:cloudflared.electronFetch(net,allowedUrl),directory:path.join(app.getPath('userData'),'updates'),
+    supported:app.isPackaged&&['darwin','win32'].includes(process.platform),install:installUpdate});
+  setTimeout(()=>updater.check(),5000).unref();
+  setInterval(()=>updater.check(),6*60*60*1000).unref();
 }
 function showWindow(){
   if(!window)createWindow();
@@ -39,6 +82,12 @@ function showWindow(){
   window.show();window.focus();
 }
 function register(){
+  ipcMain.handle('bridge:check-update',event=>{authorize(event);return updater.check();});
+  ipcMain.handle('bridge:install-update',event=>{
+    authorize(event);
+    if(installPending||workerWrites||updateManaged())throw Error('请等待当前操作完成后再更新。');
+    return updater.install();
+  });
   ipcMain.handle('bridge:language',event=>{authorize(event);return language;});
   ipcMain.handle('bridge:set-language',(event,value)=>{
     authorize(event);
@@ -49,7 +98,7 @@ function register(){
   });
   for(const action of ['snapshot','save','start','stop','logs','test-notification','check-entry'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
   ipcMain.handle('bridge:install-cloudflared',async event=>{
-    authorize(event);if(installPending)return installPending;
+    authorize(event);if(updater.busy)throw Error('正在更新应用，请稍候。');if(installPending)return installPending;
     installPending=(async()=>{
       if((await worker('snapshot')).runtime.running)throw Error('请先停止网关再安装 cloudflared。');
       return cloudflared.install({dataDir,fetch:cloudflared.electronFetch(net),onProgress:value=>{installStatus=value;}});
@@ -91,6 +140,7 @@ function register(){
     if(result.canceled)return null;
     const selected=result.filePaths[0];
     if(kind==='data'){
+      if(updater.busy)throw Error('正在更新应用，请稍候。');
       if(installPending)throw Error('正在安装 cloudflared，请完成后再切换数据目录。');
       installStatus={};
       dataDir=selected;fs.mkdirSync(app.getPath('userData'),{recursive:true});
@@ -100,6 +150,7 @@ function register(){
   });
   ipcMain.handle('bridge:open',async(event,target)=>{
     authorize(event);
+    if(target==='releases')return shell.openExternal('https://github.com/try2love/codex-mobile-bridge/releases');
     if(target==='credentials')return shell.openPath(path.join(dataDir,'首次登录.txt'));
     if(target==='data')return shell.openPath(dataDir);
     if(target==='cloudflare-help')return shell.openExternal('https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/');
@@ -118,6 +169,13 @@ function createWindow(){
   window=new BrowserWindow({width:1100,height:850,minWidth:820,minHeight:640,title:'Codex 手机网关',icon:path.join(__dirname,'assets/icon.png'),backgroundColor:'#f6f7f9',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate',event=>event.preventDefault());
+  window.webContents.once('did-finish-load',async()=>{
+    if(!process.env.CMB_UPDATE_TRANSACTION)return;
+    try{
+      await worker('snapshot');
+      fs.writeFileSync(path.join(process.env.CMB_UPDATE_TRANSACTION,'ack.json'),JSON.stringify({token:process.env.CMB_UPDATE_TOKEN,version:app.getVersion(),dataDir}),{mode:0o600});
+    }catch{} // Missing acknowledgement makes the independent helper restore the old app.
+  });
   window.loadFile(path.join(__dirname,'index.html'));
   window.on('close',event=>{if(tray&&!quitting){event.preventDefault();window.hide();}});
   window.on('closed',()=>{window=null;});
@@ -129,7 +187,7 @@ else{
   app.whenReady().then(()=>{
     language=normalize(app.getLocale());
     try{language=normalize(JSON.parse(fs.readFileSync(path.join(app.getPath('userData'),'language.json'),'utf8')).language);}catch{}
-    dataDir=loadDataDir();register();
+    dataDir=loadDataDir();setupUpdater();register();
     if(process.platform==='win32'){
       app.setAppUserModelId('io.github.try2love.codexmobilebridge');
       tray=createTray({Tray,Menu,icon:path.join(__dirname,'assets/icon.ico'),show:showWindow,worker,t,

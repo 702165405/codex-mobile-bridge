@@ -25,7 +25,7 @@ class ChatTimeline {
     this.resize=new ResizeObserver(()=>this.restore(this.anchor,this.following));
     this.resize.observe(this.container);
   }
-  dispose(){this.abort.abort();this.resize.disconnect();this.viewport.removeEventListener('scroll',this.onScroll);this.newer.hidden=true;}
+  dispose(){this.abort.abort();clearTimeout(this.startRetry);this.resize.disconnect();this.viewport.removeEventListener('scroll',this.onScroll);this.newer.hidden=true;}
   atBottom(){return this.viewport.scrollHeight-this.viewport.scrollTop-this.viewport.clientHeight<110;}
   nearTop(){const nodes=[...this.container.children];return nodes.length>0&&nodes.slice(0,11).some(n=>n.getBoundingClientRect().bottom>=this.viewport.getBoundingClientRect().top);}
   capture(){const top=this.viewport.getBoundingClientRect().top;const node=[...this.container.children].find(n=>n.getBoundingClientRect().bottom>top);return node?{key:node.dataset.key,offset:node.getBoundingClientRect().top-top}:null;}
@@ -42,6 +42,8 @@ class ChatTimeline {
   }
   read(action,params={}){return this.request(this.url(action)+'&'+new URLSearchParams(params),undefined,this.abort.signal);}
   async start(){
+    if(this.starting||this.abort.signal.aborted)return;
+    clearTimeout(this.startRetry);this.starting=true;
     this.older.hidden=false;this.older.disabled=true;this.older.textContent=timelineText('正在读取最近内容…');
     try{
       const page=await this.read('timeline',{limit:20});
@@ -49,7 +51,8 @@ class ChatTimeline {
       this.apply(page,true);this.updates();
       // Give the first 20 records a paint before quietly filling the 100-row window.
       requestAnimationFrame(()=>requestAnimationFrame(()=>this.fillRecent()));
-    }catch(e){if(this.abort.signal.aborted)return;this.older.disabled=false;this.older.textContent=timelineText('读取失败，点击重试');this.status(e.message);}
+    }catch(e){if(this.abort.signal.aborted)return;this.older.disabled=false;this.older.textContent=timelineText('读取失败，点击重试');this.status(e.message);this.startRetry=setTimeout(()=>this.start(),3000);}
+    finally{this.starting=false;}
   }
   fillRecent(){if(!this.abort.signal.aborted&&this.rows.size>0&&this.rows.size<100&&!this.retryCount)this.loadOlder(100-this.rows.size);}
   historyStatus(){this.older.hidden=!this.hasMore;this.older.disabled=this.busy;this.older.textContent=this.busy?timelineText('正在读取更早内容…'):this.retryCount?timelineText('历史加载失败，点击重试'):timelineText('查看更早内容');}
