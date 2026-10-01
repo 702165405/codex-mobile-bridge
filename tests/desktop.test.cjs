@@ -3,6 +3,15 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const path=require('node:path');
 const {workerFor,runWorker}=require('../desktop/controller.cjs');
 const {createTray,primaryUrl}=require('../desktop/tray.cjs');
+const i18n=require('../desktop/i18n.js');
+
+test('language normalization and error translation preserve unknown details',()=>{
+  assert.equal(i18n.normalize('en-US'),'en');assert.equal(i18n.normalize('zh-TW'),'zh-CN');
+  assert.equal(i18n.normalize(null),'zh-CN');
+  assert.equal(i18n.translate('运行中','en'),'Running');
+  assert.equal(i18n.translate("Error invoking remote method 'bridge:save': Error: 新密码至少需要 12 个字符",'en'),'The new password must contain at least 12 characters');
+  assert.equal(i18n.translate('C:\\private\\未知.log','en'),'C:\\private\\未知.log');
+});
 
 test('tray prefers public HTTPS and rejects non-web addresses',()=>{
   assert.equal(primaryUrl(['file:///private','http://127.0.0.1:8787','http://192.168.1.2:8787']),'http://192.168.1.2:8787');
@@ -10,13 +19,13 @@ test('tray prefers public HTTPS and rejects non-web addresses',()=>{
   assert.equal(primaryUrl(['javascript:alert(1)','https://user:pass@example.com']),undefined);
 });
 
-async function trayFixture(){
+async function trayFixture(t){
   let menu,timer,destroyed=false,cleared=false,quit=false,opened=false,copied,error,failStop=false;
   const state={runtime:{running:true},urls:['http://127.0.0.1:8787','https://example.com']};
   const actions=[];
   const tray=createTray({
     Tray:class{on(){}setToolTip(){}setContextMenu(value){menu=value;}destroy(){destroyed=true;}},
-    Menu:{buildFromTemplate:value=>value},icon:'icon',show:()=>{opened=true;},
+    Menu:{buildFromTemplate:value=>value},icon:'icon',show:()=>{opened=true;},t,
     worker:async action=>{if(action==='snapshot')return state;actions.push(action);if(failStop)throw Error('stop failed');state.runtime.running=false;},
     open:async()=>{opened=true;},copy:async value=>{copied=value;},quit:()=>{quit=true;},onError:value=>{error=value;},
     setTimer:callback=>{timer=callback;return 1;},clearTimer:()=>{cleared=true;},
@@ -30,6 +39,13 @@ test('tray can stop then quit and dispose without duplicate operations',async()=
   const ui=await trayFixture();await ui.find('复制手机').click();assert.equal(ui.result().copied,'https://example.com');
   await ui.find('停止网关').click();assert.deepEqual(ui.actions,['stop']);assert.equal(ui.result().quit,true);
   ui.tray.dispose();assert.equal(ui.result().destroyed,true);assert.equal(ui.result().cleared,true);
+});
+
+test('tray can relabel without changing gateway state',async()=>{
+  let language='zh-CN';const ui=await trayFixture(text=>i18n.translate(text,language));
+  assert.ok(ui.find('打开控制面板'));language='en';ui.tray.relabel();
+  assert.ok(ui.find('Open control panel'));assert.ok(ui.find('Stop gateway and quit'));
+  assert.deepEqual(ui.actions,[]);ui.tray.dispose();
 });
 
 test('tray never quits after a failed stop or stops an unmanaged port',async()=>{
@@ -55,7 +71,7 @@ async function renderer(){
   const fs=require('node:fs'),vm=require('node:vm');
   const nodes=new Map();
   function node(){return {value:'',checked:false,hidden:false,textContent:'',dataset:{},
-    classList:{toggle(){}},append(){},replaceChildren(){},setAttribute(){},querySelectorAll(){return [];}};}
+    classList:{toggle(){}},append(){},prepend(){},replaceChildren(){},setAttribute(){},querySelectorAll(){return [];}};}
   const html=fs.readFileSync(path.join(__dirname,'../desktop/index.html'),'utf8');
   for(const match of html.matchAll(/\bid="([^"]+)"/g))nodes.set(match[1],node());
   const value={runtime:{running:false,portOccupied:false,supportsNotifications:true},
@@ -63,10 +79,10 @@ async function renderer(){
     auth:{mode:'password',username:'admin'},notifications:{enabled:false,server:'https://ntfy.sh',topic:''},
     notificationStatus:{},watches:[],origins:[],urls:[],dataDir:'/test',credentialsAvailable:false};
   let now=1000,poll;
-  const api={snapshot:async()=>structuredClone(value),start:async()=>({started:true,message:'正在启动网关'}),
+  const api={language:async()=>'zh-CN',setLanguage:async value=>value,snapshot:async()=>structuredClone(value),start:async()=>({started:true,message:'正在启动网关'}),
     save:async()=>structuredClone(value),logs:async()=>({text:''})};
-  const context=vm.createContext({window:{bridgeDesktop:api},
-    document:{getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
+  const context=vm.createContext({window:{bridgeDesktop:api,desktopI18n:{...i18n,bind:()=>()=>{}}},
+    document:{getElementById:id=>nodes.get(id),createElement:node,querySelector:()=>node(),querySelectorAll:()=>[]},
     Date:class extends Date{static now(){return now;}},setInterval:callback=>{poll=callback;}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../desktop/renderer.js'),'utf8'),context);
   await new Promise(setImmediate);
@@ -114,4 +130,13 @@ test('runtime polling preserves a newer save notification',async()=>{
   ui.value.runtime.running=true;await ui.poll();
   assert.equal(ui.nodes.get('status').textContent,'运行中');
   assert.equal(ui.nodes.get('feedback').textContent,saved);
+});
+
+test('language changes update runtime feedback and preserve entered values',async()=>{
+  const ui=await renderer();await ui.start();
+  ui.nodes.get('password').value='private draft';ui.context.applyLanguage('en');
+  assert.equal(ui.nodes.get('status').textContent,'Starting');
+  assert.equal(ui.nodes.get('feedback').textContent,'Starting gateway');
+  assert.equal(ui.nodes.get('password').value,'private draft');
+  ui.context.applyLanguage('zh-CN');assert.equal(ui.nodes.get('status').textContent,'启动中');
 });

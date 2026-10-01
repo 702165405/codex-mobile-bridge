@@ -89,10 +89,18 @@
     '已连接正在运行的网关':'Connected to the running gateway','请先选择存在的 Codex 数据目录':'Choose an existing Codex data directory first',
     '请先选择 cloudflared 程序，或关闭临时外网入口':'Choose the cloudflared executable or disable the temporary tunnel',
     '端口已被占用，请检查现有网关；不会自动更换端口':'The port is occupied. Check the existing gateway; the port will not be changed automatically.',
-    'ntfy 已接受测试通知，请在手机确认是否收到':'ntfy accepted the test notification. Confirm delivery on your phone.'
+    'ntfy 已接受测试通知，请在手机确认是否收到':'ntfy accepted the test notification. Confirm delivery on your phone.',
+    '请输入完整的 HTTP/HTTPS 地址，不含账号、查询参数或片段':'Enter a complete HTTP/HTTPS URL without credentials, query parameters or fragments',
+    '推送服务请使用 HTTPS；HTTP 仅用于本机测试':'Use HTTPS for notification servers; HTTP is only allowed for local testing',
+    '通知开关格式不正确':'Invalid notification toggle','ntfy 主题只允许 1–64 位字母、数字、下划线和短横线':'ntfy topics must contain 1–64 letters, digits, underscores or hyphens',
+    '开启通知前请填写 ntfy 主题':'Enter an ntfy topic before enabling notifications','通知跳转地址格式不正确':'Invalid notification link URL',
+    'ntfy Token 格式不正确':'Invalid ntfy token','请先配置 ntfy 服务和主题':'Configure the ntfy server and topic first','ntfy 未接受通知':'ntfy did not accept the notification'
   };
   function normalize(value){return typeof value==='string'&&/^en(?:-|$)/i.test(value)?'en':'zh-CN';}
-  function translate(text,language){return normalize(language)==='en'?(english[text]??text):text;}
+  function translate(text,language){
+    const source=String(text).replace(/^Error invoking remote method '[^']+': (?:Error: )?/,'');
+    return normalize(language)==='en'?(english[source]??source):source;
+  }
   // Capture only original UI nodes, never user values, gateway logs or chat data.
   function bind(document){
     const entries=[],walker=document.createTreeWalker(document.documentElement,4);
