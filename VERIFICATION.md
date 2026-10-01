@@ -6,6 +6,8 @@
 - 打包依赖固定 `certifi==2026.7.22`，明确收集 Mozilla 根证书和许可证。二维码预检查、固定入口检测和 ntfy 复用有证书及主机名校验的 TLS context；保留系统及显式 CA 配置。源码运行仍仅依赖标准库。
 - 新增真实回环 TLS 测试：模拟冻结运行时且默认 CA 不可用时，验证可信证书通过、错误域名及未知 CA 拒绝、缺失打包证书拒绝、ntfy 使用同一信任来源。108 项 Python 检查中 104 项通过、4 项平台相关跳过；22 项 Node 检查通过。
 - 新增 `scripts/verify-https.py`：在隔离目录通过实际打包可执行程序检查公网 TLS、未知 CA 拒绝、自定义 CA 和域名匹配；不生成登录凭据或发送通知。旧下载包在公网 TLS 步骤失败，本地修复运行时通过；Mac ZIP 解压验证及 Windows 打包验证均加入此检查，避免只依赖构建机证书。
+- 本机修复 ZIP 的完整性签名及包内 HTTPS 检查通过。用实际运行时对当前 Cloudflare 入口生成短期扫码凭据并立即撤销；原生 App 展开后能显示二维码和倒计时，随后收起撤销。更换桌面控制端前后四个配置文件的 SHA-256、网关 PID、8787 端口、连接地址及两个通知关注保持一致。没有发送真实通知或代替用户完成手机扫码。
+- 修复提交 `e2a97d3` 的 [跨平台 Python 检查](https://github.com/try2love/codex-mobile-bridge/actions/runs/36884346124)和 [Mac / Windows 桌面构建](https://github.com/try2love/codex-mobile-bridge/actions/runs/36884346072)均通过，包含两端真实打包运行时的 HTTPS 检查。另下载 GitHub CI 生成的 Mac 包（Python 3.13），在本机重验签名、证书隔离场景及当前 Cloudflare 扫码生成，均通过，测试凭据已撤销。Windows 结论来自 CI，未在实体 Windows 电脑测试。
 
 ## Cloudflare 首次配置与一键安装（2026-10-01）
 
