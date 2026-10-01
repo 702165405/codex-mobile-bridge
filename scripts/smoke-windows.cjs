@@ -117,7 +117,7 @@ async function main(){
     const screenshots=[await screenshot('overview')];
     await client.evaluate("document.querySelector('[data-tab=notifications]').click();document.getElementById('ntfy-topic').value='unsaved-topic';document.getElementById('ntfy-topic').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('language').value='en';document.getElementById('language').dispatchEvent(new Event('change'))");
     await until(()=>client.evaluate("document.documentElement.lang==='en'&&!document.getElementById('language').disabled"),'English switch');
-    assert.equal(await client.evaluate("document.getElementById('page-title').textContent"),'Mobile notifications');
+    assert.equal(await client.evaluate("document.getElementById('page-title').textContent"),require('../web/i18n.js').dictionary['手机通知']);
     assert.equal(await client.evaluate("document.getElementById('status').textContent"),'Running');
     assert.equal(await client.evaluate("document.getElementById('ntfy-topic').value"),'unsaved-topic');
     assert.equal(await client.evaluate('dirty'),true);
@@ -162,7 +162,7 @@ async function main(){
     assert.equal(await client.evaluate('document.documentElement.lang'),'en');
     assert.equal(await client.evaluate("document.getElementById('language').value"),'en');
     assert.equal(await client.evaluate("document.getElementById('start').textContent"),'Start gateway');
-    console.log(JSON.stringify({ok:true,executable,data,screenshots,checks:['bundled runtime without Python or Node on PATH','Unicode data path','renderer isolation','start and stop','private HTTP routes','local assets','notification settings saved without publishing','close to tray keeps gateway online','second launch restores window','bilingual switch preserves drafts','language survives app restart','English layout at 820x640','no horizontal overflow']}));
+    console.log(JSON.stringify({ok:true,executable,data,screenshots,checks:['bundled runtime without Python or Node on PATH','Unicode data path','renderer isolation','start and stop','private HTTP routes','local assets','parallel connection settings','server and NAS deployment ZIPs','11 mobile bilingual browser checks','notification settings saved without publishing','close to tray keeps gateway online','second launch restores window','bilingual switch preserves drafts','language survives app restart','English layout at 820x640','no horizontal overflow']}));
   }finally{
     if(started){try{await worker('stop');}catch(error){console.error('Test cleanup:',error.message);}}
     client?.close();

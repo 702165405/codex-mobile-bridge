@@ -22,11 +22,13 @@ See [Deployment Agent instructions](#deployment-agent-instructions) below for th
 
 ## Desktop App and ntfy — experimental branch
 
-These features are on **`feature/desktop-ntfy`**. The desktop launcher manages the gateway; the original Codex App still owns execution and model authentication.
+This Windows branch, **`codex/windows-desktop-app`**, includes the latest desktop and mobile features from `feature/desktop-ntfy` through `339324b`. The desktop launcher manages the gateway; the original Codex App still owns execution and model authentication.
 
 ### Install and use the App
 
-Download the artifact for your OS from this branch's **GitHub Actions → Desktop prototype** build. On Mac, extract and open the `.app`. On Windows, use the portable `.exe`. The packaged App includes the Python gateway runtime; Python, Node.js and a terminal are not required for everyday use. Builds are currently unsigned and are not notarized.
+Build locally, or download artifacts from a successful **GitHub Actions → Desktop prototype** run after this branch is pushed. On Mac, extract and open the `.app`. Windows x64 provides a per-user `Setup.exe` installer and a ZIP; extract the entire ZIP before running `Codex Mobile Bridge.exe`. Do not move only the executable. The packaged App includes the Python gateway runtime; Python, Node.js and a terminal are not required for everyday use. Builds are currently unsigned and are not notarized.
+
+On Windows, closing the window hides it to the tray; launching again restores it. The tray offers separate actions to stop the gateway and quit, or quit only the controller. Stop the gateway and exit before upgrading or moving the app. Select Chinese or English at the top right; existing Windows language preferences are retained, and tray labels follow the selection. Phone language is independent. Uninstalling does not automatically remove gateway settings or credentials.
 
 The App provides:
 
