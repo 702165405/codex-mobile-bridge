@@ -108,15 +108,8 @@ async function main(){
     const base='http://127.0.0.1:'+port;
     assert.equal((await get(base+'/api/sessions')).status,401);
     for(const route of ['/','/app.js','/i18n.js','/markdown.js','/timeline.js','/vendor/katex/katex.min.js'])assert.equal((await get(base+route)).status,200,route);
-    const mobileTarget=await client.call('Target.createTarget',{url:base+'/'});
-    let mobile;
-    try{
-      const target=await until(async()=>{const targets=await (await get('http://127.0.0.1:'+debugPort+'/json/list')).json();return targets.find(row=>row.id===mobileTarget.targetId);},'Mobile page');
-      mobile=await connect(target.webSocketDebuggerUrl);
-      await until(()=>mobile.evaluate("typeof renderState==='function'&&typeof BridgeI18n==='object'"),'Mobile scripts');
-      await mobile.evaluate(await fs.readFile(path.join(root,'tests/i18n.test.js'),'utf8'));
-      const result=await mobile.evaluate('runI18nTests()');assert.equal(result.passed,11);
-    }finally{mobile?.close();await client.call('Target.closeTarget',{targetId:mobileTarget.targetId});}
+    const phone=await execute(require('electron'),[path.join(root,'scripts/smoke-mobile.cjs'),base+'/'],{env,windowsHide:true,timeout:30000});
+    assert.ok(phone.stdout.includes('"passed":11'),'Mobile browser checks must run');
     async function screenshot(name){
       const image=await client.call('Page.captureScreenshot',{format:'png'});
       const filename=path.join(data,name+'.png');await fs.writeFile(filename,Buffer.from(image.data,'base64'));return filename;
@@ -167,6 +160,7 @@ async function main(){
     await until(()=>client.evaluate("document.documentElement.lang==='en'&&!document.getElementById('language').disabled"),'Persist English');
     client.close();child.kill();await exited;launch();await connectApp();
     assert.equal(await client.evaluate('document.documentElement.lang'),'en');
+    assert.equal(await client.evaluate("document.getElementById('language').value"),'en');
     assert.equal(await client.evaluate("document.getElementById('start').textContent"),'Start gateway');
     console.log(JSON.stringify({ok:true,executable,data,screenshots,checks:['bundled runtime without Python or Node on PATH','Unicode data path','renderer isolation','start and stop','private HTTP routes','local assets','notification settings saved without publishing','close to tray keeps gateway online','second launch restores window','bilingual switch preserves drafts','language survives app restart','English layout at 820x640','no horizontal overflow']}));
   }finally{

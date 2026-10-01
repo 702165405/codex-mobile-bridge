@@ -67,7 +67,7 @@ test('development launch keeps script as its own argument',()=>{
 
 // Exercise the real renderer's start and polling handlers with a controlled
 // backend and clock. DOM layout and input editing are outside these checks.
-async function renderer(){
+async function renderer(initialLanguage='zh-CN'){
   const fs=require('node:fs'),vm=require('node:vm');
   const nodes=new Map();
   function node(){return {closest(){return null;},value:'',checked:false,hidden:false,textContent:'',dataset:{},
@@ -79,7 +79,7 @@ async function renderer(){
     auth:{mode:'password',username:'admin'},notifications:{enabled:false,server:'https://ntfy.sh',topic:''},
     notificationStatus:{},watches:[],origins:[],urls:[],dataDir:'/test',credentialsAvailable:false};
   let now=1000,poll;
-  const api={language:async()=>'zh-CN',setLanguage:async value=>value,snapshot:async()=>structuredClone(value),start:async()=>({started:true,message:'正在启动网关'}),
+  const api={language:async()=>initialLanguage,setLanguage:async value=>value,snapshot:async()=>structuredClone(value),start:async()=>({started:true,message:'正在启动网关'}),
     save:async payload=>{value.preferences={...value.preferences,...payload.preferences};return structuredClone(value);},logs:async()=>({text:''})};
   const context=vm.createContext({window:{bridgeDesktop:api},
     localStorage:{getItem(){return null;},setItem(){}},document:{documentElement:{},getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
@@ -139,6 +139,12 @@ test('language changes update runtime feedback and preserve entered values',asyn
   assert.equal(ui.nodes.get('feedback').textContent,i18n.english['正在启动网关']);
   assert.equal(ui.nodes.get('password').value,'private draft');
   ui.context.applyLanguage('zh-CN');assert.equal(ui.nodes.get('status').textContent,'启动中');
+});
+
+test('saved Windows language initializes the shared UI and selector',async()=>{
+  const ui=await renderer('en');
+  assert.equal(ui.nodes.get('language').value,'en');
+  assert.equal(ui.nodes.get('status').textContent,'Stopped');
 });
 
 test('connection additions and removals are unsaved, and language changes preserve edits',async()=>{

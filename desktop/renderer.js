@@ -98,6 +98,7 @@ api.language().then(applyLanguage).catch(error=>feedback(error.message,true)).th
 
 function applyLanguage(value){
   BridgeI18n.setLanguage(value==='en'?'en':'zh');BridgeI18n.apply();
+  $('language').value=BridgeI18n.language();
   document.title=t('Codex 手机网关');
   if(snapshot){const pending=dirty;dirty=true;render(snapshot);dirty=pending;renderConnections();updateDirty();}
   if(lastFeedback)feedback(...lastFeedback);
