@@ -1,6 +1,6 @@
 {
   "name": "codex-mobile-bridge-desktop",
-  "version": "0.2.0",
+  "version": "0.2.0-beta.1",
   "description": "Codex App 手机网关桌面启动器",
   "author": "try2love",
   "license": "MIT",
@@ -12,11 +12,14 @@
     "test:windows-app": "node scripts/smoke-windows.cjs",
     "icons:desktop": "electron scripts/build-icons.cjs",
     "pack:desktop": "electron-builder --dir --publish never",
-    "build:windows": "electron-builder --win nsis zip --x64 --publish never"
+    "build:windows": "electron-builder --win nsis zip --x64 --publish never",
+    "test:pairing": "electron scripts/smoke-pairing.cjs"
   },
   "devDependencies": {
     "electron": "44.5.1",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "jsqr": "1.4.0",
+    "pngjs": "7.0.0"
   },
   "build": {
     "appId": "io.github.try2love.codexmobilebridge",
@@ -38,11 +41,15 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "identity": null
+      "identity": null,
+      "artifactName": "Codex-Mobile-Bridge-${version}-macOS-${arch}.${ext}"
     },
     "win": {
       "icon": "desktop/assets/icon.ico",
-      "target": ["nsis", "zip"],
+      "target": [
+        "nsis",
+        "zip"
+      ],
       "artifactName": "Codex-Mobile-Bridge-${version}-Windows-${arch}.${ext}"
     },
     "nsis": {
@@ -55,5 +62,8 @@
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": false
     }
+  },
+  "dependencies": {
+    "qrcode": "1.5.4"
   }
 }

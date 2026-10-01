@@ -4,6 +4,7 @@ const path=require('node:path');
 const fs=require('node:fs');
 const {pathToFileURL}=require('node:url');
 const {runWorker,workerFor}=require('./controller.cjs');
+const {pairingImage}=require('./qr.cjs');
 const {createTray}=require('./tray.cjs');
 const {normalize,translate}=require('./i18n.js');
 let language='zh-CN';
@@ -45,6 +46,13 @@ function register(){
     language=value;window.setTitle(t('Codex 手机网关'));tray?.relabel();return language;
   });
   for(const action of ['snapshot','save','start','stop','logs','test-notification','check-entry'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
+  ipcMain.handle('bridge:pairing',async(event,payload)=>{
+    authorize(event);
+    const grant=await worker('pairing',payload);
+    if(payload.action!=='create')return grant;
+    try{return await pairingImage(grant);}
+    catch(error){await worker('pairing',{action:'revoke',id:grant.id});throw error;}
+  });
   ipcMain.handle('bridge:export-deployment',async(event,payload)=>{
     authorize(event);
     const result=await dialog.showSaveDialog(window,{defaultPath:'Codex-deployment.zip',filters:[{name:payload?.language==='en'?'Deployment ZIP':'ZIP 部署包',extensions:['zip']}]});

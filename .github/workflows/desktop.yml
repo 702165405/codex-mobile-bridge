@@ -1,4 +1,4 @@
-name: Desktop prototype
+name: Desktop builds
 on:
   workflow_dispatch:
   push:
@@ -35,6 +35,14 @@ jobs:
         run: npm run build:windows
       - if: runner.os == 'Windows'
         run: npm run test:windows-app
+      - if: runner.os == 'macOS'
+        run: npm run test:pairing
+        env:
+          CMB_TEST_RUNTIME: ${{ github.workspace }}/dist/gateway/codex-mobile-gateway
+      - if: runner.os == 'Windows'
+        run: npm run test:pairing
+        env:
+          CMB_TEST_RUNTIME: ${{ github.workspace }}/dist/gateway/codex-mobile-gateway.exe
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ runner.os }}

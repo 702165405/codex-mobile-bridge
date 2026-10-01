@@ -71,7 +71,7 @@ async function renderer(initialLanguage='zh-CN'){
   const fs=require('node:fs'),vm=require('node:vm');
   const nodes=new Map();
   function node(){return {closest(){return null;},value:'',checked:false,hidden:false,textContent:'',dataset:{},
-    classList:{toggle(){}},append(){},replaceChildren(){},setAttribute(){},querySelectorAll(){return [];}};}
+    classList:{toggle(){}},append(){},replaceChildren(){},setAttribute(){},removeAttribute(){},querySelectorAll(){return [];}};}
   const html=fs.readFileSync(path.join(__dirname,'../desktop/index.html'),'utf8');
   for(const match of html.matchAll(/\bid="([^"]+)"/g))nodes.set(match[1],node());
   const value={runtime:{running:false,portOccupied:false,supportsNotifications:true},
@@ -83,8 +83,8 @@ async function renderer(initialLanguage='zh-CN'){
     save:async payload=>{value.preferences={...value.preferences,...payload.preferences};return structuredClone(value);},logs:async()=>({text:''})};
   const context=vm.createContext({window:{bridgeDesktop:api},
     localStorage:{getItem(){return null;},setItem(){}},document:{documentElement:{},getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
-    Date:class extends Date{static now(){return now;}},setInterval:callback=>{poll=callback;}});
-  for(const name of ['web/i18n.js','desktop/connections.js','desktop/renderer.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',name),'utf8'),context);
+    URL,Date:class extends Date{static now(){return now;}},setInterval:(callback,ms)=>{if(callback.name==='refresh')poll=callback;}});
+  for(const name of ['web/i18n.js','desktop/connections.js','desktop/pairing.js','desktop/renderer.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',name),'utf8'),context);
   await new Promise(setImmediate);
   return {nodes,value,context,api,run:code=>vm.runInContext(code,context),poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
 }
@@ -169,4 +169,15 @@ test('opening logs starts at the newest records without changing their contents'
   await ui.context.loadLogs();
   assert.equal(ui.nodes.get('log-output').textContent,'new\nold');
   assert.equal(ui.nodes.get('log-output').scrollTop,0);
+});
+
+
+test('QR PNG decodes to the exact one-time fragment URL without exposing it in metadata',async()=>{
+  const {pairingImage}=require('../desktop/qr.cjs'),{PNG}=require('pngjs'),decode=require('jsqr');
+  const url='https://bridge.example.com/#pair='+'x'.repeat(43);
+  const result=await pairingImage({id:'test',url,expires:12345,state:'active'});
+  assert.equal(result.url,undefined);
+  const png=PNG.sync.read(Buffer.from(result.image.split(',')[1],'base64'));
+  assert.equal(decode(new Uint8ClampedArray(png.data),png.width,png.height).data,url);
+  assert.equal(result.id,'test');assert.equal(result.expires,12345);
 });

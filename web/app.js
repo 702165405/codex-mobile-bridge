@@ -1,4 +1,12 @@
 'use strict';
+// Capture once and remove the bearer fragment before any API request or chat routing.
+function takePairingToken(){
+  if(!location.hash.startsWith('#pair='))return null;
+  const token=location.hash.slice(6);
+  history.replaceState(null,'',location.pathname+location.search);
+  return token;
+}
+let initialPairingToken=takePairingToken();
 const $ = id => document.getElementById(id),t=BridgeI18n.t;
 let csrf='', currentId=null, state=null, listOffset=0, listQuery='', approvalStamp='', sending=false;
 let currentHost='local', listRows=[], listGeneration=0;
@@ -12,7 +20,18 @@ function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.cla
 function toast(text){text=t(text);$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,4200);}
 async function api(path,body,signal){const options={signal,credentials:'same-origin',cache:'no-store',headers:{}};if(body!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-CSRF-Token':csrf};options.body=JSON.stringify(body);}const response=await fetch(hostUrl(path),options);const data=await response.json();if(!response.ok){if(response.status===401)showLogin();throw Error(data.error||t('请求失败'));}return data;}
 function showLogin(passwordless=false){chatTimeline?.dispose();chatTimeline=null;document.querySelectorAll('dialog[open]').forEach(d=>d.close());$('app').hidden=true;$('login').hidden=false;$('credentials').hidden=passwordless;$('noauth').hidden=!passwordless;$('username').required=!passwordless;$('password').required=!passwordless;$('password').value='';}
-async function start(){const auth=await api('/api/auth');if(!auth.authenticated){showLogin(auth.passwordless);return;}csrf=auth.csrf;await enter();}
+async function start(pairingToken=null){
+  const auth=await api('/api/auth');
+  if(pairingToken!==null){
+    try{const result=await api('/api/pair',{token:pairingToken});csrf=result.csrf;await enter();return;}
+    catch(error){
+      if(auth.authenticated){csrf=auth.csrf;await enter();toast(error.message);}
+      else{showLogin(auth.passwordless);$('login-error').textContent=t(error.message);}
+      return;
+    }finally{pairingToken=null;}
+  }
+  if(!auth.authenticated){showLogin(auth.passwordless);return;}csrf=auth.csrf;await enter();
+}
 async function enter(){$('login').hidden=true;$('app').hidden=false;const list=loadList(true).catch(e=>toast(e.message));const [id,host='local']=location.hash.slice(1).split('~');if(/^[0-9a-f-]{36}$/.test(id))await openChat(id,decodeURIComponent(host));await list;}
 $('login-form').addEventListener('submit',async event=>{event.preventDefault();$('login-button').disabled=true;$('login-error').textContent='';try{const result=await api('/api/login',{username:$('username').value,password:$('password').value});csrf=result.csrf;$('password').value='';await enter();}catch(error){$('login-error').textContent=t(error.message);}finally{$('login-button').disabled=false;}});
 $('logout').onclick=async()=>{await api('/api/logout',{});csrf='';state=null;currentId=null;$('messages').replaceChildren();$('approvals').replaceChildren();$('queued').replaceChildren();$('sessions').replaceChildren();$('message').value='';sessionStorage.clear();showLogin();};
@@ -139,7 +158,9 @@ function renderSkills(){$('skill-list').replaceChildren();const search=$('skill-
 async function openSkills(refresh=false){if(!currentId)return;$('skills-error').textContent='';$('skill-list').textContent=t('正在读取已安装 Skill…');if(!$('skills-dialog').open)$('skills-dialog').showModal();try{await loadCatalog(refresh);renderSkills();renderSkillPills();}catch(e){$('skills-error').textContent=t(e.message);$('skill-list').replaceChildren();}}
 $('skills-button').onclick=()=>openSkills();$('skills-refresh').onclick=()=>openSkills(true);$('skill-search').oninput=renderSkills;
 window.addEventListener('pagehide',saveDraft);
-start().catch(error=>{showLogin();$('login-error').textContent=t(error.message);});
+function startFromLink(token){return start(token).catch(error=>{showLogin();$('login-error').textContent=t(error.message);});}
+startFromLink(initialPairingToken);initialPairingToken=null;
+window.addEventListener('hashchange',()=>{const token=takePairingToken();if(token!==null)startFromLink(token);});
 function setLanguageBusy(){$('phone-language').disabled=!!(approvalBusy||creatingChat);}
 $('phone-language').value=BridgeI18n.language();
 $('phone-language').onchange=()=>{

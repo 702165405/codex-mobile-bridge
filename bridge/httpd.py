@@ -16,6 +16,7 @@ from pathlib import Path
 from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit, quote
 
+from .pairing import Pairing
 from .auth import Auth
 from .ipc import IPCError
 from .catalog import CatalogError
@@ -49,6 +50,7 @@ class GatewayServer(ThreadingHTTPServer):
         self.instance_id = secrets.token_hex(16)
         self.auth = Auth(config["auth"])
         self.origins = set(config["origins"])
+        self.pairing = Pairing(self.auth, self.origins)
         self.hosts = {urlsplit(o).netloc for o in self.origins}
         self.secure_hosts = {urlsplit(o).netloc for o in self.origins if o.startswith("https://")}
         self.web_dir = Path(web_dir)
@@ -206,6 +208,15 @@ class Handler(BaseHTTPRequestHandler):
                 token, session = self.server.auth.login(username, password, self.client_address[0])
                 self.server.auth.logout(self.token())
                 return self.output(200, {"csrf": session["csrf"]}, cookie=self.cookie(token))
+            if write and path == '/api/pair':
+                body = self.read_json()
+                host = self.headers.get('Host', '')
+                origin = ('https://' if host in self.server.secure_hosts else 'http://') + host
+                if self.headers.get('Origin') != origin:
+                    raise PermissionError('不允许的请求来源')
+                token, session = self.server.pairing.exchange(body.get('token'), origin, self.client_address[0])
+                self.server.auth.logout(self.token())
+                return self.output(200, {'csrf': session['csrf']}, cookie=self.cookie(token))
             auth = self.authorized(write)
             if not auth:
                 return

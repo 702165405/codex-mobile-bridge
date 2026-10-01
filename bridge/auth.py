@@ -36,6 +36,11 @@ class Auth:
                 raise PermissionError("账号或密码不正确")
         with self.lock:
             self.failures.pop(address, None)
+        return self.new_session()
+
+    def new_session(self):
+        with self.lock:
+            now = time.time()
             self.sessions = {k: v for k, v in self.sessions.items() if v["expires"] > now}
             token = secrets.token_urlsafe(32)
             session = {"csrf": secrets.token_urlsafe(32), "expires": now + 12 * 3600}

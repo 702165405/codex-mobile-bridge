@@ -3,6 +3,7 @@ const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('bridgeDesktop',{
   language:()=>ipcRenderer.invoke('bridge:language'),
   setLanguage:value=>ipcRenderer.invoke('bridge:set-language',value),
+  pairing:value=>ipcRenderer.invoke('bridge:pairing',value),
   snapshot:()=>ipcRenderer.invoke('bridge:snapshot'),
   save:value=>ipcRenderer.invoke('bridge:save',value),
   start:()=>ipcRenderer.invoke('bridge:start'),

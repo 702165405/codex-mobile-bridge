@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path
 
 from .auth import password_record
-from .lifecycle import read_record, request_stop
+from .lifecycle import read_record, request_stop, request_pairing
 from .notifications import read_json, write_json, settings, save_settings, publish
 from . import access
 
@@ -45,7 +45,7 @@ class Desktop:
 
     def status(self):
         preferences = self.preferences()
-        connected, supports = False, False
+        connected, supports, instance = False, False, None
         try:
             connection = http.client.HTTPConnection('127.0.0.1', preferences['port'], timeout=1)
             try:
@@ -54,14 +54,15 @@ class Desktop:
                 payload = json.loads(response.read(65536))
                 connected = response.status == 200 and 'authenticated' in payload and 'passwordless' in payload
                 supports = bool(payload.get('notifications'))
+                instance = payload.get('instanceId')
             finally:
                 connection.close()
         except (OSError, ValueError, http.client.HTTPException):
             pass
         record = read_record(self.data_dir/'gateway-control.json')
-        managed = connected and bool(record)
+        managed = connected and bool(record) and (not record.get('instanceId') or record['instanceId'] == instance)
         return {'running': managed, 'portOccupied': connected and not managed, 'supportsNotifications': supports,
-                'pid': record.get('pid') if managed else None}
+                'pid': record.get('pid') if managed else None, 'instanceId': instance if managed else None}
 
     def snapshot(self):
         config = self.config()
@@ -208,6 +209,20 @@ class Desktop:
         if not self.status()['running']:
             raise ValueError('请先启动网关，再检测固定入口')
         return access.check_entry(access.select_connection(self.preferences(), value))
+
+    def pairing(self, value):
+        if value.get('action') == 'create':
+            from .pairing import phone_origin
+            snapshot = self.snapshot()
+            url = value.get('url')
+            if not snapshot['runtime']['running'] or url not in snapshot['urls']:
+                raise ValueError('请先启动网关，再生成二维码')
+            origin = phone_origin(url)
+            # Probe the actual entry, without credentials or redirects, before granting access.
+            remote = access.read_auth(origin)
+            if remote.get('instanceId') != snapshot['runtime']['instanceId']:
+                raise ValueError('此地址未指向当前网关，请检查连接配置')
+        return request_pairing(self.data_dir, value)
 
     def logs(self):
         # Reverse complete timestamped records, keeping traceback lines readable.

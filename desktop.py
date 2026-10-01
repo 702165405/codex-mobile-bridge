@@ -10,7 +10,7 @@ def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stdin.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'deployment', 'export-deployment', 'check-entry', 'serve'])
+    parser.add_argument('action', choices=['snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'deployment', 'export-deployment', 'check-entry', 'pairing', 'serve'])
     parser.add_argument('--data-dir', required=True)
     args = parser.parse_args()
     desktop = Desktop(args.data_dir)
@@ -20,7 +20,7 @@ def main():
         run.main(connections=desktop.preferences()['connections'])
         return
     try:
-        if args.action in ('save', 'deployment', 'export-deployment', 'check-entry'):
+        if args.action in ('save', 'deployment', 'export-deployment', 'check-entry', 'pairing'):
             result = getattr(desktop, args.action.replace('-', '_'))(json.loads(sys.stdin.read(100000)))
         else:
             method = getattr(desktop, args.action.replace('-', '_'))

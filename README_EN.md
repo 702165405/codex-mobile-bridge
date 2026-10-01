@@ -26,13 +26,13 @@ The cross-platform integration branch, **`integration/desktop-cross-platform`**,
 
 ### Install and use the App
 
-Build locally, or download artifacts from a successful **GitHub Actions → Desktop prototype** run after this branch is pushed. On Mac, extract and open the `.app`. Windows x64 provides a per-user `Setup.exe` installer and a ZIP; extract the entire ZIP before running `Codex Mobile Bridge.exe`. Do not move only the executable. The packaged App includes the Python gateway runtime; Python, Node.js and a terminal are not required for everyday use. Builds are currently unsigned and are not notarized.
+Download **`v0.2.0-beta.1` prerelease** from [GitHub Releases](https://github.com/try2love/codex-mobile-bridge/releases): Windows x64 Setup / full ZIP, or macOS Apple Silicon (arm64) ZIP. `SHA256SUMS.txt` contains download checksums. Development artifacts are also available from successful **GitHub Actions → Desktop builds** runs, or build locally. On Mac, extract and open the `.app`. Windows x64 provides a per-user `Setup.exe` installer and a ZIP; extract the entire ZIP before running `Codex Mobile Bridge.exe`. Do not move only the executable. The packaged App includes the Python gateway runtime; Python, Node.js and a terminal are not required for everyday use. Builds are currently unsigned and are not notarized.
 
 On Windows, closing the window hides it to the tray; launching again restores it. The tray offers separate actions to stop the gateway and quit, or quit only the controller. Stop the gateway and exit before upgrading or moving the app. Select Chinese or English at the top right; existing Windows language preferences are retained, and tray labels follow the selection. Phone language is independent. Uninstalling does not automatically remove gateway settings or credentials.
 
 The App provides:
 
-- **Overview:** start/stop the gateway, copy/open phone URLs, and locate initial login credentials.
+- **Overview:** start/stop the gateway, copy/open phone URLs, expand QR sign-in, and locate initial login credentials.
 - **Network and login:** the LAN port, independently enabled connection profiles, extra HTTPS addresses, username/password or explicit passwordless access.
 - **Runtime settings:** Codex data directory, IPC address, executable paths, gateway data directory, and automatic startup when the App opens.
 - **Phone notifications:** ntfy server, topic, token, click URL, title privacy and a test notification.
@@ -43,6 +43,15 @@ If you already use the command-line gateway, choose its existing `.local` direct
 Unsaved changes appear as red dots in the affected sidebar section and save bar. Switching pages or languages preserves edits. Saving successfully, or reverting to the original values, clears the indicators.
 
 `cloudflared` remains an optional external program. The App does not install it automatically; select its existing path when using temporary HTTPS.
+
+### QR sign-in
+
+1. Start the gateway and find a reachable phone address on the overview page.
+2. Expand **Scan to sign in** below that address. Each LAN, ready temporary HTTPS or configured fixed HTTPS entry has its own collapsible area; multiple areas can be expanded together. Loopback addresses such as `127.0.0.1` have no phone QR code.
+3. Scan with the phone camera and open the link in a browser to sign in without typing a password. The App checks that the entry points to this running gateway before generating a code.
+4. Each QR code expires after **5 minutes** and works **once**. Collapsing or refreshing revokes it; restarting the gateway invalidates all codes. A successful browser session lasts 12 hours, independently of QR expiry, until logout or gateway restart.
+
+Treat the QR code as a short-lived login credential and keep screenshots private. It does not contain your username/password, disable password protection or create a network tunnel. Images are generated locally. Opening the ordinary URL still uses the configured login method. LAN reachability or a working public HTTPS entry is required; verify camera scanning and connectivity on your own phone.
 
 ### Parallel connections
 

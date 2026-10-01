@@ -2,6 +2,24 @@
 // UI messages only. Never translate chat content, commands, model IDs or user input.
 const BridgeI18n=(()=>{
 const en={
+  "扫码登录": "Scan to sign in",
+  "刷新二维码": "Refresh QR code",
+  "正在检查连接并生成二维码…": "Checking the connection and generating a QR code\u2026",
+  "手机已登录，此二维码已失效。": "Phone signed in. This QR code is no longer valid.",
+  "二维码已过期，请刷新。": "QR code expired. Please refresh.",
+  "剩余有效时间：": "Expires in: ",
+  "使用手机相机扫码后在浏览器打开，即可登录。手机需要能访问此地址。": "Scan with your phone camera and open in a browser to sign in. Your phone must be able to reach this address.",
+  "二维码 5 分钟内有效，仅可使用一次。持有码即可登录，请勿分享截图；收起或刷新会撤销旧码。登录后可使用 12 小时。": "Valid for 5 minutes and one use. Anyone with this code can sign in: keep it private. Collapsing or refreshing revokes it. Your signed-in session lasts 12 hours.",
+  "二维码已失效或已使用，请在电脑上刷新二维码，或使用账号密码登录": "This QR code has expired or was already used. Refresh it on your computer, or sign in with your username and password.",
+  "回环地址不能用于手机扫码，请开启局域网或外网连接": "Loopback addresses cannot be used from a phone. Enable a LAN or public connection.",
+  "请重新启动网关以启用扫码登录": "Restart the gateway to enable QR sign-in",
+  "请先启动网关，再生成二维码": "Start the gateway before generating a QR code",
+  "此地址未指向当前网关，请检查连接配置": "This address does not point to the current gateway. Check the connection settings.",
+  "扫码登录操作失败": "QR sign-in operation failed",
+  "扫码登录操作超时，请重试": "QR sign-in operation timed out. Please try again.",
+  "尝试次数过多，请 5 分钟后再试": "Too many attempts. Try again in 5 minutes.",
+  "不允许的请求来源": "Request origin is not allowed",
+
   " · 网关未启动": " · Gateway stopped",
   " · 进行中": " · In progress",
   " 个关注聊天": " watched chats",
