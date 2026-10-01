@@ -7,9 +7,10 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import quote, urlsplit
-from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPSHandler
 
 from .model import pending_requests
+from .tls import client_context
 
 DEFAULTS = {'enabled': False, 'server': 'https://ntfy.sh', 'topic': '', 'token': '',
             'clickBase': '', 'includeTitle': False}
@@ -87,7 +88,7 @@ def publish(config, title, body, click=''):
     if config.get('token'):
         headers['Authorization'] = 'Bearer ' + config['token']
     request = Request(server + '/', data=json.dumps(payload, ensure_ascii=False).encode(), headers=headers)
-    with build_opener(NoRedirect()).open(request, timeout=8) as response:
+    with build_opener(NoRedirect(), HTTPSHandler(context=client_context())).open(request, timeout=8) as response:
         if not 200 <= response.status < 300:
             raise RuntimeError('ntfy 未接受通知')
         response.read(65536)

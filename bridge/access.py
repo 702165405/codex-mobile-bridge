@@ -5,6 +5,8 @@ import json
 import re
 from urllib.parse import urlsplit
 
+from .tls import client_context
+
 
 DEFAULTS = {'accessMode': 'lan', 'publicUrl': '', 'proxyUpstream': '',
             'sshTarget': '', 'sshRemotePort': 18787}
@@ -288,8 +290,10 @@ Use only authorized servers or NAS devices. Check existing sites, DNS and ports 
 
 def read_auth(url):
     parsed = urlsplit(url)
-    cls = http.client.HTTPSConnection if parsed.scheme == 'https' else http.client.HTTPConnection
-    connection = cls(parsed.hostname, parsed.port, timeout=8)
+    if parsed.scheme == 'https':
+        connection = http.client.HTTPSConnection(parsed.hostname, parsed.port, timeout=8, context=client_context())
+    else:
+        connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=8)
     try:
         connection.request('GET', '/api/auth', headers={'Cache-Control': 'no-cache'})
         response = connection.getresponse()

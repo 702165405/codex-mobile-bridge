@@ -41,6 +41,9 @@ jobs:
         run: npm run build:windows
       - if: runner.os == 'Windows'
         run: npm run test:windows-app
+      - name: Verify packaged Windows HTTPS trust
+        if: runner.os == 'Windows'
+        run: python scripts/verify-https.py "dist/desktop/win-unpacked/resources/gateway/codex-mobile-gateway.exe"
       - if: runner.os == 'macOS'
         run: npm run test:pairing
         env:

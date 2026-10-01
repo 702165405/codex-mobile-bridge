@@ -15,6 +15,7 @@ def verify(app):
     runtime = app/'Contents/Resources/gateway/codex-mobile-gateway'
     subprocess.run(['codesign', '--verify', '--strict', '--verbose=2', str(runtime)], check=True)
     subprocess.run([str(runtime), '--help'], check=True, stdout=subprocess.DEVNULL, timeout=30)
+    subprocess.run([sys.executable, str(Path(__file__).with_name('verify-https.py')), str(runtime)], check=True)
     print('PASS: app signature, nested code and bundled runtime; notarization not checked.')
 
 
