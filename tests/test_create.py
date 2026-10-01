@@ -91,6 +91,8 @@ Path(''' + repr(str(log)) + ''').write_text(json.dumps(calls))
         real_popen=subprocess.Popen
         def spawn(argv,**kwargs):
             self.assertEqual(argv,['runtime','app-server','--listen','stdio://'])
+            if os.name == 'nt':
+                self.assertEqual(kwargs.get('creationflags'),subprocess.CREATE_NO_WINDOW)
             return real_popen([sys.executable,str(script)],**kwargs)
         with patch('bridge.create.subprocess.Popen',side_effect=spawn):
             self.assertEqual(create_empty('runtime',self.root,str(self.root),'test'),self.tid)
@@ -104,3 +106,9 @@ Path(''' + repr(str(log)) + ''').write_text(json.dumps(calls))
             open_in_desktop(self.tid,'remote:test & other')
             self.assertEqual(run.call_args.args[0],['open','codex://threads/'+self.tid+'?hostId=remote%3Atest+%26+other'])
             self.assertNotIn('shell',run.call_args.kwargs)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows desktop URL handler')
+    def test_windows_deep_link_uses_registered_handler(self):
+        with patch('bridge.create.os.startfile') as opened:
+            open_in_desktop(self.tid,'remote:test & other')
+            opened.assert_called_once_with('codex://threads/'+self.tid+'?hostId=remote%3Atest+%26+other')

@@ -62,8 +62,19 @@ async function main(){
     });
   }
   const settings=await worker('snapshot');
-  Object.assign(settings.preferences,{port,lan:false,tunnel:false,codexHome:data,autoStart:false});
+  Object.assign(settings.preferences,{port,lan:true,tunnel:false,codexHome:data,autoStart:false,connections:[
+    {id:'smoke-server',name:'Server test',enabled:true,accessMode:'server',publicUrl:'https://server.example.com',sshTarget:'test-only',sshRemotePort:18787},
+    {id:'smoke-nas',name:'NAS test',enabled:true,accessMode:'nas',publicUrl:'https://nas.example.com',proxyUpstream:'http://192.0.2.1:'+port},
+    {id:'smoke-quick',name:'Temporary test',enabled:false,accessMode:'quick'}
+  ]});
   await worker('save',settings);
+  for(const id of ['smoke-server','smoke-nas']){
+    const bundle=await worker('deployment',{id});
+    assert.ok(bundle.files['compose.yaml']);assert.ok(bundle.files['DEPLOYMENT_EN.md']);
+    assert.ok(!JSON.stringify(bundle.files).includes('password_hash'));
+    const exported=await worker('export-deployment',{id});
+    assert.equal((await fs.readFile(exported.path)).subarray(0,2).toString(),'PK');
+  }
   let stderr='',client,started=false,child,exited;
   function launch(){
     child=spawn(executable,['--remote-debugging-address=127.0.0.1','--remote-debugging-port='+debugPort],{env,stdio:['ignore','ignore','pipe']});
@@ -85,12 +96,27 @@ async function main(){
     assert.equal(await client.evaluate('typeof require'),'undefined');
     assert.equal(await client.evaluate('snapshot.preferences.port'),port);
     assert.equal(await client.evaluate('snapshot.notifications.enabled'),false);
+    assert.equal(await client.evaluate("document.querySelectorAll('.connection-card').length"),3);
+    // Only local access is started. The synthetic SSH/NAS entries never connect.
+    await client.evaluate("document.querySelector('[data-tab=network]').click();for(const node of document.querySelectorAll('[data-connection-field=enabled]')){node.checked=false;node.dispatchEvent(new Event('input',{bubbles:true}));}document.getElementById('lan').checked=false;document.getElementById('lan').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('settings').requestSubmit()");
+    await until(()=>client.evaluate('!dirty&&snapshot.preferences.connections.every(row=>!row.enabled)'),'Parallel connection settings');
+    assert.equal(await client.evaluate('snapshot.preferences.lan'),false);
+    await client.evaluate("tab('overview')");
     await client.evaluate("document.getElementById('start').click()");started=true;
     await until(()=>client.evaluate('snapshot.runtime.running'),'Bundled gateway startup');
     assert.equal(await client.evaluate("document.getElementById('port').disabled"),true);
     const base='http://127.0.0.1:'+port;
     assert.equal((await get(base+'/api/sessions')).status,401);
-    for(const route of ['/','/app.js','/markdown.js','/timeline.js','/vendor/katex/katex.min.js'])assert.equal((await get(base+route)).status,200,route);
+    for(const route of ['/','/app.js','/i18n.js','/markdown.js','/timeline.js','/vendor/katex/katex.min.js'])assert.equal((await get(base+route)).status,200,route);
+    const mobileTarget=await client.call('Target.createTarget',{url:base+'/'});
+    let mobile;
+    try{
+      const target=await until(async()=>{const targets=await (await get('http://127.0.0.1:'+debugPort+'/json/list')).json();return targets.find(row=>row.id===mobileTarget.targetId);},'Mobile page');
+      mobile=await connect(target.webSocketDebuggerUrl);
+      await until(()=>mobile.evaluate("typeof renderState==='function'&&typeof BridgeI18n==='object'"),'Mobile scripts');
+      await mobile.evaluate(await fs.readFile(path.join(root,'tests/i18n.test.js'),'utf8'));
+      const result=await mobile.evaluate('runI18nTests()');assert.equal(result.passed,11);
+    }finally{mobile?.close();await client.call('Target.closeTarget',{targetId:mobileTarget.targetId});}
     async function screenshot(name){
       const image=await client.call('Page.captureScreenshot',{format:'png'});
       const filename=path.join(data,name+'.png');await fs.writeFile(filename,Buffer.from(image.data,'base64'));return filename;
@@ -111,7 +137,7 @@ async function main(){
       assert.equal(await client.evaluate('document.documentElement.scrollWidth>innerWidth'),false,panel);
       screenshots.push(await screenshot('english-'+panel));
     }
-    await client.evaluate("document.getElementById('language').value='zh-CN';document.getElementById('language').dispatchEvent(new Event('change'))");
+    await client.evaluate("document.getElementById('language').value='zh';document.getElementById('language').dispatchEvent(new Event('change'))");
     await until(()=>client.evaluate("document.documentElement.lang==='zh-CN'&&!document.getElementById('language').disabled"),'Chinese switch');
     assert.equal(await client.evaluate("document.getElementById('save').textContent"),'保存配置');
     assert.equal(await client.evaluate("document.getElementById('ntfy-topic').value"),'unsaved-topic');

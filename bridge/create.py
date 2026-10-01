@@ -25,9 +25,10 @@ def create_empty(executable, codex_home, cwd, title):
     if not Path(cwd).is_dir():
         raise CreationError('项目目录不存在，请先在电脑 App 中检查项目')
     env = dict(os.environ, CODEX_HOME=str(codex_home))
+    kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
     process = subprocess.Popen([str(executable), 'app-server', '--listen', 'stdio://'],
                                cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, text=True, encoding='utf-8')
+                               stderr=subprocess.DEVNULL, text=True, encoding='utf-8', **kwargs)
     messages = queue.Queue()
 
     def read():
