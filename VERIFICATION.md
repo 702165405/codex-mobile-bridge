@@ -2,6 +2,8 @@
 
 ## Windows 桌面 App（2026-10-01）
 
+- 新增桌面简体中文/英文切换与偏好持久化。14 项 Node 测试通过；实际打包 App 验证中英往返切换保留未保存主题、状态与按钮翻译、完整退出重启后恢复英文，原启停与托盘流程仍通过。五个英文页面以 820×640 CSS 像素检查无横向溢出并留存本机测试截图；运行日志保留原文。此项不代表手机网页已双语化。
+
 - 分支 `codex/windows-desktop-app` 基于远程 `feature/desktop-ntfy` 的 `b00b503`；在独立工作目录开发，未替换原命令行部署或修改原聊天数据。
 - 环境：Windows 10 build 19045 x64、Node.js 24、Electron 44.5.1、electron-builder 26.15.3、CPython 3.9.13、PyInstaller 6.20.0。
 - 已本机构建 NSIS 当前用户安装包 `Codex-Mobile-Bridge-0.2.0-Windows-x64-Setup.exe` 和完整 ZIP 解压版。未使用 Windows 签名证书；安装、升级和卸载流程尚未实测。Windows 11、ARM64 和本分支 Mac 实机未验证。
