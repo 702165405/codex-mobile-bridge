@@ -170,4 +170,4 @@ class SSHTests(unittest.TestCase):
                 self.assertFalse(tunnel.thread.is_alive())
                 self.assertEqual(spawn.call_count, 1)
             self.assertEqual(seen, ['connecting', 'connected', 'retrying', 'stopped'])
-            self.assertEqual(json.loads((Path(folder)/'ssh-status.json').read_text())['state'], 'stopped')
+            self.assertEqual(json.loads((Path(folder)/'ssh-status.json').read_text(encoding='utf-8'))['state'], 'stopped')
