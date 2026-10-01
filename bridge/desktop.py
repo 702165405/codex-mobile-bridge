@@ -34,11 +34,16 @@ class Desktop:
     def preferences(self):
         name = 'cloudflared.exe' if os.name == 'nt' else 'cloudflared'
         executable = self.data_dir/'bin'/name
+        detected = str(executable) if executable.is_file() else shutil.which(name) or ''
+        if not detected and sys.platform == 'darwin':
+            detected = next((value for value in ('/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared') if Path(value).is_file()), '')
         defaults = {'autoStart': False, 'port': 8787, 'lan': True, 'tunnel': (self.data_dir/'外网地址.txt').exists(),
-                    'cloudflared': str(executable) if executable.is_file() else shutil.which(name) or '',
+                    'cloudflared': detected,
                     'codexHome': os.environ.get('CODEX_HOME', str(Path.home()/'.codex')),
                     'ipcPath': '', 'codexBin': ''}
         saved = read_json(self.data_dir/'desktop.json', {})
+        if not saved.get('cloudflared'):
+            saved['cloudflared'] = defaults['cloudflared']
         rows = access.connections({**defaults, **saved})
         return {**defaults, **{k: v for k, v in saved.items() if k not in access.DEFAULTS},
                 'connections': rows, 'tunnel': any(c['enabled'] and c['accessMode'] == 'quick' for c in rows)}
@@ -71,8 +76,11 @@ class Desktop:
         from run import addresses
         hosts = addresses() if preferences['lan'] else ['127.0.0.1']
         urls = [f'http://{host}:{preferences["port"]}/' for host in hosts if host != 'localhost']
+        quick = read_json(self.data_dir/'cloudflare-status.json', {})
+        if not runtime['running'] or quick.get('pid') != runtime.get('pid'):
+            quick = {}
         public = self.data_dir/'外网地址.txt'
-        if runtime['running'] and preferences['tunnel'] and public.exists():
+        if runtime['running'] and preferences['tunnel'] and public.exists() and quick.get('state') != 'failed':
             value = public.read_text(encoding='utf-8').splitlines()[0]
             if value.startswith('https://'):
                 urls.insert(0, value)
@@ -82,13 +90,15 @@ class Desktop:
             status = read_json(self.data_dir/('ssh-status-'+entry['id']+'.json'), {})
             if runtime['running'] and status.get('pid') == runtime.get('pid'):
                 external[entry['id']] = status
+        executable = preferences['cloudflared']
+        cloudflared = {'path': executable, 'available': bool(executable and Path(executable).is_file() and os.access(executable, os.X_OK))}
         notifications = settings(self.data_dir)
         return {'preferences': preferences, 'auth': {'username': config['auth'].get('username', 'admin'), 'mode': config['auth']['mode']},
                 'origins': config.get('origins', []), 'notifications': {**notifications, 'token': '', 'hasToken': bool(notifications['token'])},
                 'watches': read_json(self.data_dir/'notification-watches.json', []),
                 'notificationStatus': read_json(self.data_dir/'notification-status.json', {}),
                 'dataDir': str(self.data_dir), 'credentialsAvailable': (self.data_dir/'首次登录.txt').exists(),
-                'runtime': runtime, 'urls': urls, 'externalStatus': external}
+                'runtime': runtime, 'urls': urls, 'externalStatus': external, 'cloudflared': cloudflared, 'quickTunnel': quick}
 
     def save(self, value):
         old_preferences = self.preferences()
@@ -161,8 +171,10 @@ class Desktop:
         preferences = self.preferences()
         if not Path(preferences['codexHome']).expanduser().is_dir():
             raise ValueError('请先选择存在的 Codex 数据目录')
-        if preferences['tunnel'] and not Path(preferences['cloudflared']).is_file():
-            raise ValueError('请先选择 cloudflared 程序，或关闭临时外网入口')
+        if preferences['tunnel']:
+            executable = preferences['cloudflared']
+            if not executable or not Path(executable).is_file() or not os.access(executable, os.X_OK):
+                raise ValueError('未找到可运行的 cloudflared，请在“运行配置”中一键安装并保存，或关闭临时 Cloudflare 连接。')
         access.validate_connections(preferences)
         if any(c['enabled'] and c['accessMode'] == 'server' for c in preferences['connections']) and not shutil.which('ssh'):
             raise ValueError('未找到 OpenSSH 客户端；请先安装或启用系统 SSH 客户端')
@@ -227,7 +239,7 @@ class Desktop:
     def logs(self):
         # Reverse complete timestamped records, keeping traceback lines readable.
         import re
-        paths = [('Gateway', self.data_dir/'gateway.log')]
+        paths = [('Gateway', self.data_dir/'gateway.log'), ('Cloudflare', self.data_dir/'tunnel.log')]
         for entry in self.preferences()['connections']:
             if entry['accessMode'] == 'server':
                 paths.append((entry['name'] or entry['id'], self.data_dir/('ssh-tunnel-'+entry['id']+'.log')))

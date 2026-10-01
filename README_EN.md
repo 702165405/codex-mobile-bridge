@@ -20,31 +20,31 @@ The phone and desktop use the same chat. Read replies, send messages, choose mod
 
 ## Download and quick start (recommended)
 
-Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v0.2.0-beta.2 (prerelease)**.
+Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v0.2.0-beta.3 (prerelease)**.
 
 | Platform | Download | Open |
 | --- | --- | --- |
-| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/Codex-Mobile-Bridge-0.2.0-beta.2-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
-| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/Codex-Mobile-Bridge-0.2.0-beta.2-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
-| macOS Apple Silicon (M series) | [Download arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/Codex-Mobile-Bridge-0.2.0-beta.2-macOS-arm64.zip) | Extract, move the `.app` to Applications, and open it |
+| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.3/Codex-Mobile-Bridge-0.2.0-beta.3-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
+| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.3/Codex-Mobile-Bridge-0.2.0-beta.3-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
+| macOS Apple Silicon (M series) | [Download arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.3/Codex-Mobile-Bridge-0.2.0-beta.3-macOS-arm64.zip) | Extract, move the `.app` to Applications, and open it |
 
-[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/SHA256SUMS.txt). There are currently no Intel Mac or Windows ARM packages. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
+[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.3/SHA256SUMS.txt). There are currently no Intel Mac or Windows ARM packages. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
 
 1. Open the original **Codex App** on the computer, then open **Codex Mobile Bridge**.
 2. Keep LAN access enabled under **Network and login**, save, and click **Start gateway**. Preserve the existing port if you already have a configuration.
 3. Connect the phone to the same LAN. Expand **Scan to sign in** below its address in the App and scan with the phone camera to sign in without typing a password. Alternatively, open the address manually and use the login credentials provided by the App.
 4. Select an existing chat or create a new one in the phone browser. Keep the computer awake with Codex App and the gateway running.
 
-For access outside your LAN, add temporary HTTPS, an own-server connection or a NAS connection in the App. Temporary HTTPS requires a separately installed `cloudflared`; fixed domains and NAS access need initial server or reverse-proxy setup. See [Parallel connections](#parallel-connections). For source deployment, custom networking or help from an Agent, see the optional [Deployment Agent instructions](#deployment-agent-instructions).
+For access outside your LAN, add temporary HTTPS, an own-server connection or a NAS connection in the App. Temporary HTTPS offers in-App installation of `cloudflared`; fixed domains and NAS access need initial server or reverse-proxy setup. See [Parallel connections](#parallel-connections). For source deployment, custom networking or help from an Agent, see the optional [Deployment Agent instructions](#deployment-agent-instructions).
 
 ### First launch on macOS: “damaged” or unidentified developer
 
-The Mac build has an **ad-hoc integrity signature**, but **no Apple Developer ID signature or notarization**. macOS can still block the first launch. The older `v0.2.0-beta.1` also has a bundle-signing defect; use `v0.2.0-beta.2` or later.
+The Mac build has an **ad-hoc integrity signature**, but **no Apple Developer ID signature or notarization**. macOS can still block the first launch. The older `v0.2.0-beta.1` also has a bundle-signing defect; use `v0.2.0-beta.3` or later.
 
 1. Download the ZIP and `SHA256SUMS.txt` from this repository's Release. Calculate the ZIP hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app.
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.2-macOS-arm64.zip"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.3-macOS-arm64.zip"
    ```
 
 2. Extract and move `Codex Mobile Bridge.app` to Applications. Try opening it, then go to **System Settings → Privacy & Security → Open Anyway** and confirm.
@@ -80,7 +80,7 @@ If you already use the command-line gateway, choose its existing `.local` direct
 
 Unsaved changes appear as red dots in the affected sidebar section and save bar. Switching pages or languages preserves edits. Saving successfully, or reverting to the original values, clears the indicators.
 
-`cloudflared` remains an optional external program. The App does not install it automatically; select its existing path when using temporary HTTPS.
+`cloudflared` remains optional. Under Runtime settings, click Download and install, or select an existing executable. No download happens until you click the install button.
 
 ### QR sign-in
 
@@ -98,7 +98,7 @@ Under **Network and login → Additional connections**, choose a type and click 
 | Connection | When to use it | Configuration |
 | --- | --- | --- |
 | LAN | Phone and computer share a reachable network | Enable LAN access and keep the existing port |
-| Temporary Cloudflare HTTPS | No domain or existing public entry | Add a temporary connection and select cloudflared under Runtime settings |
+| Temporary Cloudflare HTTPS | No domain or existing public entry | Add a temporary connection and install or select cloudflared under Runtime settings |
 | Own server + SSH | You have a Linux public server and domain; the computer is behind NAT or on a campus network | Enter the fixed HTTPS URL, existing SSH alias or `user@hostname`, and server loopback port |
 | NAS / existing proxy / Docker | The NAS can reach the computer and already has an HTTPS reverse proxy | Enter the fixed HTTPS URL and the computer's HTTP address as reachable from the NAS |
 
@@ -223,7 +223,11 @@ Without `--lan`, the gateway listens only on `127.0.0.1`. It does not install a 
 
 ## Temporary HTTPS and existing proxies
 
-Install cloudflared from the [official download instructions](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/). Then, using the same configuration and port as your existing gateway:
+**Desktop App:** add a Temporary HTTPS · Cloudflare connection and open its Installation and setup button. Under Runtime settings, choose Download and install. The App downloads the matching official GitHub Release, verifies its SHA-256 digest, installs it in the gateway data directory and checks `--version`. It needs no admin privileges, does not change system PATH and does not start a tunnel during installation.
+
+The detected path is filled in as an unsaved change. Save settings, then start the gateway from the overview. Temporary HTTPS has a separate status; its URL and login QR code appear when connected. An existing executable can be selected and checked instead. Supported installer targets: macOS arm64 / x64 and Windows x64 / x86. Other architectures use the linked official guide. Downloads time out after 3 minutes; failed verification, missing digests or network failures leave existing binaries and settings unchanged. The App includes manual steps and an official download link. If a running gateway’s tunnel fails, LAN access remains available; see the Cloudflare section in Runtime logs.
+
+**Source / CLI:** Install cloudflared from the [official download instructions](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/). Then, using the same configuration and port as your existing gateway:
 
 ```sh
 python3 -B run.py --lan --tunnel --cloudflared /path/to/cloudflared

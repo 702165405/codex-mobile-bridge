@@ -3,6 +3,7 @@ const $=id=>document.getElementById(id),api=window.bridgeDesktop,t=BridgeI18n.t;
 let connectionDraft=[],savedConnections='[]';
 let snapshot,dirty=false,loading=false,startingUntil=0,activeTab='overview',savedFields={},feedbackKind='',lastFeedback;
 const busyActions=new Set();
+let startPending=false,cloudflaredBusy=false,cloudflaredResult=null,cloudflaredProgress=null;
 const titles={overview:t('连接与状态'),network:t('网络与登录'),notifications:t('手机通知'),advanced:t('运行配置'),logs:t('运行日志')};
 function fields(){return [...$('settings').querySelectorAll('input,textarea,select')].filter(node=>!node.closest('#connections')&&node.id!=='connection-kind');}
 function fieldValues(){return Object.fromEntries(fields().map(node=>[node.id,node.type==='checkbox'?node.checked:node.value]));}
@@ -41,7 +42,7 @@ function render(value){
   }
   $('status').textContent=running?t('运行中'):starting?t('启动中'):value.runtime.portOccupied?t('端口已占用'):t('未启动');
   $('status').classList.toggle('running',running);$('sidebar-status').textContent=$('status').textContent;
-  $('start').disabled=running||starting;$('stop').disabled=!running;
+  $('start').disabled=running||starting||cloudflaredBusy||startPending;$('stop').disabled=!running;
   $('login-summary').textContent=value.auth.mode==='none'?t('免密访问'):t('账号：')+value.auth.username;
   $('credentials').disabled=!value.credentialsAvailable;
   $('notification-summary').textContent=value.notifications.enabled?t('已开启 · ')+value.watches.length+t(' 个关注聊天'):t('未开启');
@@ -70,6 +71,7 @@ function render(value){
   document.querySelectorAll('[data-connection-field],[data-remove-connection]').forEach(node=>node.disabled=running);
   for(const node of document.querySelectorAll('[data-connection-status]'))node.textContent=t(value.externalStatus?.[node.dataset.connectionStatus]?.message||(!running?t('网关未启动。可先保存配置并导出部署包。'):t('网关正在运行；固定入口是否可用，请点击检测。')));
   document.querySelectorAll('[data-pick]').forEach(button=>button.disabled=running);
+  renderCloudflared();
 }
 async function refresh(){if(loading)return;loading=true;try{render(await api.snapshot());}catch(e){feedback(e.message,true);}finally{loading=false;}}
 function collect(){return {preferences:{autoStart:$('auto-start').checked,port:Number($('port').value),lan:$('lan').checked,connections:connectionDraft,cloudflared:$('cloudflared').value.trim(),codexHome:$('codex-home').value.trim(),ipcPath:$('ipc-path').value.trim(),codexBin:$('codex-bin').value.trim()},auth:{mode:$('auth-mode').value,username:$('username').value.trim(),password:$('password').value},origins:$('origins').value.split('\n').map(s=>s.trim()).filter(Boolean),notifications:{enabled:$('ntfy-enabled').checked,server:$('ntfy-server').value.trim(),topic:$('ntfy-topic').value.trim(),token:$('ntfy-token').value,clearToken:$('clear-token').checked,clickBase:$('click-base').value.trim(),includeTitle:$('include-title').checked}};}
@@ -84,7 +86,7 @@ $('settings').onsubmit=async event=>{
     feedback(dirty?t('已保存提交的配置，仍有新修改待保存。'):t('配置已保存。通知设置由新版网关自动读取，登录设置在下次启动生效。'));
   }catch(e){feedback(e.message,true);}finally{$('save').disabled=false;}
 };
-$('start').onclick=async()=>{if(dirty){feedback(t('请先保存配置，再启动网关。'),true);return;}$('start').disabled=true;try{const result=await api.start();startingUntil=result.started?Date.now()+70000:0;feedback(result.message,false,'gateway');await refresh();}catch(e){startingUntil=0;feedback(e.message,true);$('start').disabled=false;}};
+$('start').onclick=async()=>{if(cloudflaredBusy||startPending)return;if(dirty){feedback(t('请先保存配置，再启动网关。'),true);return;}$('start').disabled=true;startPending=true;try{if(snapshot?.preferences.tunnel){try{await api.checkCloudflared(snapshot.preferences.cloudflared);}catch(error){tab('advanced');throw error;}}const result=await api.start();startingUntil=result.started?Date.now()+70000:0;feedback(result.message,false,'gateway');await refresh();}catch(e){startingUntil=0;feedback(e.message,true);$('start').disabled=false;}finally{startPending=false;}};
 $('stop').onclick=async()=>{$('stop').disabled=true;try{feedback((await api.stop()).message,false,'gateway');startingUntil=0;await refresh();}catch(e){feedback(e.message,true);$('stop').disabled=false;}};
 $('test-notification').onclick=async()=>{if(dirty){feedback(t('请先保存 ntfy 配置，再发送测试通知。'),true);return;}$('test-notification').disabled=true;try{feedback((await api.testNotification()).message);}catch(e){feedback(e.message,true);}finally{$('test-notification').disabled=false;}};
 $('ntfy-help').onclick=()=>api.open('ntfy-help').catch(e=>feedback(e.message,true));
@@ -93,6 +95,42 @@ $('credentials').onclick=()=>api.open('credentials').catch(e=>feedback(e.message
 $('open-data').onclick=()=>api.open('data').catch(e=>feedback(e.message,true));
 $('choose-data').onclick=async()=>{try{if(await api.choose('data')){dirty=false;await refresh();feedback(t('已切换网关目录，原来的网关进程继续运行。'));}}catch(e){feedback(e.message,true);}};
 for(const button of document.querySelectorAll('[data-pick]'))button.onclick=async()=>{try{const selected=await api.choose(button.dataset.kind);if(selected){input(button.dataset.pick,selected);updateDirty();}}catch(e){feedback(e.message,true);}};
+function quickTunnelMessage(){
+  if(snapshot?.quickTunnel?.message&&snapshot.runtime.running)return t(snapshot.quickTunnel.message);
+  return snapshot?.cloudflared?.available?t('程序已找到；保存配置并启动网关后建立临时 HTTPS。'):t('未找到 cloudflared，请先完成安装与配置。');
+}
+function renderCloudflared(){
+  const current=$('cloudflared').value.trim(),verified=cloudflaredResult?.path===current?cloudflaredResult:null;
+  $('cloudflared-state').textContent=verified?verified.version:current===snapshot?.cloudflared?.path&&snapshot?.cloudflared?.available?t('已找到程序，可点击检测确认是否可运行。'):t('未检测到可用程序，请一键安装或选择已有程序。');
+  const progress=cloudflaredProgress||snapshot?.cloudflaredInstall;
+  $('cloudflared-progress').hidden=!progress?.message;
+  $('cloudflared-progress').textContent=progress?.message?t(progress.message)+(progress.total?' '+Math.floor(100*progress.received/progress.total)+'%':''):'';
+  $('install-cloudflared').disabled=cloudflaredBusy||!!snapshot?.runtime.running;
+  $('check-cloudflared').disabled=cloudflaredBusy;
+  $('choose-data').disabled=cloudflaredBusy;
+  const enabled=connectionDraft.some(c=>c.enabled&&c.accessMode==='quick');
+  $('quick-tunnel-state').hidden=!enabled;$('quick-setup').hidden=!enabled;
+  $('quick-tunnel-state').textContent=quickTunnelMessage();
+  document.querySelectorAll('[data-quick-status]').forEach(node=>node.textContent=quickTunnelMessage());
+}
+async function setupCloudflared(install){
+  if(cloudflaredBusy)return;
+  cloudflaredBusy=true;cloudflaredProgress={message:install?'正在获取 Cloudflare 官方版本…':'正在检测 cloudflared…'};renderCloudflared();
+  try{
+    // Only fill this field. Other unsaved settings, passwords and tokens remain in the form.
+    cloudflaredProgress=null;
+    const result=install?await api.installCloudflared():await api.checkCloudflared($('cloudflared').value.trim());
+    cloudflaredResult=result;input('cloudflared',result.path);updateDirty();
+    cloudflaredProgress={message:install?'已安装并验证 cloudflared，请保存配置后启动网关。':'cloudflared 检测通过。路径有变更时请保存配置。'};
+    feedback(cloudflaredProgress.message);
+  }catch(error){cloudflaredProgress={message:error.message};feedback(error.message,true);}
+  finally{cloudflaredBusy=false;renderCloudflared();await refresh();}
+}
+$('install-cloudflared').onclick=()=>setupCloudflared(true);
+$('check-cloudflared').onclick=()=>setupCloudflared(false);
+$('cloudflare-help').onclick=()=>api.open('cloudflare-help').catch(error=>feedback(error.message,true));
+$('quick-setup').onclick=()=>tab('advanced');
+$('cloudflared').oninput=()=>{renderCloudflared();updateDirty();};
 async function loadLogs(){try{$('log-output').textContent=(await api.logs()).text||t('暂无运行日志');$('log-output').scrollTop=0;}catch(e){feedback(e.message,true);}}
 $('refresh-logs').onclick=loadLogs;
 api.language().then(applyLanguage).catch(error=>feedback(error.message,true)).then(()=>refresh()).then(()=>{if(snapshot?.preferences.autoStart&&!snapshot.runtime.running&&!snapshot.runtime.portOccupied)$('start').click();});setInterval(refresh,3000);

@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('bridgeDesktop',{
   language:()=>ipcRenderer.invoke('bridge:language'),
   setLanguage:value=>ipcRenderer.invoke('bridge:set-language',value),
   pairing:value=>ipcRenderer.invoke('bridge:pairing',value),
+  installCloudflared:()=>ipcRenderer.invoke('bridge:install-cloudflared'),
+  checkCloudflared:value=>ipcRenderer.invoke('bridge:check-cloudflared',value),
   snapshot:()=>ipcRenderer.invoke('bridge:snapshot'),
   save:value=>ipcRenderer.invoke('bridge:save',value),
   start:()=>ipcRenderer.invoke('bridge:start'),

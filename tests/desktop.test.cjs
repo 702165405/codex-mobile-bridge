@@ -181,3 +181,66 @@ test('QR PNG decodes to the exact one-time fragment URL without exposing it in m
   assert.equal(decode(new Uint8ClampedArray(png.data),png.width,png.height).data,url);
   assert.equal(result.id,'test');assert.equal(result.expires,12345);
 });
+
+const cloudflared=require('../desktop/cloudflared.cjs');
+test('Cloudflare installer selects official platform assets and rejects unsafe redirects',async()=>{
+  assert.equal(cloudflared.assetName('darwin','arm64'),'cloudflared-darwin-arm64.tgz');
+  assert.equal(cloudflared.assetName('darwin','x64'),'cloudflared-darwin-amd64.tgz');
+  assert.equal(cloudflared.assetName('win32','x64'),'cloudflared-windows-amd64.exe');
+  assert.throws(()=>cloudflared.assetName('win32','arm64'),/手动/);
+  let calls=0;
+  const fetch=async()=>{calls++;return new Response(null,{status:302,headers:{location:'https://evil.example/cloudflared'}});};
+  await assert.rejects(cloudflared.download(fetch,'https://api.github.com/repos/cloudflare/cloudflared/releases/latest',1000,AbortSignal.timeout(1000)),/来源/);
+  assert.equal(calls,1);
+  for(const url of ['http://github.com/cloudflare/cloudflared/releases/download/x/y','https://github.com/other/project/releases/download/x/y','https://user:pass@github.com/cloudflare/cloudflared/releases/download/x/y'])assert.throws(()=>cloudflared.allowedUrl(url));
+});
+
+test('Cloudflare install verifies before execution, preserves settings and never overwrites another binary',async()=>{
+  const fs=require('node:fs/promises');
+  await fs.mkdir(path.join(__dirname,'../.tmp'),{recursive:true});
+  const dir=await fs.mkdtemp(path.join(__dirname,'../.tmp/cloudflare-install-test-'));
+  const bytes=Buffer.from('fixture executable'),name='cloudflared-windows-amd64.exe',tag='2026.1.0';
+  const asset={name,size:bytes.length,digest:'sha256:'+cloudflared.digest(bytes),browser_download_url:'https://github.com/cloudflare/cloudflared/releases/download/'+tag+'/'+name};
+  let checks=0,bad=false;
+  const fetch=async(url,options)=>{
+    assert.equal(options.credentials,'omit');assert.equal(options.redirect,'manual');
+    return new Response(url.includes('api.github.com')?JSON.stringify({tag_name:tag,assets:[{...asset,digest:bad?'sha256:'+'0'.repeat(64):asset.digest}]}):bytes);
+  };
+  const args={dataDir:dir,platform:'win32',arch:'x64',fetch,check:async()=>{checks++;return 'cloudflared version 2026.1.0';}};
+  try{
+    await fs.writeFile(path.join(dir,'desktop.json'),'original settings');
+    bad=true;await assert.rejects(cloudflared.install(args),/SHA-256/);assert.equal(checks,0);
+    assert.deepEqual(await fs.readdir(dir),['desktop.json']);
+    bad=false;const result=await cloudflared.install(args);assert.equal(checks,1);
+    assert.deepEqual(await fs.readFile(result.path),bytes);
+    assert.equal(await fs.readFile(path.join(dir,'desktop.json'),'utf8'),'original settings');
+    await fs.writeFile(result.path,'existing customized program');
+    await assert.rejects(cloudflared.install(args),/已有不同程序/);
+    assert.equal(await fs.readFile(result.path,'utf8'),'existing customized program');
+    assert.equal((await fs.readdir(path.join(dir,'bin'))).filter(name=>name.startsWith('.cloudflared-')).length,0);
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('Mac archive reader extracts only the regular executable and rejects symlinks and truncation',()=>{
+  const {gzipSync}=require('node:zlib');
+  function archive(name,type='0',length=4){const header=Buffer.alloc(512);header.write(name);header.write(length.toString(8).padStart(11,'0'),124);header.write(type,156);return gzipSync(Buffer.concat([header,Buffer.from('test'),Buffer.alloc(508)]));}
+  assert.equal(cloudflared.executableFromArchive(archive('./cloudflared'),'mac.tgz').toString(),'test');
+  assert.throws(()=>cloudflared.executableFromArchive(archive('../cloudflared'),'mac.tgz'),/未找到/);
+  assert.throws(()=>cloudflared.executableFromArchive(archive('cloudflared','2'),'mac.tgz'),/格式/);
+  assert.throws(()=>cloudflared.executableFromArchive(archive('cloudflared','0',9999),'mac.tgz'),/不完整/);
+});
+
+test('missing Cloudflare opens setup before start and installing preserves drafts',async()=>{
+  const ui=await renderer();let started=0;
+  ui.value.preferences.tunnel=true;await ui.poll();ui.api.start=async()=>{started++;};
+  ui.api.checkCloudflared=async()=>{throw Error('未找到 cloudflared，请点击一键安装，或选择已下载的程序。');};
+  await ui.start();assert.equal(started,0);assert.equal(ui.run('activeTab'),'advanced');
+  for(const id of ['cloudflared','password','ntfy-topic'])ui.nodes.get(id).closest=()=>({dataset:{panel:'advanced'}});
+  ui.run("fields=()=>['cloudflared','password','ntfy-topic'].map($);savedFields=fieldValues()");
+  ui.nodes.get('password').value='unsaved password';ui.nodes.get('ntfy-topic').value='draft-topic';
+  ui.api.installCloudflared=async()=>({path:'/data/bin/cloudflared',version:'cloudflared version fixture'});
+  await ui.nodes.get('install-cloudflared').onclick();
+  assert.equal(ui.nodes.get('cloudflared').value,'/data/bin/cloudflared');
+  assert.equal(ui.nodes.get('password').value,'unsaved password');assert.equal(ui.nodes.get('ntfy-topic').value,'draft-topic');
+  assert.match(ui.nodes.get('feedback').textContent,/保存配置/);
+});

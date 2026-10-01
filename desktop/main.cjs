@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,Tray,Menu}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,Tray,Menu,net}=require('electron');
 const path=require('node:path');
 const fs=require('node:fs');
 const {pathToFileURL}=require('node:url');
@@ -7,12 +7,14 @@ const {runWorker,workerFor}=require('./controller.cjs');
 const {pairingImage}=require('./qr.cjs');
 const {createTray}=require('./tray.cjs');
 const {normalize,translate}=require('./i18n.js');
+const cloudflared=require('./cloudflared.cjs');
 let language='zh-CN';
 const t=text=>translate(text,language);
 const root=path.resolve(__dirname,'..');
 // An explicit data directory also keeps test caches inside the project.
 if(process.env.CMB_DATA_DIR)app.setPath('userData',path.join(path.resolve(process.env.CMB_DATA_DIR),'desktop-runtime'));
 let window,dataDir,tray,quitting=false,snapshotPending;
+let installPending,installStatus={};
 const entry=pathToFileURL(path.join(__dirname,'index.html')).href;
 function loadDataDir(){
   if(process.env.CMB_DATA_DIR)return path.resolve(process.env.CMB_DATA_DIR);
@@ -27,7 +29,7 @@ function authorize(event){
 }
 function worker(action,payload){
   if(action==='snapshot'&&snapshotPending)return snapshotPending;
-  const result=runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload);
+  const result=runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload).then(value=>action==='snapshot'?{...value,cloudflaredInstall:installStatus}:value);
   if(action==='snapshot')snapshotPending=result.finally(()=>{snapshotPending=null;});
   return action==='snapshot'?snapshotPending:result;
 }
@@ -46,6 +48,20 @@ function register(){
     language=value;window.setTitle(t('Codex 手机网关'));tray?.relabel();return language;
   });
   for(const action of ['snapshot','save','start','stop','logs','test-notification','check-entry'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
+  ipcMain.handle('bridge:install-cloudflared',async event=>{
+    authorize(event);if(installPending)return installPending;
+    installPending=(async()=>{
+      if((await worker('snapshot')).runtime.running)throw Error('请先停止网关再安装 cloudflared。');
+      return cloudflared.install({dataDir,fetch:cloudflared.electronFetch(net),onProgress:value=>{installStatus=value;}});
+    })().catch(error=>{installStatus={state:'error',message:error.message};throw error;}).finally(()=>{installPending=null;});
+    return installPending;
+  });
+  ipcMain.handle('bridge:check-cloudflared',async(event,value)=>{
+    authorize(event);const snapshot=await worker('snapshot');
+    const executable=typeof value==='string'&&value.trim()?value.trim():snapshot.preferences.cloudflared;
+    if(!executable||!path.isAbsolute(executable))throw Error('未找到 cloudflared，请点击一键安装，或选择已下载的程序。');
+    return {path:executable,version:await cloudflared.probe(executable)};
+  });
   ipcMain.handle('bridge:pairing',async(event,payload)=>{
     authorize(event);
     const grant=await worker('pairing',payload);
@@ -75,6 +91,8 @@ function register(){
     if(result.canceled)return null;
     const selected=result.filePaths[0];
     if(kind==='data'){
+      if(installPending)throw Error('正在安装 cloudflared，请完成后再切换数据目录。');
+      installStatus={};
       dataDir=selected;fs.mkdirSync(app.getPath('userData'),{recursive:true});
       fs.writeFileSync(path.join(app.getPath('userData'),'bridge-location.json'),JSON.stringify({dataDir}),{mode:0o600});
     }
@@ -84,6 +102,7 @@ function register(){
     authorize(event);
     if(target==='credentials')return shell.openPath(path.join(dataDir,'首次登录.txt'));
     if(target==='data')return shell.openPath(dataDir);
+    if(target==='cloudflare-help')return shell.openExternal('https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/');
     if(target==='ntfy-help')return shell.openExternal('https://docs.ntfy.sh/subscribe/phone/');
     const snapshot=await worker('snapshot');
     if(!snapshot.urls.includes(target)||!/^https?:\/\//.test(target))throw Error('地址不可用');

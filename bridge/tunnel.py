@@ -1,8 +1,11 @@
 """An opt-in Cloudflare Quick Tunnel whose lifetime follows this gateway."""
+import os
 import re
 import subprocess
 import threading
 from pathlib import Path
+
+from .notifications import write_json
 
 
 class QuickTunnel:
@@ -21,11 +24,15 @@ class QuickTunnel:
         self.closed = threading.Event()
         self.lifecycle_lock = threading.Lock()
 
+    def status(self, state, message):
+        write_json(self.data_dir/'cloudflare-status.json', {'pid': os.getpid(), 'state': state, 'message': message})
+
     def start(self):
         if self.closed.is_set():
             raise RuntimeError("隧道已停止")
         if not self.executable.is_file():
             raise RuntimeError("缺少 cloudflared，请查看 README 的外网访问配置")
+        self.status('connecting', '正在建立临时 HTTPS 连接，局域网可独立使用。')
         config = self.data_dir / 'cloudflared.yml'
         config.write_text('{}\n', encoding='utf-8')
         config.chmod(0o600)
@@ -61,8 +68,11 @@ class QuickTunnel:
                             self.on_origin(self.url)
                         if 'Registered tunnel connection' in line and self.url:
                             (self.data_dir / '外网地址.txt').write_text(self.url + '\n\n账号和密码与局域网网关相同。重启隧道后地址会变化。\n', encoding='utf-8')
+                            self.status('ready', '临时 HTTPS 已连接。')
                             self.ready.set()
         finally:
+            if not self.closed.is_set():
+                self.status('failed', '临时 HTTPS 连接已中断，请查看 Cloudflare 日志并重启网关重试；局域网仍可使用。')
             self.finished.set()
 
     def close(self):

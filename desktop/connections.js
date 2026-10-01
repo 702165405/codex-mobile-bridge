@@ -21,7 +21,11 @@ function renderConnections(){
     }
     field('enabled',t('启用此连接'),'checkbox');field('name',t('连接名称'),'text',t('可选，例如家中 NAS'));
     const hint=document.createElement('p');hint.className='hint';
-    if(row.accessMode==='quick')hint.textContent=t('启动网关时自动建立临时 HTTPS 隧道，需要在运行配置中选择 cloudflared。临时地址可能变化；同一网关只需一个临时入口，可与固定入口同时启用。');
+    if(row.accessMode==='quick'){
+      hint.textContent=t('先完成 cloudflared 安装与检测，再保存并启动网关。临时 HTTPS 可与局域网及固定入口同时启用。');
+      const status=document.createElement('p');status.className='hint';status.dataset.quickStatus='true';status.textContent=quickTunnelMessage();card.append(status);
+      const setup=document.createElement('button');setup.type='button';setup.textContent=t('安装与配置教程 →');setup.onclick=()=>tab('advanced');card.append(setup);
+    }
     else{
       field('publicUrl',t('手机访问地址'),'text','https://codex.example.com');
       if(row.accessMode==='server'){

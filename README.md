@@ -20,33 +20,33 @@
 
 ## 下载与快速开始（推荐）
 
-日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v0.2.0-beta.2 预发布版**。
+日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v0.2.0-beta.3 预发布版**。
 
 | 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/Codex-Mobile-Bridge-0.2.0-beta.2-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
-| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/Codex-Mobile-Bridge-0.2.0-beta.2-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
-| macOS Apple Silicon（M 系列） | [下载 arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/Codex-Mobile-Bridge-0.2.0-beta.2-macOS-arm64.zip) | 解压，将 `.app` 放入“应用程序”后打开 |
+| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.3/Codex-Mobile-Bridge-0.2.0-beta.3-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
+| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.3/Codex-Mobile-Bridge-0.2.0-beta.3-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
+| macOS Apple Silicon（M 系列） | [下载 arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.3/Codex-Mobile-Bridge-0.2.0-beta.3-macOS-arm64.zip) | 解压，将 `.app` 放入“应用程序”后打开 |
 
-[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.2/SHA256SUMS.txt)。当前未提供 Intel Mac 或 Windows ARM 专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.3/SHA256SUMS.txt)。当前未提供 Intel Mac 或 Windows ARM 专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
 
 1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
 2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
 3. 手机连接同一局域网，在 App 首页展开对应地址下的 **扫码登录**，用手机相机扫描即可进入，无需输入密码。也可以手动打开地址，使用 App 提供的登录凭据。
 4. 在手机网页选择已有聊天或新建聊天，即可继续交互。使用期间保持电脑唤醒、Codex App 和网关运行。
 
-需要外网访问时，可在 App 添加临时 HTTPS、自有服务器或 NAS 连接。临时 HTTPS 需要自行准备 `cloudflared`；固定域名和 NAS 需要首次配置服务器或反向代理，详见[连接方式说明](#connections)。源码运行、自定义部署或需要 Agent 协助时，使用后面的[部署 Agent 执行说明](#agent-deployment)。
+需要外网访问时，可在 App 添加临时 HTTPS、自有服务器或 NAS 连接。临时 HTTPS 可在 App 内一键安装 `cloudflared`；固定域名和 NAS 需要首次配置服务器或反向代理，详见[连接方式说明](#connections)。源码运行、自定义部署或需要 Agent 协助时，使用后面的[部署 Agent 执行说明](#agent-deployment)。
 
 <a id="macos-first-launch"></a>
 
 ### macOS 首次打开：提示“已损坏”或开发者无法验证
 
-当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v0.2.0-beta.2` 或后续版本。
+当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v0.2.0-beta.3` 或后续版本。
 
 1. 从本仓库的 Release 下载 ZIP 和 `SHA256SUMS.txt`。用下面的命令计算 ZIP 的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.2-macOS-arm64.zip"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.3-macOS-arm64.zip"
    ```
 
 2. 解压，将 `Codex Mobile Bridge.app` 放入“应用程序”。尝试打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。
@@ -86,7 +86,7 @@ Windows 关闭窗口会收起到系统托盘；双击托盘或再次启动 App �
 
 未保存修改会在对应设置页的侧栏入口和底部保存栏显示小红点；切换页面仍保留提示，保存成功或改回原值后清除，保存失败时继续保留。
 
-cloudflared 仍为可选的外部程序，App 不自动下载或安装。需要临时外网入口时，在界面中选择其路径。
+cloudflared 是可选程序。在“运行配置”点击“一键下载并安装”，或选择已有程序；只有点击安装按钮才会联网下载。
 
 ### 手机扫码登录
 
@@ -199,7 +199,7 @@ App 设置界面通过本机进程通信管理网关，管理接口不对局域�
 - 仅从源码或命令行运行时需要 Python 3.9+；网关本身只使用 Python 标准库，无需 `pip install` 或前端构建。Windows 使用原生 CPython，无需 WSL。桌面 App 的开发与打包另需 Node.js 及构建依赖。
 - 电脑保持唤醒、联网，网关进程保持运行。
 - 使用 SSH 聊天时：App 中已配置该主机，电脑上相应 SSH 别名可非交互连接，远端有 Python 3。Windows 需要 PATH 中可用的 OpenSSH `ssh.exe`。模型/Skill 目录还需要远端可用的 Codex 运行时。
-- 外网临时隧道可选依赖：`cloudflared`，需要自行安装；仓库不包含该程序。
+- 外网临时隧道可选依赖：`cloudflared`，App 可一键安装，也可自行安装；仓库不包含该程序。
 
 ## 命令行启动：局域网（进阶）
 
@@ -260,6 +260,16 @@ python3 -B "$PWD/run.py" --lan
 适合没有公网 IP、没有域名，或手机无法接入校园/公司 VPN 的情况。电脑主动向隧道服务建立出站连接，手机访问生成的 HTTPS 地址。
 
 ### 安装 cloudflared
+
+**桌面 App（推荐）**：
+
+1. 在“网络与登录”添加并启用“临时 HTTPS · Cloudflare”，点击卡片的“安装与配置教程”。
+2. 在“运行配置”点击“一键下载并安装”。App 从 Cloudflare 官方 GitHub 获取匹配本机系统与架构的版本，核对 Release 的 SHA-256 后安装到网关数据目录，并运行 `--version` 检测。无需管理员权限，不修改系统 PATH，也不会自动创建外网隧道。
+3. 路径会自动填入并标记为未保存；点击“保存配置”，返回首页启动网关。首页会独立显示临时 HTTPS 的连接状态，连接成功后出现手机地址与登录二维码。
+
+已有程序可点击“检测已安装程序”，或手动选择文件。安装器支持 macOS arm64 / x64、Windows x64 / x86；其他架构使用官方教程。下载最长等待 3 分钟；网络错误、校验失败或缺少校验信息时会取消安装，不覆盖已有程序或配置。GitHub 无法访问时，App 内有官方教程与手动安装步骤。网关启动后，隧道连接失败不影响局域网使用；详细信息在“运行日志”的 Cloudflare 部分。
+
+**源码 / 命令行部署**：
 
 使用 Homebrew：
 

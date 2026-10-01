@@ -156,6 +156,7 @@ def main(connections=None):
                     url = tunnel.start()
                     print("外网地址：" + url, flush=True)
                 except (RuntimeError, OSError) as exc:
+                    tunnel.status('failed', '临时 HTTPS 连接失败，请检查网络并查看 Cloudflare 日志；局域网仍可使用。')
                     print(str(exc), flush=True)
             tunnel_thread = threading.Thread(target=connect_tunnel, daemon=True)
             tunnel_thread.start()

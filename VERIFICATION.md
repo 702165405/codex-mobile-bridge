@@ -1,5 +1,13 @@
 # 验证记录
 
+## Cloudflare 首次配置与一键安装（2026-10-01）
+
+- 桌面新增中英文教程、官方入口、一键安装、已有程序检测、缺失依赖跳转、自动填写路径与未保存提示；临时隧道连接状态独立于网关状态，隧道日志进入运行日志。
+- 安装请求仅来自本机桌面 IPC。下载限定 Cloudflare 官方 GitHub 发布及其 HTTPS 资产域名，逐跳检查，不发送账户 Cookie；使用 Release SHA-256 验证，校验通过后才执行版本检测。安装在网关数据目录，不覆盖既有不同程序、不修改系统 PATH 或安装系统服务。
+- Mac 实测通过 Electron 网络栈下载官方 `cloudflared 2026.9.3` arm64 包，核对官方摘要并运行 `--version`；未启动公网隧道，测试文件保存在隔离目录。
+- 105 项 Python 测试中 101 项通过、4 项平台相关跳过；22 项 Node 测试通过，含校验失败不执行、拒绝非官方跳转、只读取归档常规程序文件、保留已有程序和配置、安装后保留表单草稿。
+- 实际 Electron 窗口验证入口、自动填路径、小红点、其他配置草稿保留、中英文切换及 820px 窗口无横向溢出。Windows 下载文件名和安装流程有模拟覆盖，真实 Windows 官方下载及手机公网访问未在本轮实测。
+
 ## macOS 下载包签名修复（2026-10-01）
 
 - 用户下载的 `v0.2.0-beta.1` Mac ZIP 与 GitHub Release SHA-256 完全一致，ZIP 内部 CRC 全部通过；重新解压后 `codesign --verify --deep --strict` 和 `spctl --assess` 均报告 `code has no resources but signature indicates they must be present`。确认是发布包签名问题，不是下载传输损坏。

@@ -94,3 +94,32 @@ class DesktopTests(unittest.TestCase):
         with patch('subprocess.Popen') as spawn:
             self.assertFalse(self.desktop.start()['started'])
             self.assertFalse(spawn.called)
+
+class CloudflareSetupTests(unittest.TestCase):
+    def test_blank_saved_path_rediscovers_and_missing_program_never_spawns(self):
+        from bridge.notifications import write_json
+        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as directory:
+            data = Path(directory)
+            desktop = Desktop(data)
+            desktop.status = lambda: {'running': False}
+            write_json(data/'desktop.json', {'cloudflared': '', 'codexHome': directory, 'tunnel': True})
+            with patch('bridge.desktop.shutil.which', return_value=''), patch('bridge.desktop.sys.platform', 'fixture'):
+                with patch('bridge.desktop.subprocess.Popen') as spawn:
+                    with self.assertRaisesRegex(ValueError, '一键安装'): desktop.start()
+                    spawn.assert_not_called()
+                (data/'bin').mkdir()
+                executable = data/'bin'/('cloudflared.exe' if os.name == 'nt' else 'cloudflared')
+                executable.write_text('fixture', encoding='utf8');executable.chmod(0o700)
+                self.assertEqual(desktop.preferences()['cloudflared'], str(executable))
+
+    def test_quick_tunnel_status_is_scoped_to_running_gateway(self):
+        from bridge.notifications import write_json
+        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as directory:
+            data = Path(directory);desktop = Desktop(data)
+            desktop.status = lambda: {'running': True, 'pid': 100}
+            write_json(data/'cloudflare-status.json', {'pid': 99, 'state': 'ready'})
+            self.assertEqual(desktop.snapshot()['quickTunnel'], {})
+            write_json(data/'cloudflare-status.json', {'pid': 100, 'state': 'failed', 'message': 'failed'})
+            self.assertEqual(desktop.snapshot()['quickTunnel']['state'], 'failed')
+            desktop.status = lambda: {'running': False, 'pid': None}
+            self.assertEqual(desktop.snapshot()['quickTunnel'], {})
