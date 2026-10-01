@@ -92,7 +92,12 @@ async function main(){
     screenshots.push(await screenshot('notifications'));
     // Closing is a hide-to-tray operation. A second launch must restore the same app.
     await client.evaluate('window.close()');
-    await until(()=>client.evaluate("document.visibilityState==='hidden'"),'Close to tray');
+    // Chromium may suspend JavaScript in a hidden window. Inspect the target
+    // list instead of evaluating code until the second launch restores it.
+    await delay(300);
+    assert.equal(child.exitCode,null);
+    const hiddenTargets=await (await fetch('http://127.0.0.1:'+debugPort+'/json/list')).json();
+    assert.ok(hiddenTargets.some(item=>item.id===target.id),'Closing must retain the window target');
     assert.equal((await fetch(base+'/api/auth')).status,200);
     await execute(executable,[],{env,windowsHide:true,timeout:15000});
     await until(()=>client.evaluate("document.visibilityState==='visible'"),'Single-instance restore');
