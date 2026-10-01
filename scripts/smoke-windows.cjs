@@ -7,6 +7,10 @@ const {spawn,execFile}=require('node:child_process');
 const {promisify}=require('node:util');
 const execute=promisify(execFile),root=path.resolve(__dirname,'..');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function get(url){
+  try{return await fetch(url,{headers:{Connection:'close'},signal:AbortSignal.timeout(5000)});}
+  catch(error){throw Error('GET '+url+': '+(error.cause?.message||error.message),{cause:error});}
+}
 async function freePort(){
   const server=net.createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;
@@ -67,7 +71,7 @@ async function main(){
   try{
     const target=await until(async()=>{
       if(child.exitCode!==null)throw Error('App exited: '+stderr);
-      const response=await fetch('http://127.0.0.1:'+debugPort+'/json/list');
+      const response=await get('http://127.0.0.1:'+debugPort+'/json/list');
       return (await response.json()).find(item=>item.type==='page'&&item.url.endsWith('/desktop/index.html'));
     },'Packaged app');
     client=await connect(target.webSocketDebuggerUrl);
@@ -79,8 +83,8 @@ async function main(){
     await until(()=>client.evaluate('snapshot.runtime.running'),'Bundled gateway startup');
     assert.equal(await client.evaluate("document.getElementById('port').disabled"),true);
     const base='http://127.0.0.1:'+port;
-    assert.equal((await fetch(base+'/api/sessions')).status,401);
-    for(const route of ['/','/app.js','/markdown.js','/timeline.js','/vendor/katex/katex.min.js'])assert.equal((await fetch(base+route)).status,200,route);
+    assert.equal((await get(base+'/api/sessions')).status,401);
+    for(const route of ['/','/app.js','/markdown.js','/timeline.js','/vendor/katex/katex.min.js'])assert.equal((await get(base+route)).status,200,route);
     async function screenshot(name){
       const image=await client.call('Page.captureScreenshot',{format:'png'});
       const filename=path.join(data,name+'.png');await fs.writeFile(filename,Buffer.from(image.data,'base64'));return filename;
@@ -96,9 +100,9 @@ async function main(){
     // list instead of evaluating code until the second launch restores it.
     await delay(300);
     assert.equal(child.exitCode,null);
-    const hiddenTargets=await (await fetch('http://127.0.0.1:'+debugPort+'/json/list')).json();
+    const hiddenTargets=await (await get('http://127.0.0.1:'+debugPort+'/json/list')).json();
     assert.ok(hiddenTargets.some(item=>item.id===target.id),'Closing must retain the window target');
-    assert.equal((await fetch(base+'/api/auth')).status,200);
+    assert.equal((await get(base+'/api/auth')).status,200);
     await execute(executable,[],{env,windowsHide:true,timeout:15000});
     await until(()=>client.evaluate("document.visibilityState==='visible'"),'Single-instance restore');
     await client.evaluate("document.querySelector('[data-tab=advanced]').click()");
