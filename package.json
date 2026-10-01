@@ -40,6 +40,7 @@
       }
     ],
     "mac": {
+      "icon": "desktop/assets/icon.png",
       "category": "public.app-category.developer-tools",
       "identity": null,
       "artifactName": "Codex-Mobile-Bridge-${version}-macOS-${arch}.${ext}"

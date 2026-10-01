@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="site/assets/icon.png" alt="Codex Mobile Bridge" width="112" height="112">
+</p>
+
 # Codex App Mobile Bridge
 
 [简体中文](README.md) · [English](README_EN.md)
@@ -312,6 +316,8 @@ Not verified / user steps: clear remaining actions and limitations
 Do not include actual passwords, tokens or API keys in public issues, commits, screenshots or deployment bundles.
 
 ## Development and packaging
+
+The product icon source is `assets/icon.png`. Run `npm run icons:desktop` to refresh the desktop PNG/ICO, phone and product-site icons. macOS packaging converts the desktop PNG into its system icon.
 
 The product website lives in `site/` and is hosted on GitHub Pages. Pushing changes under `site/` to `main` automatically publishes them through the **Product website** workflow; no separate build step is required.
 

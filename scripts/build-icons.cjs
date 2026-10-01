@@ -1,27 +1,31 @@
-// Render the existing product SVG; use the same artwork for Windows shell icons.
+// Export the approved artwork at the sizes used by the App, phone and website.
 'use strict';
-const {app,BrowserWindow}=require('electron');
+const {app,nativeImage}=require('electron');
 const fs=require('node:fs'),path=require('node:path');
-app.whenReady().then(async()=>{
-  const window=new BrowserWindow({show:false,width:256,height:256,useContentSize:true,
-    transparent:true,webPreferences:{offscreen:true,contextIsolation:true,nodeIntegration:false}});
+app.whenReady().then(()=>{
   try{
-    const svg=fs.readFileSync(path.join(__dirname,'../web/icon.svg'),'utf8');
-    await window.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent('<style>html,body{margin:0;width:256px;height:256px;background:transparent}svg{width:256px;height:256px}</style>'+svg));
-    const dataUrl=await window.webContents.executeJavaScript(`(async()=>{
-      const image=new Image();image.src=${JSON.stringify('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg))};
-      await image.decode();const canvas=document.createElement('canvas');canvas.width=canvas.height=256;
-      canvas.getContext('2d').drawImage(image,0,0,256,256);return canvas.toDataURL('image/png');
-    })()`);
-    const png=Buffer.from(dataUrl.split(',')[1],'base64');
-    const header=Buffer.alloc(22);
-    header.writeUInt16LE(1,2);header.writeUInt16LE(1,4);
-    header.writeUInt16LE(1,10);header.writeUInt16LE(32,12);
-    header.writeUInt32LE(png.length,14);header.writeUInt32LE(22,18);
-    const output=path.join(__dirname,'../desktop/assets');
-    fs.mkdirSync(output,{recursive:true});
-    fs.writeFileSync(path.join(output,'icon.png'),png);
-    fs.writeFileSync(path.join(output,'icon.ico'),Buffer.concat([header,png]));
+    const root=path.join(__dirname,'..');
+    const source=nativeImage.createFromPath(path.join(root,'assets/icon.png'));
+    if(source.isEmpty())throw new Error('Cannot read assets/icon.png');
+    const png=size=>source.resize({width:size,height:size,quality:'best'}).toPNG();
+    for(const [file,size] of [['desktop/assets/icon.png',1024],['web/icon.png',512],['site/assets/icon.png',512]]){
+      const output=path.join(root,file);
+      fs.mkdirSync(path.dirname(output),{recursive:true});
+      fs.writeFileSync(output,png(size));
+    }
+    // Multiple representations keep Windows shortcuts and tray icons sharp.
+    const sizes=[16,20,24,32,40,48,64,128,256],images=sizes.map(png);
+    const header=Buffer.alloc(6+16*sizes.length);
+    header.writeUInt16LE(1,2);header.writeUInt16LE(sizes.length,4);
+    let offset=header.length;
+    images.forEach((image,index)=>{
+      const entry=6+16*index,size=sizes[index];
+      header[entry]=header[entry+1]=size===256?0:size;
+      header.writeUInt16LE(1,entry+4);header.writeUInt16LE(32,entry+6);
+      header.writeUInt32LE(image.length,entry+8);header.writeUInt32LE(offset,entry+12);
+      offset+=image.length;
+    });
+    fs.writeFileSync(path.join(root,'desktop/assets/icon.ico'),Buffer.concat([header,...images]));
     app.exit(0);
   }catch(error){console.error(error);app.exit(1);}
 });

@@ -35,7 +35,7 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/vendor/katex/katex.min.css": ("vendor/katex/katex.min.css", "text/css; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
-          "/icon.svg": ("icon.svg", "image/svg+xml")}
+          "/icon.png": ("icon.png", "image/png")}
 THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications))?$")
 FONT_ROUTE = re.compile(r"^/vendor/katex/fonts/(KaTeX_[A-Za-z0-9_-]+\.(woff2|woff|ttf))$")
 

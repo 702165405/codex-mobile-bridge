@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="site/assets/icon.png" alt="Codex Mobile Bridge" width="112" height="112">
+</p>
+
 # Codex App 手机网关
 
 [简体中文](README.md) · [English](README_EN.md)
@@ -131,7 +135,7 @@ python scripts/build-desktop.py
 npm run pack:desktop
 ```
 
-Windows 可再执行 `npm run build:windows` 生成安装包与 ZIP；文件位于 `dist/desktop/`。随后执行 `npm run test:windows-app` 验证实际打包窗口、内置运行时、托盘恢复与启停。此检查使用临时端口和合成数据，不发送模型请求或真实通知，需要可显示窗口的 Windows 会话和 Node.js 24。开发测试可用 `CMB_DATA_DIR` 指定独立数据目录，`CMB_PYTHON` 指定开发用 Python；打包后的 App 使用内置运行时。运行 `python -B -m unittest discover -s tests -v` 和 `npm run test:desktop` 进行自动检查。产品图标源为 `web/icon.svg`，可用 `npm run icons:desktop` 更新桌面 PNG/ICO。
+Windows 可再执行 `npm run build:windows` 生成安装包与 ZIP；文件位于 `dist/desktop/`。随后执行 `npm run test:windows-app` 验证实际打包窗口、内置运行时、托盘恢复与启停。此检查使用临时端口和合成数据，不发送模型请求或真实通知，需要可显示窗口的 Windows 会话和 Node.js 24。开发测试可用 `CMB_DATA_DIR` 指定独立数据目录，`CMB_PYTHON` 指定开发用 Python；打包后的 App 使用内置运行时。运行 `python -B -m unittest discover -s tests -v` 和 `npm run test:desktop` 进行自动检查。产品图标源为 `assets/icon.png`，可用 `npm run icons:desktop` 更新桌面 PNG/ICO、手机网页和介绍页图标。macOS 打包时会从桌面 PNG 生成系统图标。
 
 App 设置界面通过本机进程通信管理网关，管理接口不对局域网或隧道开放。配置、推送 Token、凭据和投递记录位于网关数据目录，默认关闭 ntfy；打包与提交不包含 `.local`、`.tmp` 或个人配置。
 
