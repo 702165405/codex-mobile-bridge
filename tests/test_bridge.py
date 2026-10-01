@@ -644,9 +644,18 @@ class HttpTests(unittest.TestCase):
         self.server.bridge.view = lambda *a, **k: session.view()
         self.assertEqual(self.request('GET', '/api/sessions/'+THREAD+'/poll?after=-1')[0], 401)
         auth = self.login()
+        finished = threading.Event()
+        process_request = self.server.process_request_thread
+        def complete_request(*args):
+            try:
+                process_request(*args)
+            finally:
+                finished.set()
+        self.server.process_request_thread = complete_request
         status, _, value = self.request('GET', '/api/sessions/'+THREAD+'/poll?after=-1', headers=auth)
         self.assertEqual(status, 200)
         self.assertEqual(value['state']['id'], THREAD)
+        self.assertTrue(finished.wait(3), 'Poll request did not finish cleanup')
         self.assertEqual(session.viewers, 0)
 
     def test_api_cannot_execute_arbitrary_rpc_or_read_files(self):

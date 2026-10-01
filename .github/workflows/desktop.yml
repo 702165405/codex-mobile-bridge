@@ -28,7 +28,7 @@ jobs:
       - run: npm run test:desktop
       - run: python scripts/build-desktop.py
       - if: runner.os == 'macOS'
-        run: npx electron-builder --mac zip
+        run: npx electron-builder --mac zip --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - if: runner.os == 'Windows'

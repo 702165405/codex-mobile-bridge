@@ -26,17 +26,19 @@ ROOT = Path(__file__).resolve().parent
 
 def addresses():
     result = {"127.0.0.1", "localhost"}
-    try:
-        for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            result.add(item[4][0])
-    except OSError:
-        pass
     if os.name == "posix" and Path("/sbin/ifconfig").exists():
+        # Enumerate local interfaces without waiting for hostname DNS.
         output = subprocess.run(["/sbin/ifconfig"], capture_output=True, text=True, check=False).stdout
         for line in output.splitlines():
             parts = line.strip().split()
             if len(parts) > 1 and parts[0] == "inet":
                 result.add(parts[1])
+    else:
+        try:
+            for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                result.add(item[4][0])
+        except OSError:
+            pass
     return sorted(result)
 
 

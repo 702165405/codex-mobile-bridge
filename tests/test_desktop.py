@@ -1,4 +1,6 @@
 import copy
+import os
+import socket
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +9,22 @@ from bridge.desktop import Desktop
 from bridge.notifications import settings
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class AddressTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'posix', 'POSIX interface enumeration')
+    def test_interface_addresses_do_not_require_hostname_dns(self):
+        from run import addresses
+        with patch('run.Path.exists', return_value=True), patch('run.subprocess.run') as command, \
+                patch('run.socket.getaddrinfo', side_effect=AssertionError('Hostname DNS must not block settings')):
+            command.return_value.stdout = 'lo0:\n\tinet 127.0.0.1 netmask 0xff000000\nen0:\n\tinet 192.168.1.5 netmask 0xffffff00\n'
+            self.assertEqual(addresses(), ['127.0.0.1', '192.168.1.5', 'localhost'])
+
+    def test_dns_fallback_without_interface_command(self):
+        from run import addresses
+        with patch('run.Path.exists', return_value=False), patch('run.socket.getaddrinfo') as lookup:
+            lookup.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.168.1.6', 0))]
+            self.assertEqual(addresses(), ['127.0.0.1', '192.168.1.6', 'localhost'])
 
 
 class DesktopTests(unittest.TestCase):
