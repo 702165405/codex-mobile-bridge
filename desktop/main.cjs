@@ -22,7 +22,20 @@ function authorize(event){
 }
 function worker(action,payload){return runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload);}
 function register(){
-  for(const action of ['snapshot','save','start','stop','logs','test-notification'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
+  for(const action of ['snapshot','save','start','stop','logs','test-notification','check-entry'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
+  ipcMain.handle('bridge:export-deployment',async event=>{
+    authorize(event);
+    const result=await dialog.showSaveDialog(window,{defaultPath:'Codex-固定入口部署.zip',filters:[{name:'ZIP 部署包',extensions:['zip']}]});
+    if(result.canceled)return null;
+    const bundle=await worker('export-deployment');
+    fs.copyFileSync(bundle.path,result.filePath);
+    return {message:'部署包已导出：'+result.filePath+'。将它交给服务器或 NAS 上的部署 Agent。'};
+  });
+  ipcMain.handle('bridge:copy-deployment',async event=>{
+    authorize(event);const bundle=await worker('deployment');
+    const text='请按以下配置帮我部署 Codex 手机网关的固定入口。先检查服务器或 NAS 的现有服务，不要覆盖已有站点。\n\n'+Object.entries(bundle.files).map(([name,content])=>'--- '+name+' ---\n'+content).join('\n');
+    clipboard.writeText(text);return {message:'部署说明与配置已复制，可粘贴给服务器或 NAS 上的 Agent。'};
+  });
   ipcMain.handle('bridge:choose',async(event,kind)=>{
     authorize(event);
     if(!['folder','file','data'].includes(kind))throw Error('未知路径类型');

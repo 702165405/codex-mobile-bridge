@@ -101,3 +101,11 @@ Windows 自动发现用户目录中的 App 运行时、常见安装目录、MSIX
 | `bridge/tunnel.py` | 临时 HTTPS 隧道生命周期 |
 | `web/` | 手机浏览器界面 |
 | `tests/` | 合成数据与模拟 App IPC 回归 |
+
+## 固定 HTTPS 入口
+
+桌面 `accessMode` 选择局域网、Quick Tunnel、自有服务器 SSH 或 NAS。`bridge/access.py` 验证地址，生成不含凭据的 Caddy/Nginx Compose 部署包；固定 URL 自动加入允许源，优先用于通知链接（显式 clickBase 仍优先）。切换模式移除旧的托管固定源，保留其他手动 HTTPS 源。
+
+`bridge/ssh_tunnel.py` 管理独立 OpenSSH 子进程，复用已有 SSH 目标和身份，以 `-R 127.0.0.1:服务器端口:127.0.0.1:电脑端口` 回程。启用 BatchMode、StrictHostKeyChecking、ExitOnForwardFailure 与保活，不复用 ControlMaster。失败后台退避重连，不阻塞 LAN 服务。状态关联当前网关 PID；服务器 GatewayPorts 应使用 no/clientspecified，不能强制公网绑定。
+
+`/api/auth` 返回非秘密的本次运行 instanceId。固定入口检测仅从本机管理进程请求本机与已保存 HTTPS 地址，核对实例一致，不携带登录凭据，不跟随重定向。配置包导出、剪贴板和入口检测仅经受保护的本机 Electron IPC 提供，手机 HTTP 无管理接口。

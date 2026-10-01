@@ -19,6 +19,7 @@ from bridge.httpd import GatewayServer
 from bridge.lifecycle import GatewayControl
 from bridge.service import Bridge
 from bridge.tunnel import QuickTunnel
+from bridge.ssh_tunnel import SSHTunnel
 from bridge.notifications import Notifications
 
 ROOT = Path(__file__).resolve().parent
@@ -57,6 +58,8 @@ def main():
     parser.add_argument("--config", type=Path, default=ROOT / ".local/config.json")
     parser.add_argument("--lan", action="store_true", help="监听局域网；默认只监听本机")
     parser.add_argument("--tunnel", action="store_true", help="同时启动 Cloudflare 临时 HTTPS 外网入口")
+    parser.add_argument("--ssh-target", help="自有服务器的已有 SSH Host 别名或 user@hostname")
+    parser.add_argument("--ssh-remote-port", type=int, default=18787, help="SSH 服务器回环监听端口")
     tunnel_name = 'cloudflared.exe' if os.name == 'nt' else 'cloudflared'
     tunnel_bin = ROOT / '.local/bin' / tunnel_name
     parser.add_argument("--cloudflared", type=Path, default=tunnel_bin if tunnel_bin.is_file() else Path(shutil.which(tunnel_name) or str(tunnel_bin)), help="Cloudflare 客户端路径")
@@ -70,6 +73,11 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("端口必须为 1–65535")
+    if args.ssh_target:
+        from bridge.access import validate
+        validate({'sshTarget': args.ssh_target, 'sshRemotePort': args.ssh_remote_port})
+        if args.tunnel:
+            parser.error('SSH 与临时 Cloudflare 入口请选择一种')
     os.umask(0o077)
     args.config.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     first_login = args.config.parent / "首次登录.txt"
@@ -108,7 +116,8 @@ def main():
     pid_file.write_text(str(os.getpid()), encoding='utf-8')
     control = GatewayControl(args.config.parent)
     tunnel = None
-    notifications = Notifications(bridge, args.config.parent, lambda: server.origins)
+    ssh_tunnel = None
+    notifications = Notifications(bridge, args.config.parent, lambda: server.origins, lambda: config.get('publicUrl', ''))
     server.notifications = notifications
     def stop_signal(signum, frame):
         raise KeyboardInterrupt()
@@ -120,6 +129,9 @@ def main():
     if first_login.exists():
         print("首次登录凭据：" + str(first_login), flush=True)
     try:
+        if args.ssh_target:
+            ssh_tunnel = SSHTunnel(args.ssh_target, args.ssh_remote_port, args.port, args.config.parent)
+            ssh_tunnel.start()
         if args.tunnel:
             print("正在建立临时 HTTPS 外网连接…", flush=True)
             def allow_origin(origin):
@@ -142,6 +154,8 @@ def main():
         notifications.close()
         if tunnel:
             tunnel.close()
+        if ssh_tunnel:
+            ssh_tunnel.close()
         bridge.close()
         server.server_close()
         if pid_file.exists() and pid_file.read_text(encoding='utf-8').strip() == str(os.getpid()):

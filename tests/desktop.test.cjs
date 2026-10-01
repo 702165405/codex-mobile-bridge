@@ -32,7 +32,7 @@ async function renderer(){
     Date:class extends Date{static now(){return now;}},setInterval:callback=>{poll=callback;}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../desktop/renderer.js'),'utf8'),context);
   await new Promise(setImmediate);
-  return {nodes,value,context,poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
+  return {nodes,value,context,api,poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
 }
 
 test('startup feedback follows readiness, page changes and later shutdown',async()=>{
@@ -76,4 +76,38 @@ test('runtime polling preserves a newer save notification',async()=>{
   ui.value.runtime.running=true;await ui.poll();
   assert.equal(ui.nodes.get('status').textContent,'运行中');
   assert.equal(ui.nodes.get('feedback').textContent,saved);
+});
+
+test('fixed entry modes use form values, mark unsaved changes and block export until saved',async()=>{
+  const ui=await renderer();
+  const fields=['access-mode','public-url','ssh-target','ssh-remote-port','proxy-upstream'].map(id=>ui.nodes.get(id));
+  fields.forEach((node,i)=>{node.id=['access-mode','public-url','ssh-target','ssh-remote-port','proxy-upstream'][i];node.closest=()=>({dataset:{panel:'network'}});});
+  ui.nodes.get('settings').querySelectorAll=()=>fields;
+  ui.context.render(ui.value);
+  ui.nodes.get('access-mode').value='server';
+  ui.nodes.get('public-url').value='https://codex.example.com';
+  ui.nodes.get('ssh-target').value='my-server';
+  ui.nodes.get('settings').oninput();
+  assert.equal(ui.nodes.get('dirty-dot').hidden,false);
+  assert.equal(ui.nodes.get('export-deployment').disabled,true);
+  assert.equal(ui.nodes.get('server-fields').hidden,false);
+  assert.equal(ui.nodes.get('nas-fields').hidden,true);
+  const preferences=ui.context.collect().preferences;
+  assert.equal(preferences.port,8787);assert.equal(preferences.accessMode,'server');assert.equal(preferences.sshRemotePort,18787);
+  ui.value.preferences={...ui.value.preferences,...preferences};
+  await ui.nodes.get('settings').onsubmit({preventDefault(){}});
+  assert.equal(ui.nodes.get('dirty-dot').hidden,true);
+  assert.equal(ui.nodes.get('export-deployment').disabled,false);
+  ui.value.runtime.running=true;await ui.poll();
+  for(const id of ['access-mode','public-url','port','origins'])assert.equal(ui.nodes.get(id).disabled,true);
+});
+
+test('polling cannot reenable or repeat an ongoing fixed entry check',async()=>{
+  const ui=await renderer();let resolve,calls=0;
+  ui.api.checkEntry=()=>{calls++;return new Promise(done=>{resolve=done;});};
+  const action=ui.nodes.get('check-entry').onclick();
+  await ui.poll();assert.equal(ui.nodes.get('check-entry').disabled,true);
+  await ui.nodes.get('check-entry').onclick();assert.equal(calls,1);
+  resolve({message:'入口已检测'});await action;
+  assert.equal(ui.nodes.get('check-entry').disabled,false);
 });

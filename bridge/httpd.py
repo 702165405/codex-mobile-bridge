@@ -5,6 +5,7 @@ import json
 import logging
 import mimetypes
 import re
+import secrets
 import socket
 import threading
 import time
@@ -44,6 +45,7 @@ class GatewayServer(ThreadingHTTPServer):
     def __init__(self, address, bridge, config, web_dir):
         self.bridge = bridge
         self.notifications = None
+        self.instance_id = secrets.token_hex(16)
         self.auth = Auth(config["auth"])
         self.origins = set(config["origins"])
         self.hosts = {urlsplit(o).netloc for o in self.origins}
@@ -191,6 +193,7 @@ class Handler(BaseHTTPRequestHandler):
             if not write and path == "/api/auth":
                 session = self.server.auth.get(self.token())
                 return self.output(200, {"authenticated": bool(session), "csrf": session["csrf"] if session else None,
+                                         "instanceId": self.server.instance_id,
                                          "notifications": self.server.notifications is not None,
                                          "passwordless": self.server.auth.config.get("mode") == "none",
                                          "transport": "poll" if self.headers.get("Host", "").endswith(".trycloudflare.com") else "sse"})

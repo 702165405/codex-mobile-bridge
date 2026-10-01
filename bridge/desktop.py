@@ -7,12 +7,13 @@ import shutil
 import socket
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from .auth import password_record
 from .lifecycle import read_record, request_stop
 from .notifications import read_json, write_json, settings, save_settings, publish
+from . import access
 
 
 class Desktop:
@@ -37,7 +38,8 @@ class Desktop:
                     'cloudflared': str(executable) if executable.is_file() else shutil.which(name) or '',
                     'codexHome': os.environ.get('CODEX_HOME', str(Path.home()/'.codex')),
                     'ipcPath': '', 'codexBin': ''}
-        return {**defaults, **read_json(self.data_dir/'desktop.json', {})}
+        saved = read_json(self.data_dir/'desktop.json', {})
+        return {**defaults, **access.DEFAULTS, 'accessMode': 'quick' if saved.get('tunnel', defaults['tunnel']) else 'lan', **saved}
 
     def status(self):
         preferences = self.preferences()
@@ -67,21 +69,31 @@ class Desktop:
         hosts = addresses() if preferences['lan'] else ['127.0.0.1']
         urls = [f'http://{host}:{preferences["port"]}/' for host in hosts if host != 'localhost']
         public = self.data_dir/'外网地址.txt'
-        if runtime['running'] and public.exists():
+        if runtime['running'] and preferences['tunnel'] and public.exists():
             value = public.read_text(encoding='utf-8').splitlines()[0]
             if value.startswith('https://'):
                 urls.insert(0, value)
+        fixed = access.public_url(preferences)
+        if fixed:
+            urls.insert(0, fixed+'/')
+        external = read_json(self.data_dir/'ssh-status.json', {})
+        if not runtime['running'] or external.get('pid') != runtime.get('pid'):
+            external = {}
         notifications = settings(self.data_dir)
         return {'preferences': preferences, 'auth': {'username': config['auth'].get('username', 'admin'), 'mode': config['auth']['mode']},
                 'origins': config.get('origins', []), 'notifications': {**notifications, 'token': '', 'hasToken': bool(notifications['token'])},
                 'watches': read_json(self.data_dir/'notification-watches.json', []),
                 'notificationStatus': read_json(self.data_dir/'notification-status.json', {}),
                 'dataDir': str(self.data_dir), 'credentialsAvailable': (self.data_dir/'首次登录.txt').exists(),
-                'runtime': runtime, 'urls': urls}
+                'runtime': runtime, 'urls': urls, 'externalStatus': external}
 
     def save(self, value):
         old_preferences = self.preferences()
         preferences = {**old_preferences, **{k: v for k, v in value['preferences'].items() if k in old_preferences}}
+        # Older controllers only know the tunnel checkbox.
+        if 'accessMode' not in value['preferences'] and 'tunnel' in value['preferences']:
+            preferences['accessMode'] = 'quick' if preferences['tunnel'] else 'lan'
+        preferences = access.validate(preferences)
         port = preferences['port']
         if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
             raise ValueError('端口必须为 1–65535')
@@ -105,10 +117,14 @@ class Desktop:
         origins = value.get('origins', [])
         if not isinstance(origins, list):
             raise ValueError('额外 HTTPS 源格式不正确')
-        for origin in origins:
-            parsed = urlsplit(origin)
-            if parsed.scheme != 'https' or not parsed.hostname or parsed.path or parsed.username or parsed.password or parsed.query or parsed.fragment:
-                raise ValueError('额外源须为 HTTPS 地址，不含路径')
+        origins = list(dict.fromkeys(access.origin(origin) for origin in origins))
+        old_fixed = access.public_url(old_preferences)
+        origins = [origin for origin in origins if origin != old_fixed]
+        fixed = access.public_url(preferences)
+        if fixed and fixed not in origins:
+            origins.append(fixed)
+        if self.status()['running'] and origins != config.get('origins', []):
+            raise ValueError('请先停止网关再更改 HTTPS 地址，保存后重新启动')
         # Validate all values before writing any setting.
         notification_value = value.get('notifications', {})
         # save_settings performs the remaining validation; settings files have separate owners.
@@ -117,6 +133,7 @@ class Desktop:
         if password:
             config['auth'].update(password_record(password))
         config['origins'] = origins
+        config['publicUrl'] = fixed
         write_json(self.config_path, config)
         write_json(self.data_dir/'desktop.json', preferences)
         if password:
@@ -132,6 +149,8 @@ class Desktop:
         for flag, key in [('--cloudflared', 'cloudflared'), ('--ipc-path', 'ipcPath'), ('--codex-bin', 'codexBin')]:
             if p[key]:
                 args.extend([flag, p[key]])
+        if p['accessMode'] == 'server':
+            args.extend(['--ssh-target', p['sshTarget'], '--ssh-remote-port', str(p['sshRemotePort'])])
         return args
 
     def start(self):
@@ -144,6 +163,9 @@ class Desktop:
             raise ValueError('请先选择存在的 Codex 数据目录')
         if preferences['tunnel'] and not Path(preferences['cloudflared']).is_file():
             raise ValueError('请先选择 cloudflared 程序，或关闭临时外网入口')
+        access.validate(preferences)
+        if preferences['accessMode'] == 'server' and not shutil.which('ssh'):
+            raise ValueError('未找到 OpenSSH 客户端；请先安装或启用系统 SSH 客户端')
         probe = socket.socket()
         if os.name != "nt":
             probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -170,6 +192,24 @@ class Desktop:
         publish(settings(self.data_dir), 'Codex 手机通知测试', '收到这条消息表示 ntfy 通道已连通。')
         return {'message': 'ntfy 已接受测试通知，请在手机确认是否收到'}
 
+    def deployment(self):
+        files = access.deployment(self.preferences())
+        return {'files': files}
+
+    def export_deployment(self):
+        files = access.deployment(self.preferences())
+        path = self.data_dir/'固定入口部署.zip'
+        with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, content in files.items():
+                archive.writestr(name, content)
+        path.chmod(0o600)
+        return {'path': str(path)}
+
+    def check_entry(self):
+        if not self.status()['running']:
+            raise ValueError('请先启动网关，再检测固定入口')
+        return access.check_entry(self.preferences())
+
     def logs(self):
         path = self.data_dir/'gateway.log'
         if not path.exists():
@@ -177,6 +217,11 @@ class Desktop:
         with path.open('rb') as handle:
             handle.seek(max(0, path.stat().st_size - 18000))
             text = handle.read().decode('utf-8', errors='replace')
+        ssh_log = self.data_dir/'ssh-tunnel.log'
+        if self.preferences()['accessMode'] == 'server' and ssh_log.exists():
+            with ssh_log.open('rb') as handle:
+                handle.seek(max(0, ssh_log.stat().st_size - 9000))
+                text += '\n\n--- SSH 隧道最近一次连接 ---\n'+handle.read().decode('utf-8', errors='replace')
         token = settings(self.data_dir).get('token')
         if token:
             text = text.replace(token, '[已隐藏]')
