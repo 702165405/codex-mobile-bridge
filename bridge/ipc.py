@@ -19,6 +19,7 @@ class DesktopIPC:
         "initialize": 0,
         "thread-owner-discovery": 1,
         "thread-follower-start-turn": 2,
+        "thread-follower-edit-last-user-turn": 2,
         "thread-follower-update-thread-settings": 2,
         "thread-follower-load-complete-history": 1,
         "thread-follower-steer-turn": 1,

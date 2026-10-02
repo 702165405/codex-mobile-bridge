@@ -39,6 +39,7 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/presentation.js": ("presentation.js", "text/javascript; charset=utf-8"),
           "/presentation.css": ("presentation.css", "text/css; charset=utf-8"),
           "/markdown.js": ("markdown.js", "text/javascript; charset=utf-8"),
+          "/message-actions.js": ("message-actions.js", "text/javascript; charset=utf-8"),
           "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),
           "/vendor/markdown-it.min.js": ("vendor/markdown-it.min.js", "text/javascript; charset=utf-8"),
           "/vendor/texmath.js": ("vendor/texmath.js", "text/javascript; charset=utf-8"),
@@ -47,7 +48,7 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/icon.png": ("icon.png", "image/png")}
-THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications|uploads))?$")
+THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications|uploads|message-action))?$")
 FONT_ROUTE = re.compile(r"^/vendor/katex/fonts/(KaTeX_[A-Za-z0-9_-]+\.(woff2|woff|ttf))$")
 
 
@@ -308,7 +309,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.stream(bridge, thread_id)
                 return self.output(404, {"error": "接口不存在"})
             body = self.read_json()
-            if action == "send":
+            if action == "message-action":
+                result = bridge.message_action(thread_id, body)
+            elif action == "send":
                 result = bridge.send(thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"), body.get("skills", []), work_mode=body.get("workMode"), attachments=body.get('attachments'))
             elif action == "settings":
                 if 'fastMode' in body and not isinstance(body['fastMode'], bool):

@@ -17,7 +17,7 @@ from .store import SessionStore, StoreUnavailable
 from .files import artifact_paths
 from .catalog import Catalog
 from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh_read, payload
-from .create import create_empty, open_in_desktop, CreationError
+from .create import create_empty, fork_copy, open_in_desktop, CreationError
 from .timeline import Timeline
 from .account import Account
 from .uploads import Uploads
@@ -101,6 +101,9 @@ class Bridge:
         self.ledger_path = Path(data_dir) / "submissions.json"
         self.submit_lock = threading.Lock()
         self.create_lock = threading.Lock()
+        self.message_lock = threading.RLock()
+        self.actions_path = self.data_dir / 'message-actions.json'
+        self.message_actions = json.loads(self.actions_path.read_text(encoding='utf-8')) if self.actions_path.exists() else {}
         self.creations_path = self.data_dir / 'creations.json'
         self.creations = json.loads(self.creations_path.read_text(encoding='utf-8')) if self.creations_path.exists() else {}
         self.submissions = json.loads(self.ledger_path.read_text(encoding='utf-8')) if self.ledger_path.exists() else {}
@@ -160,6 +163,126 @@ class Bridge:
                 opened = False
             return {'id': entry['id'], 'host': entry['host'], 'opened': opened,
                     'message': '已创建，正在连接桌面 App' if opened else '聊天已创建，请在电脑 App 打开后重新连接'}
+
+    def _save_actions(self):
+        target = self.actions_path.with_suffix('.tmp')
+        target.write_text(json.dumps(self.message_actions, ensure_ascii=False), encoding='utf-8')
+        target.chmod(0o600)
+        target.replace(self.actions_path)
+
+    def _fork_origin(self, thread_id):
+        with self.message_lock:
+            entry = next((v for v in self.message_actions.values() if v.get('id') == thread_id and v['action'] != 'edit'), None)
+            return {'id': entry['source'], 'title': entry['sourceTitle'], 'turnId': entry['turnId'], 'host': self.host} if entry else None
+
+    @staticmethod
+    def _fork_settings(state):
+        result = {'modelProvider': state.get('modelProvider'), 'model': state.get('latestModel')}
+        if not all(result.values()):
+            raise ValueError('尚未取得原会话的模型配置，请重新连接')
+        effort = state.get('latestReasoningEffort') or (state.get('latestThreadSettings') or {}).get('effort')
+        if effort:
+            result['config'] = {'model_reasoning_effort': effort}
+        latest = state.get('latestThreadSettings') or {}
+        if 'serviceTier' in latest:
+            result['serviceTier'] = latest['serviceTier']
+        permissions = state.get('currentPermissions') or {}
+        profile = latest.get('activePermissionProfile', permissions.get('activePermissionProfile'))
+        if profile and profile.get('id'):
+            result['permissions'] = profile['id']
+        for key in ('approvalPolicy', 'approvalsReviewer', 'runtimeWorkspaceRoots'):
+            if key in permissions:
+                result[key] = permissions[key]
+        return result
+
+    def message_action(self, thread_id, body):
+        action, identifier = body.get('action'), body.get('id')
+        if action not in ('edit', 'fork', 'edit-fork') or not isinstance(identifier, str):
+            raise ValueError('消息操作无效')
+        uuid.UUID(identifier)
+        text = body.get('text') if action != 'fork' else None
+        if action != 'fork' and (not isinstance(text, str) or not text.strip() or len(text) > 100000):
+            raise ValueError('请输入 1–100000 字的消息')
+        identity = {k: body.get(k) for k in ('action', 'key', 'version')}
+        identity.update(source=thread_id, text=text)
+        # Durable intent precedes every mutation. An uncertain native edit has no
+        # idempotency key, so neither refresh nor a repeated POST may replay it.
+        with self.message_lock:
+            entry = self.message_actions.get(identifier)
+            if entry:
+                if any(entry.get(k) != v for k, v in identity.items()):
+                    raise ValueError('同一操作标识不能用于不同内容')
+                return self._action_result(entry)
+            session = self._target(thread_id)
+            with session.action_lock:
+                with session.condition:
+                    session.timeline.update(session.view())
+                    position = session.timeline.position(body.get('key', ''))
+                    if position is None:
+                        raise ValueError('消息位置已变化，请刷新后重试')
+                    row = session.timeline.rows[position]
+                    if row['version'] != body.get('version'):
+                        raise ValueError('消息内容已变化，请重新打开编辑')
+                    if action == 'fork' and not row['forkable'] or action != 'fork' and not row['editable']:
+                        raise ValueError('此消息不支持该操作')
+                    if row.get('turnStatus') == 'inProgress':
+                        raise ValueError('请先停止当前任务，再编辑或分支')
+                    if action == 'edit':
+                        if session.timeline.meta['latestUserTurnId'] != row['turnId']:
+                            raise ValueError('只有最近一条消息可原地编辑，请使用编辑并新建分支')
+                        if session.state.get('threadRuntimeStatus', {}).get('type') == 'active':
+                            raise ValueError('请先停止当前任务，再编辑或分支')
+                    snapshot = copy.deepcopy(session.state)
+                    entry = {**identity, 'turnId': row['turnId'], 'sourceTitle': snapshot.get('title') or '未命名聊天',
+                             'status': 'unknown', 'at': time.time()}
+                    settings = self._fork_settings(snapshot) if action != 'edit' else None
+                self.message_actions[identifier] = entry
+                self._save_actions()
+                if action != 'edit':
+                    title = (entry['sourceTitle'][:90] + ' · 分支')
+                    args = dict(cwd=snapshot['cwd'], source_id=thread_id, turn_id=entry['turnId'], title=title, settings=settings)
+                    if self.host == 'local':
+                        child = fork_copy(self.catalog_reader.executable, self.codex_home, **args)
+                    else:
+                        host = self.hosts.hosts()[self.host]
+                        source = Path(__file__).with_name('create.py').read_text(encoding='utf-8')
+                        source += '\nimport shutil\nhome=Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex")))\n'
+                        source += 'runtime=shutil.which("codex") or str(Path.home()/".local/bin/codex")\n'
+                        source += 'print(json.dumps({"id":fork_copy(runtime, home, **' + payload(args) + ')}))\n'
+                        child = ssh_read(host['alias'], source, timeout=120)['id']
+                    uuid.UUID(child)
+                    if child == thread_id:
+                        raise CreationError('分支结果无效，请检查桌面聊天列表')
+                    entry.update(id=child, status='created')
+                    self._save_actions()
+                    if isinstance(self.store, RemoteStore):
+                        with self.store.lock:
+                            self.store.cache.clear()
+                    if action == 'fork':
+                        return self._action_result(entry)
+                    try:
+                        target = self._target(child)
+                    except (IPCError, OSError, CreationError, RemoteUnavailable):
+                        # Creation succeeded; return the child and the unsent draft.
+                        # A new edit operation on that child is safe after activation.
+                        return self._action_result(entry)
+                else:
+                    target = session
+                entry['status'] = 'unknown'
+                self._save_actions()
+                params = {'turnId': entry['turnId'], 'message': text, 'shouldSendPermissionOverrides': False}
+                tier = (snapshot.get('latestThreadSettings') or {})
+                if 'serviceTier' in tier:
+                    params['serviceTier'] = tier['serviceTier']
+                self._call(target, 'thread-follower-edit-last-user-turn', params, timeout=90)
+                entry['status'] = 'accepted'
+                self._save_actions()
+                return self._action_result(entry)
+
+    def _action_result(self, entry):
+        return {'status': entry['status'], 'id': entry.get('id', entry['source']), 'host': self.host,
+                'action': entry['action'], 'draft': entry['text'] if entry['status'] == 'created' and entry['action'] == 'edit-fork' else None,
+                'source': {'id': entry['source'], 'title': entry['sourceTitle'], 'turnId': entry['turnId']}}
 
     def for_host(self, host):
         if host == self.host:
@@ -478,6 +601,7 @@ class Bridge:
             artifacts = artifact_paths(session.state or {}, self.store.home) if self.host == "local" else {}
         view["files"] = [{"id": k, "name": v["name"], "reference": v["reference"], "image": v["image"]} for k, v in artifacts.items()]
         self._submission_meta(session, view)
+        view["forkedFrom"] = self._fork_origin(thread_id)
         return view
 
     @staticmethod
@@ -543,6 +667,7 @@ class Bridge:
         result['files'] = [{'id': k, 'name': v['name'], 'reference': v['reference'], 'image': v['image']} for k, v in artifacts.items()]
         if mode != 'detail':
             self._submission_meta(session, result['meta'])
+            result['meta']['forkedFrom'] = self._fork_origin(thread_id)
         return result
 
     def catalog(self, thread_id, refresh=False):

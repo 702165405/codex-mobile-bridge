@@ -33,6 +33,7 @@ class Timeline:
         rows, details = [], {}
         for turn in view['turns']:
             occurrences = {}
+            first_user = next((m for m in turn['messages'] if m['role'] == 'user'), None)
             for message in turn['messages']:
                 identity = [turn['id'], message.get('id'), message.get('kind')]
                 base = hashlib.sha256(encoded(identity)).hexdigest()[:24]
@@ -47,7 +48,9 @@ class Timeline:
                 row = {k: message[k] for k in ('role', 'kind', 'status', 'title', 'phase') if k in message}
                 row.update(key=key, turnId=turn['id'], order=len(rows), version=version,
                            text=text[:180 if activity else TEXT_PREVIEW],
-                           truncated=activity or len(text) > TEXT_PREVIEW)
+                           truncated=activity or len(text) > TEXT_PREVIEW, turnStatus=turn.get('status'),
+                           editable=turn.get('actionable', True) and message is first_user and message.get('kind') == 'userMessage',
+                           forkable=turn.get('actionable', True) and message['role'] == 'assistant' and message.get('phase') != 'commentary' and turn.get('status') == 'completed')
                 if message.get('attachments'):
                     row['attachments'] = [{k: str(a[k])[:300] for k in ('type', 'name', 'path') if k in a}
                                           for a in message['attachments'][:20]]
@@ -67,6 +70,7 @@ class Timeline:
         self.rows, self.details = rows, details
         self.positions = {row['key']: i for i, row in enumerate(rows)}
         self.meta = {k: v for k, v in view.items() if k != 'turns'}
+        self.meta['latestUserTurnId'] = next((t['id'] for t in reversed(view['turns']) if any(m['role'] == 'user' for m in t['messages'])), None)
         self.versions[self.sequence] = {row['key']: hashlib.sha256(encoded(row)).digest() for row in rows}
         while len(self.versions) > 16:
             self.versions.popitem(last=False)

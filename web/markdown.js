@@ -6,7 +6,7 @@
   const tags = new Set(['p','h1','h2','h3','h4','h5','h6','ul','ol','li','strong','em','s','blockquote','hr','br','table','thead','tbody','tr','th','td']);
 
   // Build nodes from parsed tokens; model output never becomes executable HTML.
-  window.renderMarkdown = function(node, text, files = [], fileUrl = () => '') {
+  window.renderMarkdown = function(node, text, files = [], fileUrl = () => '', options = {}) {
     const body = document.createElement('div');
     body.className = 'markdown-body';
     const artifacts = new Map(files.map(file => [markdown.normalizeLink(file.reference), file]));
@@ -24,6 +24,7 @@
       if (title) anchor.title = title;
       return anchor;
     }
+    let codeIndex=0;
     function appendTokens(tokens, root) {
       const parents = [root];
       for (const token of tokens) {
@@ -64,7 +65,17 @@
           else {
             const pre = document.createElement('pre');
             pre.append(code);
-            parent.append(pre);
+            const wrapper=document.createElement('div');wrapper.className='code-block';
+            const button=document.createElement('button');button.className='plain code-copy';button.type='button';button.textContent=typeof BridgeI18n==='undefined'?'复制代码':BridgeI18n.t('复制代码');
+            const index=codeIndex++;
+            button.onclick=()=>window.BridgeClipboard?.copy(async()=>{
+              if(!options.fullText)return token.content;
+              const complete=await options.fullText();
+              const blocks=markdown.parse(complete,{}).filter(t=>t.type==='fence'||t.type==='code_block');
+              if(!blocks[index])throw Error('读取完整正文失败，请重试');
+              return blocks[index].content;
+            },button);
+            wrapper.append(button,pre);parent.append(wrapper);
           }
         } else if (token.type === 'image') {
           const destination = target(token.attrGet('src') || '');

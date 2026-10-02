@@ -131,6 +131,7 @@ def normalize_state(state, connected=True):
                 messages.insert(0, {"id": "opening-" + str(turn.get("turnId", ordinal)), "role": "user", "kind": "userMessage", "text": opening})
         result.append({"id": turn.get("turnId") or str(ordinal), "status": turn.get("status"),
                        "startedAt": turn.get("turnStartedAtMs"), "messages": messages,
+                       "actionable": bool(turn.get("turnId")) and turn.get("turnId") != "history",
                        "error": turn.get("error"), "diff": turn.get("diff")})
     history = state.get("turnHistory", {}).get("history", {})
     settings = state.get('latestThreadSettings') or {}

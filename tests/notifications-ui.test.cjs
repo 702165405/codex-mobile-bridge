@@ -28,7 +28,7 @@ async function fixture(){
       }
       return response(saved.get(url)||{available:true,watching:false,notifyOnCompletion:false});
     }});
-  for(const file of ['web/i18n.js','web/account.js','web/modes.js','web/attachments.js','web/activity.js','web/fast-mode.js','web/app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context);
+  for(const file of ['web/i18n.js','web/account.js','web/modes.js','web/attachments.js','web/activity.js','web/fast-mode.js','web/message-actions.js','web/app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context);
   await new Promise(setImmediate);
   const run=code=>vm.runInContext(code,context);
   return {nodes,writes,saved,run,html,response,setPost:handle=>{nextPost=handle;},

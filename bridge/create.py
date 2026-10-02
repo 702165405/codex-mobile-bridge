@@ -1,4 +1,4 @@
-"""Create an empty persisted thread, then hand execution to the desktop App.
+"""Create or fork a persisted thread, then hand execution to the desktop App.
 
 The short-lived app-server never receives turn/start. It is shut down before
 returning, so the desktop can become the sole execution owner.
@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import tempfile
 import uuid
 from pathlib import Path
 from urllib.parse import urlencode
@@ -19,7 +20,7 @@ class CreationError(RuntimeError):
     pass
 
 
-def create_empty(executable, codex_home, cwd, title):
+def _runtime_operation(executable, codex_home, cwd, operation):
     if not executable:
         raise CreationError('找不到 Codex 运行时，请在电脑启动器的运行配置中指定路径')
     if not Path(cwd).is_dir():
@@ -71,13 +72,7 @@ def create_empty(executable, codex_home, cwd, title):
                                'capabilities': {'experimentalApi': True}})
         process.stdin.write('{"method":"initialized"}\n')
         process.stdin.flush()
-        result = request('thread/start', {'cwd': cwd, 'ephemeral': False})
-        thread_id = result['thread']['id']
-        uuid.UUID(thread_id)
-        request('thread/name/set', {'threadId': thread_id, 'name': title})
-        # Empty threads defer rollout creation. Loading full history materializes
-        # it without a model turn, allowing another App process to resume it.
-        request('thread/read', {'threadId': thread_id, 'includeTurns': True})
+        result = operation(request)
     finally:
         # EOF flushes pending writes and releases the thread before App takeover.
         process.stdin.close()
@@ -96,7 +91,51 @@ def create_empty(executable, codex_home, cwd, title):
             process.stdout.close()
     if process.returncode:
         raise CreationError('创建运行时退出异常，请先检查桌面聊天列表')
-    return thread_id
+    return result
+
+
+def create_empty(executable, codex_home, cwd, title):
+    def create(request):
+        result = request('thread/start', {'cwd': cwd, 'ephemeral': False})
+        thread_id = result['thread']['id']
+        uuid.UUID(thread_id)
+        request('thread/name/set', {'threadId': thread_id, 'name': title})
+        request('thread/read', {'threadId': thread_id, 'includeTurns': True})
+        return thread_id
+    return _runtime_operation(executable, codex_home, cwd, create)
+
+
+def fork_copy(executable, codex_home, cwd, source_id, turn_id, title, settings):
+    if not executable:
+        raise CreationError('找不到 Codex 运行时，请在电脑启动器的运行配置中指定路径')
+    # Check the bundled runtime, not a guessed version. Older servers can silently
+    # ignore unknown fields; that must never copy later turns or start a goal.
+    kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
+    with tempfile.TemporaryDirectory(prefix='fork-schema-') as folder:
+        result = subprocess.run([str(executable), 'app-server', 'generate-json-schema', '--experimental', '--out', folder],
+                                capture_output=True, timeout=30, **kwargs)
+        paths = list(Path(folder).rglob('ThreadForkParams.json'))
+        if result.returncode or not paths:
+            raise CreationError('此 Codex 版本暂不支持安全分支，请更新电脑 Codex App')
+        properties = json.loads(paths[0].read_text(encoding='utf-8')).get('properties', {})
+        if not {'lastTurnId', 'deferGoalContinuation'} <= properties.keys():
+            raise CreationError('此 Codex 版本暂不支持安全分支，请更新电脑 Codex App')
+    def fork(request):
+        result = request('thread/fork', {'threadId': source_id, 'lastTurnId': turn_id,
+                                        'deferGoalContinuation': True, 'ephemeral': False,
+                                        'cwd': cwd, **settings})
+        thread = result['thread']
+        uuid.UUID(thread['id'])
+        if thread['id'] == source_id:
+            raise CreationError('分支结果无效，请检查桌面聊天列表')
+        turns = thread.get('turns', [])
+        if not turns or turns[-1].get('id') != turn_id:
+            raise CreationError('分支位置未确认，请检查桌面聊天列表，不要重复创建')
+        if result.get('modelProvider') != settings['modelProvider']:
+            raise CreationError('分支模型提供商不一致，请检查桌面聊天列表')
+        request('thread/name/set', {'threadId': thread['id'], 'name': title})
+        return thread['id']
+    return _runtime_operation(executable, codex_home, cwd, fork)
 
 
 def open_in_desktop(thread_id, host):
