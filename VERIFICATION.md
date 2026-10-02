@@ -1,10 +1,11 @@
 # 验证记录
 
-## beta.7：GitHub 更新查询修复（2026-10-02，发布前验证）
+## beta.7：GitHub 更新查询修复（2026-10-02，已发布）
 
 - 对真实 GitHub Releases API 复现旧更新器 HTTP 415，响应明确指出版本列表不接受 `application/octet-stream`。原请求仍有 58 次配额，排除限流。
 - 版本列表改用 `application/vnd.github+json`，下载资产仍使用二进制请求头；新增请求格式回归，Node 更新器 11 项通过。真实 API 已返回 HTTP 200；使用 App 相同的 Electron 网络传输及签名校验，分别按 Mac arm64 / Windows x64 平台识别到公开 beta.6。命令行 Node 直连 GitHub 下载域名曾超时，不能与 App 的系统代理传输结果混用。
 - beta.5 / beta.6 的旧客户端需手动安装一次修正版。beta.6 安装包及功能验证仍有效；已发布标签和资产保持不变。
+- [beta.7 签名发布流程](https://github.com/try2love/codex-mobile-bridge/actions/runs/36972301731) 的 Mac / Windows 构建及全部打包检查通过。公开资产完整，双平台清单签名与校验文件一致；修正版通过实际 Electron 传输读取并识别 beta.7。
 
 ## beta.6：手机通知、登录有效期与设备管理（2026-10-02，已发布）
 
