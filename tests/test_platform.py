@@ -168,6 +168,37 @@ class LifecycleTests(unittest.TestCase):
                 control.close()
             self.assertFalse(control.path.exists())
 
+    def test_acknowledged_stop_does_not_race_owner_cleanup(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.tmp') as folder:
+            path = Path(folder) / 'gateway-control.json'
+            request = path.with_name('gateway.stop')
+            record = {'pid': os.getpid(), 'token': 'current'}
+            reads = 0
+            def read(value):
+                nonlocal reads
+                if value == path:
+                    reads += 1
+                    return record if reads == 1 else None
+                return record
+            with patch('bridge.lifecycle.read_record', side_effect=read), patch.object(Path, 'unlink', side_effect=PermissionError('Windows delete pending')) as unlink:
+                request_stop(folder)
+                unlink.assert_not_called()
+            self.assertEqual(json.loads(request.read_text()), record)
+
+    def test_stop_acknowledgement_follows_request_cleanup(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.tmp') as folder:
+            control = GatewayControl(folder)
+            for path in (control.path, control.request_path):
+                path.write_text(json.dumps(control.record), encoding='utf-8')
+            unlink = Path.unlink
+            def remove(path, *args, **kwargs):
+                if path == control.path:
+                    self.assertFalse(control.request_path.exists(), 'Acknowledged before request cleanup')
+                return unlink(path, *args, **kwargs)
+            with patch.object(Path, 'unlink', remove):
+                control.close()
+            self.assertFalse(control.path.exists())
+
     def test_gateway_process_start_auth_and_graceful_stop(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='gateway \u4e2d\u6587 ') as folder:
             root = Path(folder)

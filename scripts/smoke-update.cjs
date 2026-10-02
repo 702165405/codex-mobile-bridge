@@ -28,7 +28,7 @@ async function inspectUI(debugPort,output){
   await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
   async function call(method,params){const message=await Promise.race([new Promise(resolve=>{const n=++id;pending.set(n,resolve);socket.send(JSON.stringify({id:n,method,params}));}),delay(10000).then(()=>{throw Error('CDP timeout');})]);if(message.error)throw Error(message.error.message);return message.result;}
   try{
-    const result=await call('Runtime.evaluate',{awaitPromise:true,returnByValue:true,expression:`(async()=>{const end=Date.now()+15000;while((typeof snapshot==='undefined'||!snapshot)&&Date.now()<end)await new Promise(r=>setTimeout(r,100));if(typeof snapshot==='undefined'||!snapshot)throw Error('Renderer not ready');tab('updates');return {version:snapshot.update.current,button:document.getElementById('check-update').textContent,overflow:document.documentElement.scrollWidth>innerWidth};})()`});
+    const result=await until(async()=>{const value=await call('Runtime.evaluate',{returnByValue:true,expression:`(()=>{if(typeof snapshot==='undefined'||!snapshot)return null;tab('updates');return {version:snapshot.update.current,button:document.getElementById('check-update').textContent,overflow:document.documentElement.scrollWidth>innerWidth};})()`});return value.result.value?value:null;},'updates renderer');
     assert.equal(result.result.value?.version,version,JSON.stringify(result));assert.equal(result.result.value.overflow,false);
     const screenshot=await call('Page.captureScreenshot',{format:'png'});await fs.writeFile(output,Buffer.from(screenshot.data,'base64'));
   }finally{socket.close();}

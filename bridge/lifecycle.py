@@ -79,7 +79,9 @@ class GatewayControl:
             self.worker.join(timeout=2)
         if hasattr(self, "pairing_dir"):
             shutil.rmtree(self.pairing_dir, ignore_errors=True)
-        for path in (self.path, self.request_path):
+        # Removing the control record acknowledges shutdown. Finish request
+        # cleanup first so a new instance cannot race the old owner's cleanup.
+        for path in (self.request_path, self.path):
             if read_record(path) == self.record:
                 path.unlink(missing_ok=True)
 
@@ -93,14 +95,18 @@ def request_stop(data_dir, timeout=15):
     request.write_text(json.dumps(record), encoding='utf-8')
     request.chmod(0o600)
     deadline = time.monotonic() + timeout
+    acknowledged = False
     try:
         while time.monotonic() < deadline:
             if read_record(path) != record:
+                acknowledged = True
                 return
             time.sleep(.1)
         raise RuntimeError('Gateway did not acknowledge shutdown; the record may be stale. No process was killed.')
     finally:
-        if read_record(request) == record:
+        # The owner cleans an accepted request. Competing deletion can fail on
+        # Windows after shutdown has already succeeded.
+        if not acknowledged and read_record(request) == record:
             request.unlink(missing_ok=True)
 
 
