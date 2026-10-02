@@ -4,7 +4,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),sync=require('node:fs');
 const path=require('node:path'),net=require('node:net'),{spawn}=require('node:child_process');
 const {Readable}=require('node:stream'),{createHash,generateKeyPairSync,sign,randomUUID}=require('node:crypto');
-const {Updater,RELEASES}=require('../desktop/updater.cjs');
+const {Updater,RELEASES,assetName}=require('../desktop/updater.cjs');
 const root=path.resolve(__dirname,'..'),version=require('../package.json').version,mac=process.platform==='darwin';
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(callback,label,ms=45000){
@@ -35,8 +35,8 @@ async function inspectUI(debugPort,output){
 }
 async function main(){
   assert.ok(['darwin','win32'].includes(process.platform));
-  const build=path.join(root,'dist/desktop'),source=path.join(build,mac?'mac-arm64/Codex Mobile Bridge.app':'win-unpacked');
-  const name=`Codex-Mobile-Bridge-${version}-${mac?'macOS-arm64':'Windows-x64'}.zip`,archive=path.join(build,name);
+  const build=path.join(root,'dist/desktop'),source=path.join(build,mac?`${process.arch==='x64'?'mac':'mac-'+process.arch}/Codex Mobile Bridge.app`:'win-unpacked');
+  const name=assetName(version,process.platform,process.arch),archive=path.join(build,name);
   const sha256=createHash('sha256');for await(const chunk of sync.createReadStream(archive))sha256.update(chunk);
   const size=(await fs.stat(archive)).size,digest=sha256.digest('hex');
   const work=await fs.mkdtemp(path.join(root,'.tmp/update-smoke-中文 ')),target=path.join(work,mac?'Codex Mobile Bridge.app':'app'),data=path.join(work,'data');

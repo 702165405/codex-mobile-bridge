@@ -28,7 +28,7 @@
 | Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
 | macOS Apple Silicon（M 系列） | [下载 arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-macOS-arm64.zip) | 解压，将 `.app` 放入“应用程序”后打开 |
 
-[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/SHA256SUMS.txt)。当前未提供 Intel Mac 或 Windows ARM 专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/SHA256SUMS.txt)。已发布的 beta.7 未提供 Intel Mac 或 Windows ARM 专用安装包。开发分支 beta.8 新增 Intel Mac（x64），并为两种 Mac 生成 DMG 和 ZIP，尚未发布。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
 
 1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
 2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
@@ -58,13 +58,13 @@
 
 当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v0.2.0-beta.7` 或后续版本。
 
-1. 从本仓库的 Release 下载 ZIP 和 `SHA256SUMS.txt`。用下面的命令计算 ZIP 的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。
+1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以已发布的 beta.7 ZIP 为例，其他文件请替换文件名：
 
    ```sh
    shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.7-macOS-arm64.zip"
    ```
 
-2. 解压，将 `Codex Mobile Bridge.app` 放入“应用程序”。尝试打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。
+2. 打开 DMG，将 `Codex Mobile Bridge.app` 拖入“应用程序”，再推出磁盘映像；ZIP 则先解压并移动 App。尝试从“应用程序”打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。
 3. 如果没有“仍要打开”，或仍提示“已损坏”，在已核对来源与哈希的前提下，打开终端，仅移除这个 App 的下载隔离标记，然后重新打开：
 
    ```sh
@@ -159,7 +159,9 @@ NAS 方案：Docker 只部署 HTTP 入口，原电脑仍需保持唤醒并运行
 
 ### 从源码运行与打包
 
-开发环境需要 Node.js 与 Python；只有构建时需要 Electron、electron-builder 和 PyInstaller。Windows 与 Mac 应分别在目标系统上构建。
+开发环境需要 Node.js 与 Python；只有构建时需要 Electron、electron-builder 和 PyInstaller。Windows 与 Mac 应分别在目标系统上构建，Python、Node.js 与安装包的 CPU 架构必须一致。
+
+macOS 在构建网关运行时后执行 `npm run build:mac -- --arm64`（M 系列）或 `npm run build:mac -- --x64`（Intel），在 `dist/desktop/` 生成对应架构的 DMG 和 ZIP。DMG 用于拖入“应用程序”安装；ZIP 用于应用内更新。切换架构时须先用对应架构的 Python 重新执行 `scripts/build-desktop.py`。CI 分别使用 Apple Silicon 和 Intel Mac 构建并验证完整安装包。
 
 ```bash
 git switch main

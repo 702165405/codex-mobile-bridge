@@ -4,7 +4,7 @@
 
 从 v0.2.0-beta.5 起，桌面 App 启动后及每 6 小时检查一次 GitHub Release。
 在「应用更新」中检查新版、阅读说明，点击「更新并重启」。Beta 用户可接收后续 Beta、RC 和正式版；正式版只接收正式版。
-旧版首次升级需要手动安装支持更新的版本。macOS Intel 和 Windows ARM 暂无发布包。
+旧版首次升级需要手动安装支持更新的版本。已发布的 beta.7 仅提供 Mac arm64；待发布 beta.8 新增 Mac Intel x64。Windows ARM 暂无发布包。
 
 下载阶段网关保持在线。签名、哈希、解压路径和包版本检查通过后，App 才退出并停止网关。
 应用在原位置替换，原本运行的网关随后恢复；原本停止的网关保持停止。
@@ -18,9 +18,9 @@ macOS 更新签名与 Apple Developer ID、公证是不同机制；该功能不�
 
 1. 修改 `package.json` / `package-lock.json` 版本和 `RELEASE_NOTES.md`。
 2. 在仓库 Actions Secret 中配置 `UPDATE_SIGNING_KEY`，值为与 `desktop/update-public-key.pem` 对应的 Ed25519 PKCS#8 PEM 私钥。私钥不提交、不放入构建产物，离线保存备份。不要重新生成公钥覆盖现有更新身份。
-3. 运行单元测试及两个平台的 Desktop builds。构建包含安装包启动、签名包解压、真实 App/网关重启、失败恢复和配置保留检查。
-4. 推送与版本匹配的 `v…` tag。`Signed desktop release` 验证版本及签名身份，构建两个平台，上传完整的草稿 Release，最后发布。手动运行时须选择已存在的版本 tag；`publish=false` 只创建草稿。
-5. 发布资产包括 macOS arm64 ZIP、Windows x64 ZIP/Setup、`SHA256SUMS.txt` 和 `bridge-update.json`。验证 Release 内容及 App 检测结果。工作流不会覆写同名 Release；失败的草稿需检查原因后由维护者处理。
+3. 运行单元测试及 Desktop builds 的三个目标：macOS arm64、macOS x64 和 Windows x64。Mac 网关与 Electron 在对应架构的 runner 上分别构建。验证 DMG 挂载、Applications 快捷方式、复制安装、ZIP 解压、架构及完整性签名、真实 App/网关重启、失败恢复和配置保留。
+4. 推送与版本匹配的 `v…` tag。`Signed desktop release` 验证版本及签名身份，构建上述三个目标，上传完整的草稿 Release，最后发布。手动运行时须选择已存在的版本 tag；`publish=false` 只创建草稿。
+5. 发布资产包括 macOS arm64 DMG/ZIP、macOS x64 DMG/ZIP、Windows x64 ZIP/Setup、`SHA256SUMS.txt` 和 `bridge-update.json`。DMG 为 Mac 首选安装包，ZIP 继续用于应用内更新；签名清单必须包含全部三个目标的 ZIP，校验文件同时包含 DMG、ZIP 和 EXE。验证 Release 内容及 App 检测结果。工作流不会覆写同名 Release；失败的草稿需检查原因后由维护者处理。
 
 `bridge-update.json` 是签名信封：`payload` 为 JSON 原始字节的 Base64，`signature` 为其 Ed25519 签名。载荷包含 schema、版本、说明、平台文件名、大小和 SHA-256。App 内公钥验签后才接受文件信息，下载地址固定到本仓库 Release，拒绝降级与平台不匹配。
 

@@ -1,6 +1,6 @@
 {
   "name": "codex-mobile-bridge-desktop",
-  "version": "0.2.0-beta.7",
+  "version": "0.2.0-beta.8",
   "description": "Codex App 手机网关桌面启动器",
   "author": "try2love",
   "license": "MIT",
@@ -12,6 +12,7 @@
     "test:windows-app": "node scripts/smoke-windows.cjs",
     "icons:desktop": "electron scripts/build-icons.cjs",
     "pack:desktop": "electron-builder --dir --publish never",
+    "build:mac": "electron-builder --mac dmg zip --publish never",
     "build:windows": "electron-builder --win nsis zip --x64 --publish never",
     "test:pairing": "electron scripts/smoke-pairing.cjs",
     "test:updater": "node --test tests/updater.test.cjs"
@@ -45,6 +46,10 @@
       }
     ],
     "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "desktop/assets/icon.png",
       "category": "public.app-category.developer-tools",
       "identity": "-",

@@ -1,5 +1,13 @@
 # 验证记录
 
+## beta.8：Intel Mac 与双架构 DMG（2026-10-02，本地候选版）
+
+- 分别构建 macOS arm64 和 x64 的完整 Electron App 与内置 Python 网关，生成对应的 DMG/ZIP。DMG 包含 Applications 快捷方式；两个 DMG 均实际只读挂载、复制 App 并卸载映像，再验证安装副本。
+- 四个分发包均通过架构元数据、Electron/网关二进制架构、完整性签名和内置运行时 HTTPS 检查；将 arm64 App 作为 x64 检查时按预期拒绝。签名仍为 ad-hoc，没有 Developer ID 或 Apple 公证。
+- Apple Silicon 本机运行 arm64，已有 Rosetta 运行 x64。两端实际 App 界面、内置 worker、登录持久化、登录撤销、IP 规则和模拟 Bark/ntfy 通知均通过；两端真实升级成功及人为制造的安装失败回滚均通过，配置文件保持逐字节一致。未操作真实聊天或发送手机通知。
+- 36 项桌面/通知 Node 测试、12 项更新器 Node 测试通过。新增签名清单回归覆盖 Mac arm64、Mac x64、Windows x64 各自选择正确 ZIP，并拒绝缺少 Intel ZIP 的不完整发布。发布校验文件包含 DMG。
+- Desktop builds 已配置 `macos-15`（arm64）、`macos-15-intel`（x64）和 Windows x64 三个目标，各自上传独立产物；修正验证脚本中写死的 arm64 路径。本轮尚未运行远端 CI，也未在原生 Intel 硬件或 Windows 上重测；Rosetta 结果不等同于原生 Intel 实机验证。尚未推送或发布 beta.8，公开下载仍为 beta.7。
+
 ## beta.7：GitHub 更新查询修复（2026-10-02，已发布）
 
 - 对真实 GitHub Releases API 复现旧更新器 HTTP 415，响应明确指出版本列表不接受 `application/octet-stream`。原请求仍有 58 次配额，排除限流。

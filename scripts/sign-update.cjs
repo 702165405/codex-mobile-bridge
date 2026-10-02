@@ -10,7 +10,7 @@ function buildManifest(directory,notes,key){
   const trusted=fs.readFileSync(path.join(root,'desktop/update-public-key.pem'),'utf8');
   if(createPublicKey(key).export({type:'spki',format:'pem'})!==trusted)throw Error('Signing key does not match the public key shipped in this release.');
   const assets={};
-  for(const [platform,arch] of [['darwin','arm64'],['win32','x64']]){
+  for(const [platform,arch] of [['darwin','arm64'],['darwin','x64'],['win32','x64']]){
     const name=assetName(version,platform,arch),bytes=fs.readFileSync(path.join(directory,name));
     assets[`${platform}-${arch}`]={name,size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
   }
@@ -22,7 +22,7 @@ if(require.main===module){
   if(!directory||!notesFile||!key)throw Error('Artifact directory, notes file and CMB_UPDATE_SIGNING_KEY are required.');
   const manifest=buildManifest(directory,fs.readFileSync(notesFile,'utf8'),key);
   fs.writeFileSync(path.join(directory,'bridge-update.json'),manifest);
-  const sums=fs.readdirSync(directory).filter(name=>/\.(zip|exe)$/.test(name)).sort().map(name=>createHash('sha256').update(fs.readFileSync(path.join(directory,name))).digest('hex')+'  '+name);
+  const sums=fs.readdirSync(directory).filter(name=>/\.(dmg|zip|exe)$/.test(name)).sort().map(name=>createHash('sha256').update(fs.readFileSync(path.join(directory,name))).digest('hex')+'  '+name);
   fs.writeFileSync(path.join(directory,'SHA256SUMS.txt'),sums.join('\n')+'\n');
   console.log('Signed update manifest and checksums created.');
 }

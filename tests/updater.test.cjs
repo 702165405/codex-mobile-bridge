@@ -2,6 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path');
 const {generateKeyPairSync,sign,createHash}=require('node:crypto');
+const {buildManifest}=require('../scripts/sign-update.cjs');
 const {Updater,manifest,compare,assetName,releaseUrl,allowedUrl,RELEASES,transfer}=require('../desktop/updater.cjs');
 const keys=generateKeyPairSync('ed25519');
 const current='0.2.0-beta.5',next='0.2.0-beta.6',platform='darwin',arch='arm64';
@@ -9,6 +10,24 @@ function signed(value,key=keys.privateKey){const payload=Buffer.from(JSON.string
 const bytes=Buffer.from('fixture zip');
 const info=()=>({schema:1,version:next,notes:'Notes <script> are text',assets:{'darwin-arm64':{name:assetName(next,platform,arch),size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}}});
 const validate=value=>manifest(value,keys.publicKey,{current,platform,arch,expected:next});
+test('release signer includes Intel and Apple Silicon ZIPs and clients select their own architecture',async t=>{
+  await fs.mkdir(path.join(__dirname,'../.tmp'),{recursive:true});
+  const directory=await fs.mkdtemp(path.join(__dirname,'../.tmp/release-manifest-'));
+  t.after(()=>fs.rm(directory,{recursive:true,force:true}));
+  const sync=require('node:fs'),read=sync.readFileSync;
+  t.mock.method(sync,'readFileSync',(file,...args)=>file===path.resolve(__dirname,'../desktop/update-public-key.pem')?
+    keys.publicKey.export({type:'spki',format:'pem'}):read(file,...args));
+  const version=require('../package.json').version,targets=[['darwin','arm64'],['darwin','x64'],['win32','x64']];
+  for(const [platform,arch] of targets)await fs.writeFile(path.join(directory,assetName(version,platform,arch)),Buffer.from(platform+'-'+arch));
+  const signed=Buffer.from(buildManifest(directory,'Release notes',keys.privateKey));
+  for(const [platform,arch] of targets){
+    const result=manifest(signed,keys.publicKey,{current,platform,arch,expected:version});
+    assert.equal(result.asset.name,assetName(version,platform,arch));
+    assert.equal(result.asset.sha256,createHash('sha256').update(platform+'-'+arch).digest('hex'));
+  }
+  await fs.unlink(path.join(directory,assetName(version,'darwin','x64')));
+  assert.throws(()=>buildManifest(directory,'Release notes',keys.privateKey),/ENOENT/);
+});
 test('release metadata requests JSON while downloadable assets request bytes',async()=>{
   for(const url of [RELEASES,releaseUrl(next,'bridge-update.json'),releaseUrl(next,assetName(next,platform,arch))]){
     const expected=url===RELEASES?'application/vnd.github+json':'application/octet-stream';

@@ -1,3 +1,15 @@
+## v0.2.0-beta.8
+
+- 新增 Intel Mac（x64）桌面安装包，包含对应架构的网关运行时。
+- Apple Silicon（arm64）与 Intel（x64）均提供 DMG，打开后将 App 拖入“应用程序”即可安装。
+- 两种 Mac 均保留 ZIP 更新包，应用内更新按当前架构下载；SHA256 校验文件同时覆盖 DMG 和 ZIP。
+
+### English
+
+- Add an Intel Mac (x64) desktop package with its matching gateway runtime.
+- Provide DMG installers for both Apple Silicon (arm64) and Intel (x64). Open the image and drag the App to Applications.
+- Keep architecture-specific ZIPs for in-app updates; SHA256 checksums cover both DMG and ZIP files.
+
 ## v0.2.0-beta.7
 
 - 修复应用内更新查询 GitHub 版本列表时的 HTTP 415 错误；版本列表与安装包分别使用正确的请求格式。

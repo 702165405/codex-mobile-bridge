@@ -7,7 +7,7 @@ const root=path.resolve(__dirname,'..');
 async function main(){
   assert.ok(['darwin','win32'].includes(process.platform));
   const executable=process.argv[2]||path.join(root,'dist/desktop',process.platform==='darwin'?
-    'mac-arm64/Codex Mobile Bridge.app/Contents/Resources/gateway/codex-mobile-gateway':
+    `${process.arch==='x64'?'mac':'mac-'+process.arch}/Codex Mobile Bridge.app/Contents/Resources/gateway/codex-mobile-gateway`:
     'win-unpacked/resources/gateway/codex-mobile-gateway.exe');
   await fs.mkdir(path.join(root,'.tmp'),{recursive:true});
   const dataDir=await fs.mkdtemp(path.join(root,'.tmp','notifications-中文 '));

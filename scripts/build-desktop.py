@@ -12,6 +12,8 @@ root = Path(__file__).resolve().parents[1]
 command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--name', 'codex-mobile-gateway',
            '--distpath', str(root/'dist'), '--workpath', str(root/'.tmp/pyinstaller'), '--specpath', str(root/'.tmp'),
            '--add-data', str(root/'web')+':web']
+if sys.platform == 'darwin':
+    command.extend(['--target-arch', platform.machine()])
 # Ship roots and their license explicitly; source users still need only stdlib.
 command.extend(['--add-data', certifi.where()+':bridge'])
 certificate_package = distribution('certifi')

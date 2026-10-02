@@ -28,7 +28,7 @@ Download the desktop App for everyday use. **No deployment Agent, Python, Node.j
 | Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
 | macOS Apple Silicon (M series) | [Download arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-macOS-arm64.zip) | Extract, move the `.app` to Applications, and open it |
 
-[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/SHA256SUMS.txt). There are currently no Intel Mac or Windows ARM packages. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
+[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/SHA256SUMS.txt). The published beta.7 has no Intel Mac or Windows ARM packages. The unreleased beta.8 development branch adds Intel Mac (x64) and builds DMG and ZIP files for both Mac architectures. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
 
 1. Open the original **Codex App** on the computer, then open **Codex Mobile Bridge**.
 2. Keep LAN access enabled under **Network and login**, save, and click **Start gateway**. Preserve the existing port if you already have a configuration.
@@ -57,13 +57,13 @@ Starting with `v0.2.0-beta.5`, use **App updates** to check for a release, read 
 
 The Mac build has an **ad-hoc integrity signature**, but **no Apple Developer ID signature or notarization**. macOS can still block the first launch. The older `v0.2.0-beta.1` also has a bundle-signing defect; use `v0.2.0-beta.7` or later.
 
-1. Download the ZIP and `SHA256SUMS.txt` from this repository's Release. Calculate the ZIP hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app.
+1. Download the DMG or ZIP for your Mac's chip and `SHA256SUMS.txt` from this repository's Release. Calculate the downloaded file's hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app. The example below uses the published beta.7 ZIP; replace the filename for other downloads.
 
    ```sh
    shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.7-macOS-arm64.zip"
    ```
 
-2. Extract and move `Codex Mobile Bridge.app` to Applications. Try opening it, then go to **System Settings → Privacy & Security → Open Anyway** and confirm.
+2. Open the DMG, drag `Codex Mobile Bridge.app` to Applications, then eject the disk image. For a ZIP, extract it and move the App instead. Try opening it from Applications, then go to **System Settings → Privacy & Security → Open Anyway** and confirm.
 3. If Open Anyway is unavailable, or macOS still reports the app as damaged, only after verifying the source and hash, remove the download quarantine attribute from this specific app and open it again:
 
    ```sh
@@ -365,7 +365,9 @@ The product icon source is `assets/icon.png`. Run `npm run icons:desktop` to ref
 
 The product website lives in `site/` and is hosted on GitHub Pages. Pushing changes under `site/` to `main` automatically publishes them through the **Product website** workflow; no separate build step is required.
 
-This section requires Node.js and Python on the target OS. Release users do not need these tools.
+This section requires Node.js and Python on the target OS, matching the package's CPU architecture. Release users do not need these tools.
+
+On macOS, after building the gateway runtime, run `npm run build:mac -- --arm64` for Apple Silicon or `npm run build:mac -- --x64` for Intel. Both produce a DMG for drag-to-Applications installation and a ZIP for in-app updates under `dist/desktop/`. When switching architectures, first rerun `scripts/build-desktop.py` with Python for the target architecture. CI builds and verifies the complete packages on separate Apple Silicon and Intel runners.
 
 ```sh
 git switch main
