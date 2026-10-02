@@ -11,6 +11,7 @@
 - 首轮预构建的 Intel Mac 在测试脚本读取启动窗口时出现 `Execution context was destroyed`，升级尚未开始；正式流水线同平台完整复验通过。测试现通过有时限的就绪轮询处理初始页面上下文切换。首轮正式 Windows 升级检查出现 `gateway.stop` 的 `WinError 5`，发布被门禁阻止；停止记录先删除、双方再竞争清理停止文件的交接缺陷已由故障注入回归复现并修正。网关先清理请求再确认停止，收到确认的请求方不再删除；原生 Windows 安装包复验结果见后续记录。
 - 修复提交 `fda4df9aa416b8961e1ccccbcec187ba9e5f1214` 的[正式签名发布](https://github.com/try2love/codex-mobile-bridge/actions/runs/37060857447)与[五组标签测试矩阵](https://github.com/try2love/codex-mobile-bridge/actions/runs/37060857297)全部通过。Apple Silicon、Intel Mac 与 Windows x64 原生 runner 均完成包内程序、安装、通知、登录、扫码和升级恢复验收。Windows 日志明确确认 `legacy-cwd`、`success`、`rollback` 三个场景通过，四份配置逐字节保留。
 - [v1.2.1 Release](https://github.com/try2love/codex-mobile-bridge/releases/tag/v1.2.1)已公开并标记为最新正式版，8 个附件齐全。六个包的 GitHub SHA-256 与 `SHA256SUMS.txt` 一致；三个 ZIP 的大小和摘要匹配签名清单。以 App 内既有公钥验证 1.2.0、1.1.0、1.0.0、beta.7 到三平台的更新选择及签名，共 12 组通过。本机没有重新下载全部大型安装包，包内运行证据来自上述原生 CI。
+- [官网部署](https://github.com/try2love/codex-mobile-bridge/actions/runs/37062046126)成功，公开 HTML 的 SHA-256 与源码一致。真实浏览器验证中英文新功能、三个 v1.2.1 下载入口及 320px 无横向溢出。三种安装包通过 GitHub 附件 API 的 HEAD 请求返回 HTTP 200，内容大小匹配发布记录；本机 curl/Node 直接访问大包 CDN 曾出现 TLS 失败或超时，改用官方附件接口完成核对。
 - 版本和 lockfile 更新为 `1.2.1`，双语说明与下载文档同步；官网保留标注版本的 v1.2.0 演示，并补充 v1.2.1 消息操作。本轮未替换正在运行的本地 App、网关、配置或真实模型会话，未在用户实体手机上复验。Mac 仍为 ad-hoc 签名且未获 Apple 公证，Windows 无证书签名；更新清单沿用既有签名身份。
 
 ## v1.2.0 正式发布与官网更新（2026-10-03）
