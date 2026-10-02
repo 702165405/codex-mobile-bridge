@@ -1,0 +1,47 @@
+[
+  {
+    "start": 0,
+    "zh": "启动与连接",
+    "en": "Start & connect"
+  },
+  {
+    "start": 15.505,
+    "zh": "打开会话与发送",
+    "en": "Chats & messages"
+  },
+  {
+    "start": 36.72,
+    "zh": "多文件与图片",
+    "en": "Files & images"
+  },
+  {
+    "start": 49.916,
+    "zh": "阅读与确认计划",
+    "en": "Review a plan"
+  },
+  {
+    "start": 63.084,
+    "zh": "目标进度与阅读",
+    "en": "Goal progress & reading"
+  },
+  {
+    "start": 77.984,
+    "zh": "模型与 Fast",
+    "en": "Models & Fast"
+  },
+  {
+    "start": 91.751,
+    "zh": "多会话状态",
+    "en": "Chat activity"
+  },
+  {
+    "start": 101.627,
+    "zh": "电脑浏览器与显示设置",
+    "en": "Desktop browser & appearance"
+  },
+  {
+    "start": 118.125,
+    "zh": "桌面管理通知监控",
+    "en": "Manage desktop watches"
+  }
+]
