@@ -31,8 +31,7 @@ notifications.
 
 7
 00:00:36.720 --> 00:00:42.828 line:88% align:center
-Next-release preview: attach multiple files or images using the
-paperclip control.
+v1.2.0: attach multiple files or images using the paperclip control.
 
 8
 00:00:42.828 --> 00:00:49.916 line:88% align:center
@@ -41,8 +40,7 @@ or queue them with a task.
 
 9
 00:00:49.916 --> 00:00:57.226 line:88% align:center
-Next-release preview: Plan mode leaves a plan in the chat for you to
-review.
+v1.2.0: Plan mode leaves a plan in the chat for you to review.
 
 10
 00:00:57.226 --> 00:01:03.084 line:88% align:center
@@ -51,8 +49,7 @@ the agreed work.
 
 11
 00:01:03.084 --> 00:01:08.016 line:88% align:center
-Next-release preview: expand an active goal to see its objective and
-token usage.
+v1.2.0: expand an active goal to see its objective and token usage.
 
 12
 00:01:08.016 --> 00:01:11.165 line:88% align:center
@@ -75,8 +72,7 @@ This example uses official login.
 
 16
 00:01:21.830 --> 00:01:26.403 line:88% align:center
-Next-release preview: Fast appears when the account, model and
-workspace allow it.
+v1.2.0: Fast appears when the account, model and workspace allow it.
 
 17
 00:01:26.403 --> 00:01:31.751 line:88% align:center
@@ -85,8 +81,7 @@ turning it off restores standard speed.
 
 18
 00:01:31.751 --> 00:01:34.761 line:88% align:center
-Next-release preview: green dots show running work across multiple
-chats.
+v1.2.0: green dots show running work across multiple chats.
 
 19
 00:01:34.761 --> 00:01:41.627 line:88% align:center
@@ -105,8 +100,8 @@ Preferences stay in this browser.
 
 22
 00:01:58.125 --> 00:02:01.627 line:88% align:center
-Next-release preview: review watched chats and their execution hosts
-on the desktop.
+v1.2.0: review watched chats and their execution hosts on the
+desktop.
 
 23
 00:02:01.627 --> 00:02:08.666 line:88% align:center
