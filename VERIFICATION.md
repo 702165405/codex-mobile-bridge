@@ -1,10 +1,12 @@
 # 验证记录
 
-## v1.1.0 发布准备（2026-10-02）
+## v1.1.0 正式发布与官网更新（2026-10-02）
 
 - 版本号与 lockfile 统一为 `1.1.0`，中英文发布说明及使用文档覆盖移动端紧凑布局、输入区收起、内容显示开关、主题/字号设置和 Windows 更新目录占用修复。保留 Intel Mac DMG、Apple Silicon DMG、Windows Setup.exe 与三个 ZIP 更新包。
 - 本地 Python 回归共 182 项：177 项首次通过、4 项平台条件跳过；发现既有 CSP 测试的脚本清单遗漏新增 `presentation.js`，更新清单后该项定向复测通过。前端/桌面 Node 52 项通过，更新器 Node 13 项通过、1 项 Windows 专属检查跳过，会话打开回归通过。前端实际浏览器验收见下文。
-- 三个平台的正式打包、升级/回滚与发布签名待本次 GitHub Actions 完成后核对；官网新版截图和下载入口随正式发布部署。
+- [发布前桌面构建](https://github.com/try2love/codex-mobile-bridge/actions/runs/37022194960)、[正式签名发布](https://github.com/try2love/codex-mobile-bridge/actions/runs/37023188508) 与[版本标签测试矩阵](https://github.com/try2love/codex-mobile-bridge/actions/runs/37023187660)全部通过。正式流程在三个原生 runner 上重新构建，完成包内运行时、Mac DMG/ZIP 安装、App 启动、通知、登录设备、扫码与真实升级/故障回滚验收。
+- [v1.1.0 Release](https://github.com/try2love/codex-mobile-bridge/releases/tag/v1.1.0) 已公开并标记为最新正式版，来源提交 `b88e895c6c2327293aa10cecc2a85b055d055ded`。8 个附件齐全；下载公开的更新清单和校验文件后，使用 App 内公钥验证全部三个更新目标，确认 1.0.0 / beta.7 的版本筛选与验签接受 1.1.0。六个包的 GitHub SHA-256 与校验文件一致，三个 ZIP 的大小与摘要也匹配签名清单，三个安装包下载入口实际返回 HTTP 200。本机没有重新下载全部大型安装包，包内运行验收来自上述 CI。
+- [产品页部署](https://github.com/try2love/codex-mobile-bridge/actions/runs/37024449314)成功。官网更新版本号、三平台下载、Windows 旧版覆盖升级说明及四张新版手机截图，新增显示设置介绍。图片来自实际网页组件与合成演示数据；本地 1280px、390px 和 320px 预览无横向溢出，图片放大可用。浏览器访问公开官网，HTML 与全部 8 张图片的 SHA-256 和源码一致。
 
 ## 对话内容显示设置（2026-10-02，本地试用）
 
