@@ -575,6 +575,40 @@ class HttpTests(unittest.TestCase):
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         return {'Cookie': headers['Set-Cookie'].split(';')[0], 'X-CSRF-Token': body['csrf']}
 
+    def test_login_cookie_lifetime_and_device_revocation(self):
+        self.server.auth = Auth({'mode': 'none', 'sessionHours': 0})
+        status, headers, body = self.request('POST', '/api/login', {}, {'User-Agent': 'iPhone Test'})
+        self.assertEqual(status, 200)
+        self.assertIn('Max-Age=34560000', headers['Set-Cookie'])
+        auth = {'Cookie': headers['Set-Cookie'].split(';')[0], 'X-CSRF-Token': body['csrf']}
+        row = self.server.auth.manage({})['sessions'][0]
+        self.assertEqual(row['ip'], '127.0.0.1')
+        self.assertEqual(row['userAgent'], 'iPhone Test')
+        status, refreshed, body = self.request('GET', '/api/auth', headers=auth)
+        self.assertTrue(body['authenticated'])
+        self.assertIn('Max-Age=34560000', refreshed['Set-Cookie'])
+        self.server.auth.manage({'action': 'revoke', 'id': row['id']})
+        self.assertEqual(self.request('GET', '/api/sessions', headers=auth)[0], 401)
+
+    def test_ip_rules_reject_login_pairing_and_existing_sessions(self):
+        auth = self.login()
+        self.server.auth.manage({'action': 'save', 'policy': {'blocklist': ['127.0.0.1']}})
+        self.assertEqual(self.request('GET', '/api/sessions', headers=auth)[0], 403)
+        self.assertEqual(self.request('POST', '/api/login', {})[0], 403)
+        self.assertEqual(self.request('POST', '/api/pair', {'token': 'invalid'})[0], 403)
+        # Desktop health discovery must still work while access is blocked.
+        status, _, body = self.request('GET', '/api/auth', headers=auth)
+        self.assertEqual(status, 200)
+        self.assertFalse(body['authenticated'])
+        self.server.auth.manage({'action': 'save', 'policy': {}})
+        self.assertEqual(self.request('GET', '/api/sessions', headers=auth)[0], 401)
+        self.assertEqual(self.request('POST', '/api/devices', {}, self.login())[0], 404)
+
+    def test_forged_ip_headers_do_not_bypass_direct_access_rules(self):
+        self.server.auth.manage({'action': 'save', 'policy': {'blocklist': ['127.0.0.1']}})
+        headers = {'X-Forwarded-For': '192.0.2.7', 'CF-Connecting-IP': '192.0.2.7'}
+        self.assertEqual(self.request('POST', '/api/login', {}, headers)[0], 403)
+
     def test_create_chat_requires_login_csrf_and_saved_project(self):
         from types import SimpleNamespace
         calls=[]
@@ -667,8 +701,8 @@ class HttpTests(unittest.TestCase):
 
     def test_notification_route_is_authenticated_and_csrf_protected(self):
         class NotificationsFixture:
-            def watch(self, thread, host, enabled):
-                return {'available': True, 'watching': bool(enabled)}
+            def watch(self, thread, host, enabled, notify_on_completion):
+                return {'available': True, 'watching': bool(enabled), 'notifyOnCompletion': bool(notify_on_completion)}
         self.server.notifications = NotificationsFixture()
         self.server.bridge.host = 'local'
         path = '/api/sessions/'+THREAD+'/notifications'
@@ -678,6 +712,10 @@ class HttpTests(unittest.TestCase):
         status, _, value = self.request('POST', path, {'enabled': True}, auth)
         self.assertEqual(status, 200)
         self.assertTrue(value['watching'])
+        self.assertFalse(value['notifyOnCompletion'])
+        status, _, value = self.request('POST', path, {'enabled': True, 'notifyOnCompletion': True}, auth)
+        self.assertEqual(status, 200)
+        self.assertTrue(value['notifyOnCompletion'])
 
     def test_formula_css_fonts_and_path_boundary(self):
         conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)

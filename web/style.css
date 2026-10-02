@@ -31,3 +31,5 @@
 
 .timeline{overflow-anchor:none}.timeline-row{margin-bottom:20px}.message-body{min-width:0}.newer{position:absolute;bottom:235px;right:22px;z-index:3;border:1px solid #bbccb9;border-radius:24px;background:#eff6eb;color:var(--green);padding:10px 16px;box-shadow:0 3px 12px #18291d18}.chat{position:relative}.detail-more{display:block;margin-top:8px}.activity-body{max-height:60vh;overflow:auto}.activity:not([open]) .activity-body,.activity:not([open]) .detail-more{display:none}
 .phone-language{position:fixed;right:14px;top:max(8px,env(safe-area-inset-top));z-index:20;display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);background:var(--bg,#f7f7f2);border-radius:7px;padding:3px 6px}.phone-language select{font:inherit;width:auto;margin:0;padding:4px;border:1px solid #ddd;border-radius:5px;background:transparent}.sidebar-head{padding-top:40px!important}.chat-head{padding-top:42px!important}.login{padding-top:60px!important}html[lang=en] .compose-bottom{flex-wrap:wrap;gap:8px}
+
+.picker .notification-option{display:flex;align-items:center;gap:10px;cursor:pointer}.notification-option input{margin:0;accent-color:var(--green)}

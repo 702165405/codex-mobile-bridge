@@ -43,6 +43,10 @@ jobs:
         run: npm run build:windows
       - if: runner.os == 'Windows'
         run: npm run test:windows-app
+      - name: Verify packaged Bark and ntfy notifications
+        run: node scripts/smoke-notifications.cjs
+      - name: Verify packaged login and device access
+        run: node scripts/smoke-auth.cjs
       - name: Verify packaged Windows HTTPS trust
         if: runner.os == 'Windows'
         run: python scripts/verify-https.py "dist/desktop/win-unpacked/resources/gateway/codex-mobile-gateway.exe"

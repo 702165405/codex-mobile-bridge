@@ -45,11 +45,11 @@ class GatewayServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, bridge, config, web_dir):
+    def __init__(self, address, bridge, config, web_dir, data_dir=None):
         self.bridge = bridge
         self.notifications = None
         self.instance_id = secrets.token_hex(16)
-        self.auth = Auth(config["auth"])
+        self.auth = Auth(config["auth"], data_dir)
         self.origins = set(config["origins"])
         self.pairing = Pairing(self.auth, self.origins)
         self.hosts = {urlsplit(o).netloc for o in self.origins}
@@ -130,7 +130,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def cookie(self, token, clear=False):
         secure = "; Secure" if self.headers.get("Host") in self.server.secure_hosts else ""
-        return f"{Auth.COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={0 if clear else 43200}{secure}"
+        age = 0 if clear else self.server.auth.cookie_age(token)
+        return f"{Auth.COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={age}{secure}"
+
+    def client(self):
+        return self.server.auth.client(self.client_address[0], self.headers, self.headers.get('Host') in self.server.secure_hosts)
+
+    def login_session(self):
+        return self.server.auth.get(self.token(), self.client(), self.headers.get('User-Agent', ''))
 
     def token(self):
         cookie = SimpleCookie()
@@ -150,7 +157,9 @@ class Handler(BaseHTTPRequestHandler):
             raise PermissionError("不允许跨站请求")
 
     def authorized(self, write=False):
-        session = self.server.auth.get(self.token())
+        if not self.server.auth.permitted(self.client()['ip']):
+            raise PermissionError('此 IP 已被访问规则禁止')
+        session = self.login_session()
         if not session:
             self.close_connection = True
             self.output(401, {"error": "请登录", "code": "unauthenticated"})
@@ -195,18 +204,21 @@ class Handler(BaseHTTPRequestHandler):
                 if file.is_file():
                     return self.output(200, file.read_bytes(), 'font/'+font[2])
             if not write and path == "/api/auth":
-                session = self.server.auth.get(self.token())
+                session = self.login_session()
                 return self.output(200, {"authenticated": bool(session), "csrf": session["csrf"] if session else None,
                                          "instanceId": self.server.instance_id,
                                          "notifications": self.server.notifications is not None,
                                          "passwordless": self.server.auth.config.get("mode") == "none",
-                                         "transport": "poll" if self.headers.get("Host", "").endswith(".trycloudflare.com") else "sse"})
+                                         "transport": "poll" if self.headers.get("Host", "").endswith(".trycloudflare.com") else "sse"},
+                                   cookie=self.cookie(self.token()) if session else None)
+            if not self.server.auth.permitted(self.client()['ip']):
+                raise PermissionError('此 IP 已被访问规则禁止')
             if write and path == "/api/login":
                 body = self.read_json()
                 username, password = body.get("username", ""), body.get("password", "")
                 if not isinstance(username, str) or not isinstance(password, str) or len(username) > 200 or len(password) > 1000:
                     raise ValueError("账号或密码格式不正确")
-                token, session = self.server.auth.login(username, password, self.client_address[0])
+                token, session = self.server.auth.login(username, password, self.client()['ip'], self.headers.get('User-Agent', ''), self.client())
                 self.server.auth.logout(self.token())
                 return self.output(200, {"csrf": session["csrf"]}, cookie=self.cookie(token))
             if write and path == '/api/pair':
@@ -215,7 +227,7 @@ class Handler(BaseHTTPRequestHandler):
                 origin = ('https://' if host in self.server.secure_hosts else 'http://') + host
                 if self.headers.get('Origin') != origin:
                     raise PermissionError('不允许的请求来源')
-                token, session = self.server.pairing.exchange(body.get('token'), origin, self.client_address[0])
+                token, session = self.server.pairing.exchange(body.get('token'), origin, self.client()['ip'], self.headers.get('User-Agent', ''), self.client())
                 self.server.auth.logout(self.token())
                 return self.output(200, {'csrf': session['csrf']}, cookie=self.cookie(token))
             auth = self.authorized(write)
@@ -243,9 +255,9 @@ class Handler(BaseHTTPRequestHandler):
             thread_id, action = match.groups()
             if action == 'notifications':
                 if self.server.notifications is None:
-                    return self.output(200, {'available': False, 'watching': False})
+                    return self.output(200, {'available': False, 'watching': False, 'notifyOnCompletion': False})
                 body = self.read_json() if write else {}
-                return self.output(200, self.server.notifications.watch(thread_id, bridge.host, body.get('enabled') if write else None))
+                return self.output(200, self.server.notifications.watch(thread_id, bridge.host, body.get('enabled'), body.get('notifyOnCompletion')))
             if not write:
                 if action == 'timeline':
                     return self.output(200, bridge.timeline_read(thread_id, limit=int(query.get('limit', ['20'])[0]), before=query.get('before', [None])[0]))
@@ -356,7 +368,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def stream(self, bridge, thread_id):
         session = bridge.session(thread_id, background=True)
-        token = self.token()
         with session.condition:
             session.viewers += 1
         self.send_response(200)
@@ -369,7 +380,7 @@ class Handler(BaseHTTPRequestHandler):
         sequence = -1
         try:
             while not bridge.closed.is_set():
-                if not self.server.auth.get(token):
+                if not self.login_session():
                     self.wfile.write(b'event: logout\ndata: {}\n\n')
                     self.wfile.flush()
                     break
@@ -377,6 +388,10 @@ class Handler(BaseHTTPRequestHandler):
                     session.condition.wait_for(lambda: session.sequence != sequence or bridge.closed.is_set(), timeout=12)
                     updated = session.sequence != sequence
                     sequence = session.sequence
+                if not self.login_session():
+                    self.wfile.write(b'event: logout\ndata: {}\n\n')
+                    self.wfile.flush()
+                    break
                 if updated:
                     view = bridge.view(thread_id, attach=False, background=True)
                     payload = json.dumps(view, ensure_ascii=False, separators=(",", ":"))

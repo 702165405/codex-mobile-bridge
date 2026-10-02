@@ -25,9 +25,9 @@ class GatewayControl:
         self.closed = threading.Event()
         self.worker = None
 
-    def start(self, shutdown, pairing=None, instance_id=None):
+    def start(self, shutdown, pairing=None, instance_id=None, auth=None):
         self.pairing_dir = Path(tempfile.mkdtemp(prefix=".pairing-", dir=self.path.parent))
-        self.record.update(pairingDir=self.pairing_dir.name, instanceId=instance_id)
+        self.record.update(pairingDir=self.pairing_dir.name, instanceId=instance_id, deviceManagement=auth is not None)
         self.request_path.unlink(missing_ok=True)
         self.path.write_text(json.dumps(self.record), encoding='utf-8')
         self.path.chmod(0o600)
@@ -43,8 +43,12 @@ class GatewayControl:
                         if not isinstance(value, dict) or value.get('control') != self.record:
                             continue
                         try:
-                            result = {'ok': True, 'result': pairing(value.get('payload', {}))}
-                        except (ValueError, TypeError) as exc:
+                            payload = value.get('payload', {})
+                            if payload.get('action') == 'devices' and auth:
+                                result = {'ok': True, 'result': auth.manage(payload.get('value', {}))}
+                            else:
+                                result = {'ok': True, 'result': pairing(payload)}
+                        except (ValueError, TypeError, OSError) as exc:
                             result = {'ok': False, 'error': str(exc)}
                         private_json(request.with_suffix('.response'), result)
         self.worker = threading.Thread(target=watch, daemon=True)

@@ -47,23 +47,65 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(snapshot['preferences']['port'], 8787)
         self.assertEqual(snapshot['auth']['mode'], 'password')
         self.assertFalse(snapshot['notifications']['enabled'])
+        self.assertFalse(snapshot['notifications']['barkEnabled'])
         self.assertNotIn('hash', snapshot['auth'])
         self.assertTrue((self.directory/'首次登录.txt').is_file())
 
     def test_save_roundtrip_and_secrets_are_not_returned(self):
         value = self.value()
         old_hash = self.desktop.config()['auth']['hash']
-        value['notifications'].update(topic='private', token='private-token', enabled=True)
+        value['notifications'].update(topic='private', token='private-token', enabled=True,
+                                      barkEnabled=True, barkKey='private-bark-key')
         self.desktop.save(value)
         snapshot = self.desktop.snapshot()
         self.assertEqual(snapshot['notifications']['token'], '')
         self.assertTrue(snapshot['notifications']['hasToken'])
         self.assertEqual(settings(self.directory)['token'], 'private-token')
+        self.assertEqual(snapshot['notifications']['barkKey'], '')
+        self.assertTrue(snapshot['notifications']['hasBarkKey'])
+        self.desktop.save(snapshot)
+        self.assertEqual(settings(self.directory)['barkKey'], 'private-bark-key')
         self.assertEqual(self.desktop.config()['auth']['hash'], old_hash)
         value['auth']['password'] = 'a new password for test'
         self.desktop.save(value)
         self.assertFalse((self.directory/'首次登录.txt').exists())
         self.assertNotEqual(self.desktop.config()['auth']['hash'], old_hash)
+
+    def test_login_duration_roundtrip_and_invalid_save_is_atomic(self):
+        value = self.value()
+        self.assertEqual(value['auth']['sessionHours'], 12)
+        value['auth']['sessionHours'] = 0
+        self.assertEqual(self.desktop.save(value)['auth']['sessionHours'], 0)
+        old = self.desktop.config_path.read_bytes()
+        value['auth']['sessionHours'] = -1
+        value['notifications']['barkKey'] = 'must-not-save'
+        with self.assertRaises(ValueError):
+            self.desktop.save(value)
+        self.assertEqual(self.desktop.config_path.read_bytes(), old)
+        self.assertFalse(settings(self.directory)['barkKey'])
+
+    def test_notification_tests_use_selected_channel_and_hide_service_errors(self):
+        with patch('bridge.desktop.publish') as ntfy, patch('bridge.desktop.publish_bark') as bark:
+            self.assertIn('Bark', self.desktop.test_notification({'channel': 'bark'})['message'])
+            self.assertFalse(ntfy.called)
+            bark.assert_called_once()
+            self.desktop.test_notification()
+            ntfy.assert_called_once()
+            with self.assertRaises(ValueError): self.desktop.test_notification({'channel': 'unknown'})
+        with patch('bridge.desktop.publish_bark', side_effect=RuntimeError('private-bark-key')):
+            with self.assertRaisesRegex(ValueError, '^Bark 测试失败') as error:
+                self.desktop.test_notification({'channel': 'bark'})
+            self.assertNotIn('private-bark-key', str(error.exception))
+
+    def test_logs_redact_both_notification_secrets(self):
+        value = self.value()
+        value['notifications'].update(token='private-token', barkKey='private-bark-key')
+        self.desktop.save(value)
+        (self.directory/'gateway.log').write_text('example private-token private-bark-key\n')
+        text = self.desktop.logs()['text']
+        self.assertNotIn('private-token', text)
+        self.assertNotIn('private-bark-key', text)
+        self.assertEqual(text.count('[REDACTED]'), 2)
 
     def test_running_network_settings_cannot_disconnect_phone(self):
         value = self.value()

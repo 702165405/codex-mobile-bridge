@@ -44,10 +44,21 @@ async function main(){
         const deadline=Date.now()+10000;
         while((typeof snapshot==='undefined'||!snapshot)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
         if(typeof snapshot==='undefined'||!snapshot)throw Error('Bundled worker did not return a snapshot');
-        return {directory:snapshot.dataDir,running:snapshot.runtime.running,notifications:snapshot.notifications.enabled,node:typeof require};
+        tab('devices');const deviceDeadline=Date.now()+5000;
+        while(devicesBusy&&Date.now()<deviceDeadline)await new Promise(resolve=>setTimeout(resolve,50));
+        if(devicesBusy||!devicesState)throw Error('Device management did not load');
+        document.getElementById('ip-allowlist').value='192.0.2.7';document.getElementById('allowlist-enabled').checked=true;
+        await changeDevices({action:'save',policy:devicePolicy()});
+        return {deviceOverflow:document.documentElement.scrollWidth>innerWidth,directory:snapshot.dataDir,running:snapshot.runtime.running,notifications:snapshot.notifications.enabled,
+          sessionHours:document.getElementById('session-hours').value,devices:await window.bridgeDesktop.devices({action:'list'}),
+          barkEnabled:snapshot.notifications.barkEnabled,barkServer:document.getElementById('bark-server').value,
+          barkKeyType:document.getElementById('bark-key').type,barkTest:!!document.getElementById('test-bark'),node:typeof require};
       })()`}}));
     });
     assert.equal(state.directory,data);assert.equal(state.running,false);assert.equal(state.notifications,false);assert.equal(state.node,'undefined');
+    assert.equal(state.sessionHours,'12');assert.equal(state.devices.sessions.length,0);assert.equal(state.devices.policy.allowlistEnabled,true);assert.deepEqual(state.devices.policy.allowlist,['192.0.2.7']);assert.equal(state.deviceOverflow,false);
+    assert.equal(state.barkEnabled,false);assert.equal(state.barkServer,'https://api.day.app');
+    assert.equal(state.barkKeyType,'password');assert.equal(state.barkTest,true);
     console.log('PASS: signed packaged App opens, renderer and bundled worker load, isolated data, gateway remains stopped.');
   }finally{
     socket?.close();child.kill();

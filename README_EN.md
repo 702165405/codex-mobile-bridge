@@ -41,6 +41,16 @@ For access outside your LAN, add temporary HTTPS, an own-server connection or a 
 
 Starting with `v0.2.0-beta.5`, use **App updates** to check for a release, read its notes, and select **Update and restart**. The app verifies the signed manifest and package before replacing itself, preserves login, network, notification and watched-chat settings, and restores a previously running gateway. Installation failures attempt to restore the previous app. Older versions need one manual upgrade to a version with this feature. Temporary HTTPS addresses change when the gateway restarts.
 
+### Login validity and device access
+
+- Set **Network and login → Login validity (hours)** to an integer from 0 to 87600, then restart the gateway. The default is 12 hours; 0 sets no server expiry. A finite deadline starts at login and does not slide with activity.
+- Normal gateway restarts and App updates preserve unexpired logins. Changing the account, password, login mode or validity invalidates earlier logins on restart. Logout, clearing browser cookies or changing hostnames requires signing in again; browsers may also remove long-unused cookies.
+- **Signed-in devices** shows browser login records, IPs, browser identifiers, login/expiry times and last activity (updated at most once a minute). **Revoke login** removes one login; **Block this IP** revokes every login at that IP and prevents new logins.
+- The optional allowlist accepts only listed IPs; the blocklist takes priority. Enter exact IPv4 or IPv6 addresses, one per line. Rules apply immediately and can always be changed in the local desktop App.
+- These are browser logins, not immutable hardware identities. Web pages cannot read phone MAC addresses, and phones may use rotating private MAC addresses. IPs can change, and devices sharing a public IP share its access rules.
+- LAN connections use the peer IP. Local HTTPS tunnels are trusted automatically. For NAS or other reverse proxies, configure **Trusted proxy IPs**, and have each proxy append or overwrite `X-Forwarded-For`. Headers from untrusted peers are ignored. Missing forwarded addresses are labelled as proxy IPs; blocking a proxy IP affects all its clients.
+- `auth-sessions.json` contains private session records (only hashes of bearer tokens) and IP rules. Keep it private and preserve it during updates.
+
 ### First launch on macOS: “damaged” or unidentified developer
 
 The Mac build has an **ad-hoc integrity signature**, but **no Apple Developer ID signature or notarization**. macOS can still block the first launch. The older `v0.2.0-beta.1` also has a bundle-signing defect; use `v0.2.0-beta.5` or later.
@@ -77,7 +87,7 @@ The App provides:
 - **Overview:** start/stop the gateway, copy/open phone URLs, expand QR sign-in, and locate initial login credentials.
 - **Network and login:** the LAN port, independently enabled connection profiles, extra HTTPS addresses, username/password or explicit passwordless access.
 - **Runtime settings:** Codex data directory, IPC address, executable paths, gateway data directory, and automatic startup when the App opens.
-- **Phone notifications:** ntfy server, topic, token, click URL, title privacy and a test notification.
+- **Phone notifications:** independent Bark and ntfy settings, test buttons and delivery status, with a shared click URL and title privacy option.
 - **App updates:** automatic release checks, signed downloads, update and restart, and recovery status.
 - **Runtime logs:** newest records first within each source; stack traces within one error keep their original order. Refresh returns to the newest records.
 
@@ -92,7 +102,7 @@ Unsaved changes appear as red dots in the affected sidebar section and save bar.
 1. Start the gateway and find a reachable phone address on the overview page.
 2. Expand **Scan to sign in** below that address. Each LAN, ready temporary HTTPS or configured fixed HTTPS entry has its own collapsible area; multiple areas can be expanded together. Loopback addresses such as `127.0.0.1` have no phone QR code.
 3. Scan with the phone camera and open the link in a browser to sign in without typing a password. The App checks that the entry points to this running gateway before generating a code.
-4. Each QR code expires after **5 minutes** and works **once**. Collapsing or refreshing revokes it; restarting the gateway invalidates all codes. A successful browser session lasts 12 hours, independently of QR expiry, until logout or gateway restart.
+4. Each QR code expires after **5 minutes** and works **once**. Collapsing or refreshing revokes it; restarting the gateway invalidates all codes. Browser logins use the configured validity (12 hours by default; 0 disables automatic expiry), independently of QR expiry, and survive gateway restarts.
 
 Treat the QR code as a short-lived login credential and keep screenshots private. It does not contain your username/password, disable password protection or create a network tunnel. Images are generated locally. Opening the ordinary URL still uses the configured login method. LAN reachability or a working public HTTPS entry is required; verify camera scanning and connectivity on your own phone.
 
@@ -147,15 +157,16 @@ Adding a URL does **not** create a tunnel, configure DNS or obtain a certificate
 
 The desktop App and phone website each have a **Language / 语言** selector and remember their own choice. Switching language does not restart the gateway or translate chat content, commands, model/Skill descriptions, user input or raw logs. Unsaved settings, message drafts and pending-confirmation form input are preserved. Language switching is disabled while a confirmation is being submitted.
 
-### ntfy setup and testing
+### Phone notifications: Bark and ntfy
 
-1. Install ntfy on iPhone or Android and allow system and lock-screen notifications.
-2. For an initial test, use `https://ntfy.sh`. Generate a random topic in the desktop App and subscribe to exactly that server and topic on the phone. Public anonymous topics need no token and are created automatically. Anyone who knows such a topic can read and publish; use a long random name and leave chat titles hidden. Consider a protected topic for regular use.
-3. Enable notifications, save, then click **Send test notification**. Confirm actual receipt on the phone. This test does not require the gateway to run; server acceptance alone is not proof of phone delivery.
-4. Start the gateway, refresh the phone website, open a connected chat and enable **Reminders**. Local and SSH chats are watched separately.
+1. **Bark for iPhone:** install Bark and allow notifications. In the desktop App, enter the server URL and Device Key from the phone app. For `https://api.day.app/YOUR_KEY`, use `https://api.day.app` as the server and only `YOUR_KEY` as the key. Self-hosted servers are supported; register your phone with that server first. Saved keys are hidden, blank keeps the key, and changing the server requires re-entering it. See the [Bark guide](https://bark.day.app/#/tutorial).
+2. **ntfy for Android:** install ntfy and allow notifications, lock-screen display and background activity. For an initial test, use `https://ntfy.sh`. Generate a random topic in the desktop App and subscribe to exactly that server and topic on the phone. Public anonymous topics need no token and are created automatically. Anyone who knows such a topic can read and publish; use a long random name and leave chat titles hidden. Consider a protected topic for regular use.
+3. Enable the channels you need, save, then click **Send Bark test notification** or **Send ntfy test notification**. Either channel or both can receive the same watched-chat notifications. Confirm actual receipt on the phone. This test does not require the gateway to run; server acceptance alone is not proof of phone delivery.
+4. Start the gateway, refresh the phone website, open **Reminders** in a chat, check **Enable chat reminders** and save. Local and SSH chats are watched separately.
 5. New command, file, permission or question requests trigger a notification. Clicking it opens that chat using the normal web login and confirmation flow.
+6. Each watched chat has an optional **Notify when a run completes** checkbox, off by default. Enable it for the current running turn and future successful runs. Failed, stopped and already completed historical runs do not trigger it. Turning only this option off keeps confirmation reminders enabled.
 
-Watched chats remain monitored after the phone page closes, provided the computer, gateway, original App and relevant SSH connections stay online. Persistent deduplication avoids repeated notifications for the same request after reconnection. Failed delivery retries with backoff and rechecks whether the request is still pending; strict exactly-once delivery is not guaranteed during network failures.
+Watched chats remain monitored after the phone page closes, provided the computer, gateway, original App and relevant SSH connections stay online. Delivery and retries are tracked separately per channel, destination, chat and event, including after restart. Failure in one channel does not affect the other. New channels or destinations do not replay completed history; runs observed in progress on their first live connection and future completions can notify. Existing ntfy configuration and delivery records are preserved. Failed delivery retries with backoff and rechecks whether the request is still pending. Completion retries continue while that chat has the option enabled and stop when it is disabled. Completed history from before the first live connection is not replayed. Strict exactly-once delivery is not guaranteed during network failures.
 
 An explicitly configured notification click URL takes priority over automatic selection. Old notifications retain their old URLs after a temporary domain changes. Self-hosted ntfy needs an APNs upstream for instant iPhone delivery; Android delivery also depends on background/battery permissions. See the official [phone subscription guide](https://docs.ntfy.sh/subscribe/phone/) and [iOS instant notification setup](https://docs.ntfy.sh/config/#ios-instant-notifications).
 

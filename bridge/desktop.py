@@ -10,9 +10,9 @@ import sys
 import zipfile
 from pathlib import Path
 
-from .auth import password_record
+from .auth import Auth, password_record, session_hours
 from .lifecycle import read_record, request_stop, request_pairing
-from .notifications import read_json, write_json, settings, save_settings, publish
+from .notifications import read_json, write_json, settings, save_settings, publish, publish_bark
 from . import access
 
 
@@ -93,8 +93,8 @@ class Desktop:
         executable = preferences['cloudflared']
         cloudflared = {'path': executable, 'available': bool(executable and Path(executable).is_file() and os.access(executable, os.X_OK))}
         notifications = settings(self.data_dir)
-        return {'preferences': preferences, 'auth': {'username': config['auth'].get('username', 'admin'), 'mode': config['auth']['mode']},
-                'origins': config.get('origins', []), 'notifications': {**notifications, 'token': '', 'hasToken': bool(notifications['token'])},
+        return {'preferences': preferences, 'auth': {'username': config['auth'].get('username', 'admin'), 'mode': config['auth']['mode'], 'sessionHours': config['auth'].get('sessionHours', 12)},
+                'origins': config.get('origins', []), 'notifications': {**notifications, 'token': '', 'hasToken': bool(notifications['token']), 'barkKey': '', 'hasBarkKey': bool(notifications['barkKey'])},
                 'watches': read_json(self.data_dir/'notification-watches.json', []),
                 'notificationStatus': read_json(self.data_dir/'notification-status.json', {}),
                 'dataDir': str(self.data_dir), 'credentialsAvailable': (self.data_dir/'首次登录.txt').exists(),
@@ -123,6 +123,7 @@ class Desktop:
         if auth.get('mode') not in ('password', 'none') or not isinstance(auth.get('username'), str) or not auth['username'].strip() or len(auth['username']) > 200:
             raise ValueError('请填写有效的登录账号和登录方式')
         password = auth.get('password', '')
+        hours = session_hours(auth.get('sessionHours', config['auth'].get('sessionHours', 12)))
         if not isinstance(password, str) or (password and not 12 <= len(password) <= 1000):
             raise ValueError('新密码至少需要 12 个字符')
         origins = value.get('origins', [])
@@ -140,7 +141,7 @@ class Desktop:
         notification_value = value.get('notifications', {})
         # save_settings performs the remaining validation; settings files have separate owners.
         save_settings(self.data_dir, notification_value)
-        config['auth'].update(mode=auth['mode'], username=auth['username'].strip())
+        config['auth'].update(mode=auth['mode'], username=auth['username'].strip(), sessionHours=hours)
         if password:
             config['auth'].update(password_record(password))
         config['origins'] = origins
@@ -200,9 +201,27 @@ class Desktop:
         request_stop(self.data_dir)
         return {'message': '网关已停止'}
 
-    def test_notification(self):
-        publish(settings(self.data_dir), 'Codex 手机通知测试', '收到这条消息表示 ntfy 通道已连通。')
-        return {'message': 'ntfy 已接受测试通知，请在手机确认是否收到'}
+    def devices(self, value):
+        if self.status()['running']:
+            record = read_record(self.data_dir/'gateway-control.json') or {}
+            if not record.get('deviceManagement'):
+                raise ValueError('请重新启动网关以启用设备管理')
+            return request_pairing(self.data_dir, {'action': 'devices', 'value': value})
+        if read_record(self.data_dir/'gateway-control.json'):
+            raise ValueError('网关状态暂不可用，请稍后刷新设备列表')
+        return Auth(self.config()['auth'], self.data_dir).manage(value)
+
+    def test_notification(self, value=None):
+        channel = (value or {}).get('channel', 'ntfy')
+        if channel not in ('ntfy', 'bark'):
+            raise ValueError('未知通知通道')
+        name = 'Bark' if channel == 'bark' else 'ntfy'
+        sender = publish_bark if channel == 'bark' else publish
+        try:
+            sender(settings(self.data_dir), 'Codex 手机通知测试', f'收到这条消息表示 {name} 通道已连通。')
+        except Exception:
+            raise ValueError(f'{name} 测试失败，请检查服务地址、认证和网络') from None
+        return {'message': f'{name} 已接受测试通知，请在手机确认是否收到'}
 
     def deployment(self, value):
         files = access.deployment(access.select_connection(self.preferences(), value))
@@ -261,8 +280,9 @@ class Desktop:
                 else:
                     records[-1].append(line)
             sections.append({'name': label, 'text': '\n'.join('\n'.join(record) for record in reversed(records))})
-        token = settings(self.data_dir).get('token')
-        if token:
-            for section in sections:
-                section['text'] = section['text'].replace(token, '[REDACTED]')
+        notifications = settings(self.data_dir)
+        for secret in (notifications.get('token'), notifications.get('barkKey')):
+            if secret:
+                for section in sections:
+                    section['text'] = section['text'].replace(secret, '[REDACTED]')
         return {'sections': sections, 'text': '\n\n'.join('--- '+s['name']+' ---\n'+s['text'] for s in sections)}

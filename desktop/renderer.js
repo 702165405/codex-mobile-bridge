@@ -4,7 +4,7 @@ let connectionDraft=[],savedConnections='[]';
 let snapshot,dirty=false,loading=false,startingUntil=0,activeTab='overview',savedFields={},feedbackKind='',lastFeedback;
 const busyActions=new Set();
 let startPending=false,cloudflaredBusy=false,cloudflaredResult=null,cloudflaredProgress=null;
-const titles={overview:t('连接与状态'),network:t('网络与登录'),notifications:t('手机通知'),advanced:t('运行配置'),updates:t('应用更新'),logs:t('运行日志')};
+const titles={overview:t('连接与状态'),network:t('网络与登录'),devices:t('登录设备'),notifications:t('手机通知'),advanced:t('运行配置'),updates:t('应用更新'),logs:t('运行日志')};
 function fields(){return [...$('settings').querySelectorAll('input,textarea,select')].filter(node=>!node.closest('#connections')&&node.id!=='connection-kind');}
 function fieldValues(){return Object.fromEntries(fields().map(node=>[node.id,node.type==='checkbox'?node.checked:node.value]));}
 function updateDirty(){
@@ -23,13 +23,14 @@ function updateDirty(){
   document.querySelectorAll('[data-connection-action]').forEach(button=>button.disabled=dirty||busyActions.has(button.dataset.key)||!connectionDraft.find(c=>c.id===button.dataset.connection)?.enabled);
 }
 function feedback(text,error=false,kind=''){lastFeedback=[text,error,kind];text=t(text.replace(/^Error invoking remote method '[^']+': (?:Error: )?/,''));feedbackKind=kind;$('error').hidden=!error;$('feedback').hidden=error;const target=$(error?'error':'feedback');if(target.textContent!==text)target.textContent=text;}
-function tab(name){activeTab=name;document.querySelectorAll('[data-panel]').forEach(node=>node.hidden=node.dataset.panel!==name);document.querySelectorAll('[data-tab]').forEach(node=>node.classList.toggle('active',node.dataset.tab===name));$('page-title').textContent=t(titles[name]);if(snapshot)updateDirty();if(name==='logs')loadLogs();if(snapshot)renderUpdate();}
+function tab(name){activeTab=name;document.querySelectorAll('[data-panel]').forEach(node=>node.hidden=node.dataset.panel!==name);document.querySelectorAll('[data-tab]').forEach(node=>node.classList.toggle('active',node.dataset.tab===name));$('page-title').textContent=t(titles[name]);if(snapshot)updateDirty();if(name==='logs')loadLogs();if(name==='devices')loadDevices();if(snapshot)renderUpdate();}
 document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>tab(button.dataset.tab));
 document.querySelectorAll('[data-jump]').forEach(button=>button.onclick=()=>tab(button.dataset.jump));
 $('settings').oninput=$('settings').onchange=()=>{if(snapshot){updateDirty();}};
 function input(id,value){$(id).value=value??'';}
 function render(value){
   if(snapshot&&(snapshot.runtime.instanceId!==value.runtime.instanceId||snapshot.dataDir!==value.dataDir))resetPairing();
+  if(snapshot&&snapshot.dataDir!==value.dataDir){devicesState=null;devicesDirty=false;$('device-list').replaceChildren();}
   snapshot=value;const running=value.runtime.running;
   if(running||value.runtime.portOccupied)startingUntil=0;
   const starting=Date.now()<startingUntil;
@@ -45,10 +46,14 @@ function render(value){
   $('start').disabled=running||starting||cloudflaredBusy||startPending;$('stop').disabled=!running;
   $('login-summary').textContent=value.auth.mode==='none'?t('免密访问'):t('账号：')+value.auth.username;
   $('credentials').disabled=!value.credentialsAvailable;
-  $('notification-summary').textContent=value.notifications.enabled?t('已开启 · ')+value.watches.length+t(' 个关注聊天'):t('未开启');
+  const notificationsEnabled=value.notifications.enabled||value.notifications.barkEnabled;
+  $('notification-summary').textContent=notificationsEnabled?t('已开启 · ')+value.watches.length+t(' 个关注聊天'):t('未开启');
   $('notification-state').textContent=value.runtime.running&&!value.runtime.supportsNotifications?t('当前网关版本较旧，重启后启用通知能力。'):t(value.notificationStatus.error)||t('手机关闭网页后，已关注聊天仍会继续提醒。');
-  $('notification-detail').textContent=t(value.notificationStatus.error)||(value.notificationStatus.lastSent?t('最近一次发送：')+new Date(value.notificationStatus.lastSent*1000).toLocaleString(BridgeI18n.locale()):t('尚无发送记录'));
-  $('notification-readiness').textContent=!value.notifications.enabled?t('尚未开启手机通知：填写并保存后，先发送测试通知。'):!running?t('网关尚未启动：可以先测试 ntfy 接收，聊天提醒需要启动网关。'):!value.runtime.supportsNotifications?t('当前网关版本不支持聊天提醒，请在首页停止后重新启动网关，再刷新手机网页。'):t('网关已就绪：在手机打开一个已连接的聊天，点击“提醒”，直到显示“提醒已开”。');
+  for(const [channel,id] of [['ntfy','notification-detail'],['bark','bark-detail']]){
+    const status=value.notificationStatus[channel]||(channel==='ntfy'?value.notificationStatus:{});
+    $(id).textContent=t(status.error)||(status.lastSent?t('最近一次发送：')+new Date(status.lastSent*1000).toLocaleString(BridgeI18n.locale()):t('尚无发送记录'));
+  }
+  $('notification-readiness').textContent=!notificationsEnabled?t('尚未开启手机通知：填写并保存后，先发送测试通知。'):!running?t('网关尚未启动：可以先测试通知接收，聊天提醒需要启动网关。'):!value.runtime.supportsNotifications?t('当前网关版本不支持聊天提醒，请在首页停止后重新启动网关，再刷新手机网页。'):t('网关已就绪：在手机聊天中点击“提醒”，勾选“开启聊天提醒”并保存。');
   $('data-dir').textContent=value.dataDir;
   $('addresses').replaceChildren();
   for(const url of value.urls){const card=document.createElement('div');card.className='address';const text=document.createElement('div'),label=document.createElement('small'),address=document.createElement('strong');const fixed=(value.preferences.connections||[]).some(c=>c.enabled&&url===c.publicUrl+'/');label.textContent=(fixed?t('固定 HTTPS · 需完成服务器部署'):url.startsWith('https:')?t('临时外网 HTTPS'):url.includes('127.0.0.1')?t('此电脑'):t('局域网'))+(running?'':t(' · 网关未启动'));address.textContent=url;text.append(label,address);card.append(text);for(const [name,action] of [[t('复制'),()=>api.copy(url)],[t('打开'),()=>api.open(url)]]){const button=document.createElement('button');button.textContent=name;button.onclick=()=>action().catch(e=>feedback(e.message,true));card.append(button);}if(!['127.0.0.1','localhost','[::1]'].includes(new URL(url).hostname))appendPairing(card,url,running);$('addresses').append(card);}
@@ -60,11 +65,13 @@ function render(value){
     $('auto-start').checked=p.autoStart;$('lan').checked=p.lan;
     connectionDraft=JSON.parse(JSON.stringify(p.connections||[]));savedConnections=JSON.stringify(connectionDraft);renderConnections();
     const fixed=connectionDraft.filter(c=>c.enabled).map(c=>c.publicUrl);
-    input('origins',value.origins.filter(o=>!fixed.includes(o)).join('\n'));input('auth-mode',value.auth.mode);input('username',value.auth.username);
+    input('origins',value.origins.filter(o=>!fixed.includes(o)).join('\n'));input('auth-mode',value.auth.mode);input('session-hours',value.auth.sessionHours??12);input('username',value.auth.username);
     $('ntfy-enabled').checked=n.enabled;input('ntfy-server',n.server);input('ntfy-topic',n.topic);input('click-base',n.clickBase);$('include-title').checked=n.includeTitle;
+    $('bark-enabled').checked=!!n.barkEnabled;input('bark-server',n.barkServer||'https://api.day.app');
     savedFields=fieldValues();
   }
   $('ntfy-token').placeholder=value.notifications.hasToken?t('已保存；留空保留，服务地址变化时清除'):t('如服务需要认证，在这里填写');
+  $('bark-key').placeholder=value.notifications.hasBarkKey?t('已保存；留空保留，服务地址变化时清除'):t('填写 Bark App 中的 Device Key');
   updateDirty();
   $('network-lock').hidden=!running;
   for(const id of ['lan','port','connection-kind','add-connection','origins','cloudflared','codex-home','ipc-path','codex-bin'])$(id).disabled=running;
@@ -75,22 +82,23 @@ function render(value){
   renderUpdate();
 }
 async function refresh(){if(loading)return;loading=true;try{render(await api.snapshot());}catch(e){feedback(e.message,true);}finally{loading=false;}}
-function collect(){return {preferences:{autoStart:$('auto-start').checked,port:Number($('port').value),lan:$('lan').checked,connections:connectionDraft,cloudflared:$('cloudflared').value.trim(),codexHome:$('codex-home').value.trim(),ipcPath:$('ipc-path').value.trim(),codexBin:$('codex-bin').value.trim()},auth:{mode:$('auth-mode').value,username:$('username').value.trim(),password:$('password').value},origins:$('origins').value.split('\n').map(s=>s.trim()).filter(Boolean),notifications:{enabled:$('ntfy-enabled').checked,server:$('ntfy-server').value.trim(),topic:$('ntfy-topic').value.trim(),token:$('ntfy-token').value,clearToken:$('clear-token').checked,clickBase:$('click-base').value.trim(),includeTitle:$('include-title').checked}};}
+function collect(){return {preferences:{autoStart:$('auto-start').checked,port:Number($('port').value),lan:$('lan').checked,connections:connectionDraft,cloudflared:$('cloudflared').value.trim(),codexHome:$('codex-home').value.trim(),ipcPath:$('ipc-path').value.trim(),codexBin:$('codex-bin').value.trim()},auth:{sessionHours:Number($('session-hours').value),mode:$('auth-mode').value,username:$('username').value.trim(),password:$('password').value},origins:$('origins').value.split('\n').map(s=>s.trim()).filter(Boolean),notifications:{enabled:$('ntfy-enabled').checked,server:$('ntfy-server').value.trim(),topic:$('ntfy-topic').value.trim(),token:$('ntfy-token').value,clearToken:$('clear-token').checked,barkEnabled:$('bark-enabled').checked,barkServer:$('bark-server').value.trim(),barkKey:$('bark-key').value,clearBarkKey:$('clear-bark-key').checked,clickBase:$('click-base').value.trim(),includeTitle:$('include-title').checked}};}
 $('settings').onsubmit=async event=>{
   event.preventDefault();$('save').disabled=true;const submitted=fieldValues(),submittedConnections=JSON.stringify(connectionDraft);
   try{
     const value=await api.save(collect());savedFields={...submitted};savedConnections=submittedConnections;
     // Edits made while saving must remain visibly unsaved.
-    for(const id of ['password','ntfy-token']){if($(id).value===submitted[id])input(id,'');savedFields[id]='';}
-    if($('clear-token').checked===submitted['clear-token'])$('clear-token').checked=false;
-    savedFields['clear-token']=false;updateDirty();render(value);
+    for(const id of ['password','ntfy-token','bark-key']){if($(id).value===submitted[id])input(id,'');savedFields[id]='';}
+    for(const id of ['clear-token','clear-bark-key']){if($(id).checked===submitted[id])$(id).checked=false;savedFields[id]=false;}
+    updateDirty();render(value);
     feedback(dirty?t('已保存提交的配置，仍有新修改待保存。'):t('配置已保存。通知设置由新版网关自动读取，登录设置在下次启动生效。'));
   }catch(e){feedback(e.message,true);}finally{$('save').disabled=false;}
 };
 $('start').onclick=async()=>{if(cloudflaredBusy||startPending)return;if(dirty){feedback(t('请先保存配置，再启动网关。'),true);return;}$('start').disabled=true;startPending=true;try{if(snapshot?.preferences.tunnel){try{await api.checkCloudflared(snapshot.preferences.cloudflared);}catch(error){tab('advanced');throw error;}}const result=await api.start();startingUntil=result.started?Date.now()+70000:0;feedback(result.message,false,'gateway');await refresh();}catch(e){startingUntil=0;feedback(e.message,true);$('start').disabled=false;}finally{startPending=false;}};
 $('stop').onclick=async()=>{$('stop').disabled=true;try{feedback((await api.stop()).message,false,'gateway');startingUntil=0;await refresh();}catch(e){feedback(e.message,true);$('stop').disabled=false;}};
-$('test-notification').onclick=async()=>{if(dirty){feedback(t('请先保存 ntfy 配置，再发送测试通知。'),true);return;}$('test-notification').disabled=true;try{feedback((await api.testNotification()).message);}catch(e){feedback(e.message,true);}finally{$('test-notification').disabled=false;}};
+for(const [id,channel] of [['test-notification','ntfy'],['test-bark','bark']])$(id).onclick=async()=>{if(dirty){feedback(t('请先保存通知配置，再发送测试通知。'),true);return;}$(id).disabled=true;try{feedback((await api.testNotification({channel})).message);}catch(e){feedback(e.message,true);}finally{$(id).disabled=false;}};
 $('ntfy-help').onclick=()=>api.open('ntfy-help').catch(e=>feedback(e.message,true));
+$('bark-help').onclick=()=>api.open('bark-help').catch(e=>feedback(e.message,true));
 $('generate-topic').onclick=()=>{input('ntfy-topic','codex-'+crypto.randomUUID().replaceAll('-',''));updateDirty();};
 $('credentials').onclick=()=>api.open('credentials').catch(e=>feedback(e.message,true));
 $('open-data').onclick=()=>api.open('data').catch(e=>feedback(e.message,true));
@@ -143,7 +151,7 @@ function applyLanguage(value){
   if(snapshot){const pending=dirty;dirty=true;render(snapshot);dirty=pending;renderConnections();updateDirty();}
   if(lastFeedback)feedback(...lastFeedback);
   tab(activeTab);
-  renderPairing();
+  renderPairing();if(devicesState)renderDevices(devicesState);
 }
 $('language').value=BridgeI18n.language();
 $('language').onchange=async()=>{
@@ -182,10 +190,68 @@ function renderUpdate(){
 $('check-update').onclick=async()=>{try{await api.checkUpdate();await refresh();}catch(error){feedback(error.message,true);}};
 $('install-update').onclick=async()=>{
   if(updateBusy)return;
-  if(dirty){feedback('请先保存配置，再更新应用。',true);return;}
+  if(dirty||devicesDirty){feedback('请先保存配置，再更新应用。',true);return;}
   if(cloudflaredBusy||startPending||$('save').disabled||busyActions.size){feedback('请等待当前操作完成后再更新。',true);return;}
   updateBusy=true;renderUpdate();
   try{await api.installUpdate();await refresh();}catch(error){feedback(error.message,true);}
   finally{updateBusy=false;renderUpdate();}
 };
 $('update-releases').onclick=()=>api.open('releases').catch(error=>feedback(error.message,true));
+
+let devicesState=null,devicesDirty=false,devicesBusy=false;
+function devicePolicy(){
+  const lines=id=>$(id).value.split('\n').map(value=>value.trim()).filter(Boolean);
+  return {allowlistEnabled:$('allowlist-enabled').checked,allowlist:lines('ip-allowlist'),blocklist:lines('ip-blocklist'),trustedProxies:lines('trusted-proxies')};
+}
+function renderDevices(value){
+  devicesState=value;
+  if(!devicesDirty){
+    $('allowlist-enabled').checked=value.policy.allowlistEnabled;
+    for(const [id,key] of [['ip-allowlist','allowlist'],['ip-blocklist','blocklist'],['trusted-proxies','trustedProxies']])input(id,value.policy[key].join('\n'));
+  }
+  $('device-list').replaceChildren();
+  if(!value.sessions.length)$('device-list').textContent=t('暂无有效登录记录。');
+  const date=value=>new Date(value*1000).toLocaleString(BridgeI18n.locale());
+  for(const session of value.sessions){
+    const row=document.createElement('div');row.className='device-row';
+    const address=document.createElement('strong');address.textContent=session.ip;
+    const browser=document.createElement('p');browser.textContent=session.userAgent||t('未知浏览器');
+    const detail=document.createElement('p');detail.className='hint';
+    detail.textContent=t(session.source==='proxy'?'代理 IP（未提供客户端地址）':session.source==='forwarded'?'经可信代理转发':'直连地址')+' · '+t('登录时间：')+date(session.created)+' · '+t('最近访问：')+date(session.lastSeen)+' · '+t('有效期至：')+(session.expires?date(session.expires):t('不自动过期'));
+    const actions=document.createElement('div');actions.className='actions';
+    for(const [label,action] of [['撤销登录','revoke'],['封禁此 IP','block'],['加入白名单','allow']]){
+      const button=document.createElement('button');button.type='button';button.textContent=t(label);button.disabled=devicesBusy;
+      button.onclick=()=>{
+        if(action==='allow'){
+          input('ip-allowlist',[...new Set([...devicePolicy().allowlist,session.ip])].join('\n'));
+          devicesDirty=true;$('device-feedback').textContent=t('白名单有未保存的修改。');return;
+        }
+        if(devicesDirty){feedback(t('请先保存 IP 规则。'),true);return;}
+        return changeDevices({action,id:session.id});
+      };
+      actions.append(button);
+    }
+    row.append(address,browser,detail,actions);$('device-list').append(row);
+  }
+}
+async function loadDevices(){
+  if(devicesBusy)return;
+  devicesBusy=true;$('refresh-devices').disabled=true;$('device-policy').inert=true;
+  try{renderDevices(await api.devices({action:'list'}));}
+  catch(error){feedback(error.message,true);}
+  finally{devicesBusy=false;$('refresh-devices').disabled=false;$('device-policy').inert=false;$('save-device-policy').disabled=!devicesState;if(devicesState)renderDevices(devicesState);}
+}
+async function changeDevices(payload){
+  if(devicesBusy)return;
+  devicesBusy=true;busyActions.add('devices');$('device-policy').inert=true;$('refresh-devices').disabled=true;
+  if(devicesState)renderDevices(devicesState);
+  try{
+    const value=await api.devices(payload);
+    devicesDirty=false;renderDevices(value);
+    $('device-feedback').textContent=t(payload.action==='save'?'IP 规则已保存并生效。':payload.action==='block'?'IP 已封禁，关联登录已撤销。':'登录已撤销。');
+  }catch(error){feedback(error.message,true);}
+  finally{devicesBusy=false;busyActions.delete('devices');$('device-policy').inert=false;$('refresh-devices').disabled=false;if(devicesState)renderDevices(devicesState);}
+}
+$('refresh-devices').onclick=loadDevices;
+$('device-policy').oninput=$('device-policy').onchange=()=>{devicesDirty=true;$('device-feedback').textContent=t('IP 规则有未保存的修改。');};
+$('device-policy').onsubmit=event=>{event.preventDefault();return changeDevices({action:'save',policy:devicePolicy()});};

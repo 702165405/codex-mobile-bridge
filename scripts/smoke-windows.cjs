@@ -1,5 +1,5 @@
 // Test the real packaged app over its loopback-only Chromium debugging socket.
-// Only synthetic gateway data is used; no model requests or ntfy publishes.
+// Only synthetic gateway data is used; no model requests or real phone pushes.
 'use strict';
 const assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path'),net=require('node:net');
@@ -96,6 +96,10 @@ async function main(){
     assert.equal(await client.evaluate('typeof require'),'undefined');
     assert.equal(await client.evaluate('snapshot.preferences.port'),port);
     assert.equal(await client.evaluate('snapshot.notifications.enabled'),false);
+    assert.equal(await client.evaluate('snapshot.notifications.barkEnabled'),false);
+    assert.equal(await client.evaluate("document.getElementById('bark-key').type"),'password');
+    assert.equal(await client.evaluate("document.getElementById('bark-server').value"),'https://api.day.app');
+    assert.equal(await client.evaluate("Boolean(document.getElementById('test-bark'))"),true);
     assert.equal(await client.evaluate("document.querySelectorAll('.connection-card').length"),3);
     // Only local access is started. The synthetic SSH/NAS entries never connect.
     await client.evaluate("document.querySelector('[data-tab=network]').click();for(const node of document.querySelectorAll('[data-connection-field=enabled]')){node.checked=false;node.dispatchEvent(new Event('input',{bubbles:true}));}document.getElementById('lan').checked=false;document.getElementById('lan').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('settings').requestSubmit()");
@@ -108,6 +112,8 @@ async function main(){
     const base='http://127.0.0.1:'+port;
     assert.equal((await get(base+'/api/sessions')).status,401);
     for(const route of ['/','/app.js','/i18n.js','/markdown.js','/timeline.js','/vendor/katex/katex.min.js'])assert.equal((await get(base+route)).status,200,route);
+    assert.ok((await (await get(base+'/')).text()).includes('id="notify-completion"'));
+    assert.ok((await (await get(base+'/app.js')).text()).includes('notifyOnCompletion'));
     const phone=await execute(require('electron'),[path.join(root,'scripts/smoke-mobile.cjs'),base+'/'],{env,windowsHide:true,timeout:30000});
     assert.ok(phone.stdout.includes('"passed":11'),'Mobile browser checks must run');
     async function screenshot(name){
@@ -125,7 +131,7 @@ async function main(){
     const savedLanguage=JSON.parse(await fs.readFile(path.join(data,'desktop-runtime/language.json'),'utf8'));
     assert.equal(savedLanguage.language,'en');
     await client.call('Emulation.setDeviceMetricsOverride',{width:820,height:640,deviceScaleFactor:1,mobile:false});
-    for(const panel of ['overview','network','notifications','advanced','logs']){
+    for(const panel of ['overview','network','devices','notifications','advanced','logs']){
       await client.evaluate(`tab('${panel}')`);
       assert.equal(await client.evaluate('document.documentElement.scrollWidth>innerWidth'),false,panel);
       screenshots.push(await screenshot('english-'+panel));
@@ -135,10 +141,23 @@ async function main(){
     assert.equal(await client.evaluate("document.getElementById('save').textContent"),'保存配置');
     assert.equal(await client.evaluate("document.getElementById('ntfy-topic').value"),'unsaved-topic');
     await client.call('Emulation.clearDeviceMetricsOverride');
-    await client.evaluate("document.querySelector('[data-tab=notifications]').click();document.getElementById('ntfy-topic').value='windows-smoke';document.getElementById('ntfy-topic').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('settings').requestSubmit()");
+    await client.evaluate("document.querySelector('[data-tab=notifications]').click();document.getElementById('ntfy-topic').value='windows-smoke';document.getElementById('ntfy-topic').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('session-hours').value='0';document.getElementById('session-hours').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('bark-key').value='synthetic-bark-key';document.getElementById('bark-key').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('settings').requestSubmit()");
     await until(()=>client.evaluate("!dirty&&snapshot.notifications.topic==='windows-smoke'"),'Settings save');
     assert.equal(await client.evaluate('snapshot.notifications.enabled'),false);
+    assert.equal(await client.evaluate('snapshot.notifications.barkEnabled'),false);
+    assert.equal(await client.evaluate('snapshot.notifications.hasBarkKey'),true);
+    assert.equal(await client.evaluate('snapshot.notifications.barkKey'),'');
+    assert.equal(await client.evaluate('snapshot.auth.sessionHours'),0);
+    assert.equal(await client.evaluate("document.getElementById('bark-key').value"),'');
     screenshots.push(await screenshot('notifications'));
+    await client.evaluate("tab('devices')");
+    await until(()=>client.evaluate('!devicesBusy&&!!devicesState'),'Device management');
+    await client.evaluate("document.getElementById('ip-allowlist').value='127.0.0.1';document.getElementById('allowlist-enabled').checked=true;changeDevices({action:'save',policy:devicePolicy()})");
+    await until(()=>client.evaluate('!devicesBusy&&devicesState.policy.allowlistEnabled'),'IP rule save');
+    assert.deepEqual(await client.evaluate('devicesState.policy.allowlist'),['127.0.0.1']);
+    assert.equal(await client.evaluate('document.documentElement.scrollWidth>innerWidth'),false);
+    screenshots.push(await screenshot('devices'));
+
     // Closing is a hide-to-tray operation. A second launch must restore the same app.
     const closed=await execute(path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoProfile','-NonInteractive','-Command',`(Get-Process -Id ${child.pid}).CloseMainWindow()`],{env,windowsHide:true,timeout:15000});
     assert.equal(closed.stdout.trim(),'True','Native window close must be delivered');
@@ -159,6 +178,9 @@ async function main(){
     await client.evaluate("document.getElementById('language').value='en';document.getElementById('language').dispatchEvent(new Event('change'))");
     await until(()=>client.evaluate("document.documentElement.lang==='en'&&!document.getElementById('language').disabled"),'Persist English');
     client.close();child.kill();await exited;launch();await connectApp();
+    assert.equal(await client.evaluate('snapshot.notifications.hasBarkKey'),true);
+    assert.equal(await client.evaluate('snapshot.notifications.barkKey'),'');
+    assert.equal(await client.evaluate('snapshot.auth.sessionHours'),0);
     assert.equal(await client.evaluate('document.documentElement.lang'),'en');
     assert.equal(await client.evaluate("document.getElementById('language').value"),'en');
     assert.equal(await client.evaluate("document.getElementById('start').textContent"),'Start gateway');

@@ -61,7 +61,7 @@ class Pairing:
                 return {'state': 'expired' if not grant or grant['expires'] <= now else 'used' if grant['used'] else 'active'}
             raise ValueError('未知操作')
 
-    def exchange(self, token, origin, address):
+    def exchange(self, token, origin, address, user_agent='', client=None):
         if not isinstance(token, str) or len(token) != 43:
             raise PermissionError('二维码已失效或已使用，请在电脑上刷新二维码，或使用账号密码登录')
         digest = hashlib.sha256(token.encode()).digest()
@@ -77,5 +77,5 @@ class Pairing:
                 if secrets.compare_digest(grant['digest'], digest) and grant['origin'] == origin and grant['expires'] > now and not grant['used']:
                     grant['used'] = True
                     self.failures.pop(address, None)
-                    return self.auth.new_session()
+                    return self.auth.new_session(address, user_agent, client)
         raise PermissionError('二维码已失效或已使用，请在电脑上刷新二维码，或使用账号密码登录')

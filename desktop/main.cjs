@@ -39,7 +39,7 @@ function updateManaged(){
 }
 function worker(action,payload){
   if(action==='snapshot'&&updateQuitting)return Promise.resolve({...lastSnapshot,update:updater.status()});
-  const writes=['save','start','stop'].includes(action);
+  const writes=['save','start','stop','devices'].includes(action);
   if(writes&&updater?.busy)return Promise.reject(Error('正在更新应用，请稍候。'));
   if(writes)workerWrites++;
   if(action==='snapshot'&&snapshotPending)return snapshotPending;
@@ -96,7 +96,7 @@ function register(){
     fs.writeFileSync(path.join(directory,'language.json'),JSON.stringify({language:value}));
     language=value;window.setTitle(t('Codex 手机网关'));tray?.relabel();return language;
   });
-  for(const action of ['snapshot','save','start','stop','logs','test-notification','check-entry'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
+  for(const action of ['snapshot','save','start','stop','logs','test-notification','check-entry','devices'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
   ipcMain.handle('bridge:install-cloudflared',async event=>{
     authorize(event);if(updater.busy)throw Error('正在更新应用，请稍候。');if(installPending)return installPending;
     installPending=(async()=>{
@@ -155,6 +155,7 @@ function register(){
     if(target==='data')return shell.openPath(dataDir);
     if(target==='cloudflare-help')return shell.openExternal('https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/');
     if(target==='ntfy-help')return shell.openExternal('https://docs.ntfy.sh/subscribe/phone/');
+    if(target==='bark-help')return shell.openExternal('https://bark.day.app/#/tutorial');
     const snapshot=await worker('snapshot');
     if(!snapshot.urls.includes(target)||!/^https?:\/\//.test(target))throw Error('地址不可用');
     await shell.openExternal(target);

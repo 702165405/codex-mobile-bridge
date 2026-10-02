@@ -10,3 +10,5 @@ nav button[data-dirty="true"]::after,.dirty-dot{content:"";display:inline-block;
 .qr-entry summary{cursor:pointer;font-weight:600}.qr-entry summary[aria-disabled="true"]{opacity:.5;cursor:default}
 .qr-body{padding:12px 0 0}.qr-body img{display:block;width:320px;max-width:100%;height:auto;background:white;margin:0 auto}
 .qr-body img[hidden]{display:none}.qr-status{text-align:center;font-variant-numeric:tabular-nums}
+
+.device-list{display:grid;gap:12px}.device-row{border:1px solid var(--border,#ddd);border-radius:10px;padding:14px;min-width:0}.device-row p{overflow-wrap:anywhere;word-break:break-word}.device-row .actions{flex-wrap:wrap}#device-policy textarea{width:100%;box-sizing:border-box}

@@ -1,4 +1,4 @@
-"""Opt-in ntfy delivery. Watching a chat never changes its execution owner."""
+"""Opt-in phone notifications. Watching a chat never changes its execution owner."""
 import hashlib
 import json
 import re
@@ -6,13 +6,15 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPSHandler
 
-from .model import pending_requests
+from .model import pending_requests, ordered_turns
 from .tls import client_context
 
 DEFAULTS = {'enabled': False, 'server': 'https://ntfy.sh', 'topic': '', 'token': '',
+            'barkEnabled': False, 'barkServer': 'https://api.day.app', 'barkKey': '',
             'clickBase': '', 'includeTitle': False}
 
 
@@ -50,7 +52,8 @@ def save_settings(data_dir, value):
     prior = settings(data_dir)
     result = {**prior, **{k: value[k] for k in DEFAULTS if k in value}}
     result['server'] = valid_url(str(result['server']), allow_path=True)
-    for key in ('enabled', 'includeTitle'):
+    result['barkServer'] = valid_url(str(result['barkServer']), allow_path=True)
+    for key in ('enabled', 'barkEnabled', 'includeTitle'):
         if not isinstance(result[key], bool):
             raise ValueError('通知开关格式不正确')
     if not isinstance(result['topic'], str) or (result['topic'] and not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', result['topic'])):
@@ -68,13 +71,19 @@ def save_settings(data_dir, value):
     # Blank fields from the UI preserve a token only for the same server.
     if not value.get('token'):
         result['token'] = '' if value.get('clearToken') or result['server'] != prior['server'] else prior['token']
+    if not isinstance(result['barkKey'], str) or len(result['barkKey']) > 2000 or any(not c.isprintable() or c.isspace() or c in '/?#' for c in result['barkKey']):
+        raise ValueError('Bark Device Key 格式不正确，请仅填写密钥，不要粘贴完整推送地址')
+    if not value.get('barkKey'):
+        result['barkKey'] = '' if value.get('clearBarkKey') or result['barkServer'] != prior['barkServer'] else prior['barkKey']
+    if result['barkEnabled'] and not result['barkKey']:
+        raise ValueError('开启 Bark 前请填写 Device Key；更换服务地址后需重新填写')
     write_json(Path(data_dir)/'notifications.json', result)
     return result
 
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None  # Do not forward a configured bearer token to another host.
+        return None  # Never forward notification credentials on redirects.
 
 
 def publish(config, title, body, click=''):
@@ -94,6 +103,37 @@ def publish(config, title, body, click=''):
         response.read(65536)
 
 
+def publish_bark(config, title, body, click=''):
+    if not config.get('barkKey'):
+        raise ValueError('请先配置 Bark 服务和 Device Key')
+    server = valid_url(config['barkServer'], allow_path=True)
+    payload = {'device_key': config['barkKey'], 'title': title, 'body': body, 'group': 'Codex Mobile Bridge'}
+    if click:
+        payload['url'] = click
+    request = Request(server + '/push', data=json.dumps(payload, ensure_ascii=False).encode(),
+                      headers={'Content-Type': 'application/json'})
+    try:
+        with build_opener(NoRedirect(), HTTPSHandler(context=client_context())).open(request, timeout=8) as response:
+            result = json.loads(response.read(65536))
+            if not 200 <= response.status < 300 or not isinstance(result, dict) or result.get('code') != 200:
+                raise ValueError('Rejected')
+    except Exception as error:
+        # The server may echo the device key in its error response. Do not expose it.
+        if isinstance(error, HTTPError):
+            error.close()
+        raise RuntimeError('Bark 未接受通知，请检查服务地址、Device Key 和网络') from None
+
+
+def destination(config, channel):
+    values = [config['server'].rstrip('/'), config['topic']] if channel == 'ntfy' else [config['barkServer'].rstrip('/'), config['barkKey']]
+    return channel + ':' + hashlib.sha256(json.dumps(values).encode()).hexdigest()
+
+
+def channels(config):
+    return {name: destination(config, name) for name, enabled in
+            (('ntfy', config['enabled']), ('bark', config['barkEnabled'])) if enabled}
+
+
 class Notifications:
     def __init__(self, bridge, data_dir, origins=lambda: [], public_url=lambda: ''):
         self.bridge, self.data_dir, self.origins = bridge, Path(data_dir), origins
@@ -101,6 +141,20 @@ class Notifications:
         self.lock = threading.RLock()
         self.closed = threading.Event()
         self.ledger = read_json(self.data_dir/'notification-delivery.json', {})
+        self.completions = read_json(self.data_dir/'notification-completions.json', {})
+        # Bind legacy ntfy-only records to their existing destination once. A new
+        # recipient must not inherit another recipient's delivery or retry state.
+        config = settings(self.data_dir)
+        if config['topic']:
+            target = destination(config, 'ntfy')
+            migrated = {target + ':' + k if re.fullmatch(r'[a-f0-9]{64}', k) else k: v for k, v in self.ledger.items()}
+            if migrated != self.ledger:
+                self.ledger = migrated
+                write_json(self.data_dir/'notification-delivery.json', migrated)
+            migrated = {json.dumps(json.loads(k) + [target]) if len(json.loads(k)) == 2 else k: v for k, v in self.completions.items()}
+            if migrated != self.completions:
+                self.completions = migrated
+                write_json(self.data_dir/'notification-completions.json', migrated)
         self.attached = {}
         self.worker = None
 
@@ -118,28 +172,91 @@ class Notifications:
     def watches(self):
         return read_json(self.data_dir/'notification-watches.json', [])
 
-    def watch(self, thread_id, host, enabled=None):
+    def watch(self, thread_id, host, enabled=None, notify_on_completion=None):
         uuid.UUID(thread_id)
         source = self.bridge.for_host(host)
-        if enabled is not None:
-            if not isinstance(enabled, bool):
+        for value in (enabled, notify_on_completion):
+            if value is not None and not isinstance(value, bool):
                 raise ValueError('提醒开关格式不正确')
-            source.session(thread_id, background=True)
+        session = source.session(thread_id, background=True) if enabled is not None or notify_on_completion is not None else None
         with self.lock:
             config = settings(self.data_dir)
+            targets = channels(config)
             rows = self.watches()
-            selected = any(r['id'] == thread_id and r['host'] == host for r in rows)
-            if enabled is not None:
-                if enabled and not config['enabled']:
-                    raise ValueError('请先在电脑启动器中配置并开启 ntfy 通知')
+            prior = next((r for r in rows if r['id'] == thread_id and r['host'] == host), None)
+            selected = prior is not None if enabled is None else enabled
+            completion = bool(prior and prior.get('notifyOnCompletion')) if notify_on_completion is None else notify_on_completion
+            if enabled is False:
+                completion = False
+            if enabled is not None or notify_on_completion is not None:
+                if selected and not targets:
+                    raise ValueError('请先在电脑启动器中配置并开启 Bark 或 ntfy 通知')
+                if not selected and completion:
+                    raise ValueError('请先开启此聊天提醒')
                 rows = [r for r in rows if not (r['id'] == thread_id and r['host'] == host)]
-                if enabled:
+                if selected:
                     if len(rows) >= 100:
                         raise ValueError('最多关注 100 个聊天')
-                    rows.append({'id': thread_id, 'host': host})
+                    rows.append({'id': thread_id, 'host': host, 'notifyOnCompletion': completion})
+                if not selected or not completion:
+                    self._clear_completion(host, thread_id)
+                elif not prior or not prior.get('notifyOnCompletion'):
+                    # Establish the boundary at opt-in, including an already running turn.
+                    with session.condition:
+                        self._clear_completion(host, thread_id)
+                        if session.connected:
+                            for target in targets.values():
+                                key = self._completion_key(host, thread_id, target)
+                                self.completions[key] = self._completion_baseline(ordered_turns(session.state or {}))
+                write_json(self.data_dir/'notification-completions.json', self.completions)
                 write_json(self.data_dir/'notification-watches.json', rows)
-                selected = enabled
-            return {'available': config['enabled'], 'watching': selected}
+            return {'available': bool(targets), 'watching': selected, 'notifyOnCompletion': selected and completion}
+
+    def _clear_completion(self, host, thread_id):
+        self.completions = {k: v for k, v in self.completions.items() if json.loads(k)[:2] != [host, thread_id]}
+
+    @staticmethod
+    def _completion_key(host, thread_id, target):
+        return json.dumps([host, thread_id, target])
+
+    @staticmethod
+    def _completion_baseline(turns):
+        return {'anchor': next((t['turnId'] for t in reversed(turns) if t.get('turnId')), None),
+                'running': [t['turnId'] for t in turns if t.get('turnId') and t.get('status') == 'inProgress'],
+                'pending': []}
+
+    def _completion_pending(self, row, turns, target):
+        key = self._completion_key(row['host'], row['id'], target)
+        with self.lock:
+            if not any(r['id'] == row['id'] and r['host'] == row['host'] and r.get('notifyOnCompletion') for r in self.watches()):
+                return []
+            previous = self.completions.get(key)
+            current = self._completion_baseline(turns)
+            if previous is not None:
+                # Only turns after the last live boundary (or observed running) are new.
+                # Older pages loaded into a snapshot must never become completion alerts.
+                anchor = next((i for i, t in enumerate(turns) if t.get('turnId') == previous['anchor']), None)
+                newer = turns if previous['anchor'] is None else turns[anchor + 1:] if anchor is not None else []
+                eligible = set(previous['running']) | {t['turnId'] for t in newer if t.get('turnId')}
+                pending = previous['pending'] + [t['turnId'] for t in turns if t.get('turnId') in eligible and t.get('status') == 'completed']
+                current['pending'] = list(dict.fromkeys(pending))
+                # A reconnect may temporarily supply only an older page or no turns.
+                if previous['anchor'] is not None and anchor is None and not any(t.get('turnId') in previous['running'] or t.get('status') == 'inProgress' for t in turns):
+                    current['anchor'] = previous['anchor']
+                present = {t.get('turnId') for t in turns}
+                current['running'] += [turn_id for turn_id in previous['running'] if turn_id not in present]
+            current['pending'] = [turn_id for turn_id in current['pending'] if not self.ledger.get(self._delivery_key(row, turn_id, completion=True, target=target), {}).get('delivered')]
+            if current != previous:
+                self.completions[key] = current
+                write_json(self.data_dir/'notification-completions.json', self.completions)
+            return [self._delivery_key(row, turn_id, completion=True, target=target) for turn_id in current['pending']]
+
+    @staticmethod
+    def _delivery_key(row, event_id, completion=False, target=''):
+        identity = [row['host'], row['id'], event_id]
+        if completion:
+            identity.append('completion')
+        return (target + ':' if target else '') + hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
 
     def click_url(self, config, thread_id, host):
         origins = sorted(self.origins())
@@ -150,11 +267,20 @@ class Notifications:
 
     def scan(self):
         config = settings(self.data_dir)
-        watches = self.watches() if config['enabled'] else []
+        targets = channels(config)
+        with self.lock:
+            watches = self.watches() if targets else []
+            tracked = {self._completion_key(r['host'], r['id'], target) for r in watches if r.get('notifyOnCompletion') for target in targets.values()}
+            if set(self.completions) - tracked:
+                self.completions = {k: v for k, v in self.completions.items() if k in tracked}
+                write_json(self.data_dir/'notification-completions.json', self.completions)
         selected = {(r['host'], r['id']) for r in watches}
         for key in set(self.attached) - selected:
             self.attached.pop(key).watched = False
         changed = False
+        self._status(error='')
+        for channel, target in targets.items():
+            self._status(channel, target=target)
         for row in watches:
             if self.closed.is_set():
                 break
@@ -163,35 +289,36 @@ class Notifications:
                 session = source.session(row['id'], background=True)
                 session.watched = True
                 self.attached[(row['host'], row['id'])] = session
-                with session.condition:
-                    if not session.connected:
-                        continue  # Saved history is not a live pending approval.
-                    requests = pending_requests(session.state)
-                    title = session.state.get('title') or '聊天'
-                now = time.time()
-                pending = []
-                for request in requests:
-                    key = hashlib.sha256(json.dumps([row['host'], row['id'], request['id']], ensure_ascii=False).encode()).hexdigest()
-                    previous = self.ledger.get(key, {})
-                    if not previous.get('delivered') and now >= previous.get('next', 0):
-                        pending.append(key)
-                if not pending:
-                    continue
-                heading = 'Codex 需要你的确认'
-                body = f'有 {len(pending)} 项请求等待处理，请打开聊天查看。'
-                if config['includeTitle']:
-                    body = title[:120] + '\n' + body
-                try:
-                    publish(config, heading, body, self.click_url(config, row['id'], row['host']))
-                    for key in pending:
-                        self.ledger[key] = {'delivered': True, 'time': now}
-                    self._status(lastSent=now, error='')
-                except Exception:
-                    for key in pending:
-                        attempts = self.ledger.get(key, {}).get('attempts', 0) + 1
-                        self.ledger[key] = {'delivered': False, 'attempts': attempts, 'next': now + min(300, 5 * 2 ** min(attempts, 6)), 'time': now}
-                    self._status(error='ntfy 发送失败，将在请求仍待处理时重试。请检查服务地址、认证和网络。')
-                changed = True
+                with self.lock:
+                    with session.condition:
+                        if not session.connected:
+                            continue  # Saved history is not a live pending approval.
+                        requests = pending_requests(session.state)
+                        title = session.state.get('title') or '聊天'
+                        turns = [{'turnId': t.get('turnId'), 'status': t.get('status')} for t in ordered_turns(session.state)]
+                    completed_keys = {channel: self._completion_pending(row, turns, target) if row.get('notifyOnCompletion') else [] for channel, target in targets.items()}
+                for channel, target in targets.items():
+                    now = time.time()
+                    for completed, keys in ((False, [self._delivery_key(row, r['id'], target=target) for r in requests]), (True, completed_keys[channel])):
+                        pending = [k for k in keys if not self.ledger.get(k, {}).get('delivered') and now >= self.ledger.get(k, {}).get('next', 0)]
+                        if not pending:
+                            continue
+                        heading = 'Codex 运行已完成' if completed else 'Codex 需要你的确认'
+                        body = f'有 {len(pending)} 次运行已完成，请打开聊天查看。' if completed else f'有 {len(pending)} 项请求等待处理，请打开聊天查看。'
+                        if config['includeTitle']:
+                            body = title[:120] + '\n' + body
+                        try:
+                            sender = publish if channel == 'ntfy' else publish_bark
+                            sender(config, heading, body, self.click_url(config, row['id'], row['host']))
+                            for key in pending:
+                                self.ledger[key] = {'delivered': True, 'time': now}
+                            self._status(channel, lastSent=now, error='')
+                        except Exception:
+                            for key in pending:
+                                attempts = self.ledger.get(key, {}).get('attempts', 0) + 1
+                                self.ledger[key] = {'delivered': False, 'attempts': attempts, 'next': now + min(300, 5 * 2 ** min(attempts, 6)), 'time': now}
+                            self._status(channel, error='发送失败，将在提醒仍开启时重试完成通知；待确认通知仅在请求仍待处理时重试。请检查服务地址、认证和网络。')
+                        changed = True
             except Exception:
                 self._status(error='部分关注聊天暂时无法连接，请检查电脑 App 或 SSH 连接。')
         if changed:
@@ -199,9 +326,18 @@ class Notifications:
                 self.ledger = dict(sorted(self.ledger.items(), key=lambda p: p[1].get('time', 0))[-4000:])
             write_json(self.data_dir/'notification-delivery.json', self.ledger)
 
-    def _status(self, **values):
+    def _status(self, channel=None, **values):
         path = self.data_dir/'notification-status.json'
-        write_json(path, {**read_json(path, {}), **values})
+        prior = read_json(path, {})
+        if channel:
+            record = prior.get(channel, {})
+            if 'target' in values and record.get('target') != values['target']:
+                record = {}
+            current = {**prior, channel: {**record, **values}}
+        else:
+            current = {**prior, **values}
+        if current != prior:
+            write_json(path, current)
 
     def _run(self):
         while not self.closed.is_set():

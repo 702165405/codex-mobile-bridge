@@ -117,7 +117,7 @@ def main(connections=None):
     config["origins"] = sorted(set(origins + [f"http://{host}:{args.port}" for host in hosts]))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     bridge = Bridge(args.codex_home, args.config.parent, ipc_path=args.ipc_path, codex_bin=args.codex_bin)
-    server = GatewayServer(("0.0.0.0" if args.lan else "127.0.0.1", args.port), bridge, config, ROOT / "web")
+    server = GatewayServer(("0.0.0.0" if args.lan else "127.0.0.1", args.port), bridge, config, ROOT / "web", args.config.parent)
     pid_file = args.config.parent / "gateway.pid"
     pid_file.write_text(str(os.getpid()), encoding='utf-8')
     control = GatewayControl(args.config.parent)
@@ -161,7 +161,7 @@ def main(connections=None):
             tunnel_thread = threading.Thread(target=connect_tunnel, daemon=True)
             tunnel_thread.start()
         notifications.start()
-        control.start(server.shutdown, server.pairing.control, server.instance_id)
+        control.start(server.shutdown, server.pairing.control, server.instance_id, server.auth)
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass

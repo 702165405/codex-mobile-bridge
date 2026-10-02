@@ -104,6 +104,61 @@ test('startup feedback follows readiness, page changes and later shutdown',async
   assert.equal(ui.nodes.get('feedback').textContent,'网关已停止');
 });
 
+test('Bark-only readiness and delivery status remain independent of ntfy',async()=>{
+  const ui=await renderer('en');
+  ui.value.notifications.barkEnabled=true;ui.value.notifications.hasBarkKey=true;
+  ui.value.runtime.running=true;
+  ui.value.notificationStatus={ntfy:{error:'ntfy failure'},bark:{lastSent:1000,error:''}};
+  await ui.poll();
+  assert.match(ui.nodes.get('notification-summary').textContent,/Enabled/);
+  assert.match(ui.nodes.get('notification-readiness').textContent,/ready/i);
+  assert.equal(ui.nodes.get('notification-detail').textContent,'ntfy failure');
+  assert.match(ui.nodes.get('bark-detail').textContent,/Last sent/);
+  assert.equal(ui.nodes.get('bark-key').value,'');
+  assert.match(ui.nodes.get('bark-key').placeholder,/Saved/);
+});
+
+test('notification test buttons select the channel and block unsaved drafts',async()=>{
+  const ui=await renderer(),calls=[];
+  ui.api.testNotification=async value=>{calls.push(value.channel);return {message:value.channel+' accepted'};};
+  await ui.nodes.get('test-bark').onclick();await ui.nodes.get('test-notification').onclick();
+  assert.deepEqual(calls,['bark','ntfy']);
+  ui.run('dirty=true');await ui.nodes.get('test-bark').onclick();
+  assert.equal(calls.length,2);assert.match(ui.nodes.get('error').textContent,/请先保存通知配置/);
+});
+
+test('Bark drafts survive polling and language changes, then clear only the saved key',async()=>{
+  const ui=await renderer();
+  const ids=['bark-key','bark-server','bark-enabled','clear-bark-key'];
+  for(const id of ids){ui.nodes.get(id).id=id;ui.nodes.get(id).closest=()=>({dataset:{panel:'notifications'}});}
+  for(const id of ['bark-enabled','clear-bark-key'])ui.nodes.get(id).type='checkbox';
+  ui.run("fields=()=>['bark-key','bark-server','bark-enabled','clear-bark-key'].map($);savedFields=fieldValues()");
+  ui.nodes.get('bark-key').value='first-key';ui.nodes.get('bark-enabled').checked=true;
+  ui.nodes.get('bark-server').value='https://push.example.com';ui.run('updateDirty()');
+  await ui.poll();ui.nodes.get('language').value='en';await ui.nodes.get('language').onchange();
+  assert.equal(ui.nodes.get('bark-key').value,'first-key');
+  let submitted,resolveSave;
+  ui.api.save=payload=>{submitted=payload;return new Promise(resolve=>{resolveSave=resolve;});};
+  const first=ui.nodes.get('settings').onsubmit({preventDefault(){}});
+  assert.equal(submitted.notifications.barkKey,'first-key');
+  assert.equal(submitted.notifications.barkEnabled,true);
+  assert.equal(submitted.notifications.barkServer,'https://push.example.com');
+  ui.nodes.get('bark-key').value='newer-key';ui.run('updateDirty()');resolveSave(structuredClone(ui.value));await first;
+  assert.equal(ui.nodes.get('bark-key').value,'newer-key');assert.equal(ui.run('dirty'),true);
+  const second=ui.nodes.get('settings').onsubmit({preventDefault(){}});
+  resolveSave(structuredClone(ui.value));await second;
+  assert.equal(ui.nodes.get('bark-key').value,'');
+});
+
+test('preload forwards the selected notification channel over private IPC',()=>{
+  const fs=require('node:fs'),vm=require('node:vm'),calls=[];let api;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../desktop/preload.cjs'),'utf8'),{require:()=>({
+    contextBridge:{exposeInMainWorld:(name,value)=>{api=value;}},ipcRenderer:{invoke:(...args)=>{calls.push(args);}}
+  })});
+  api.testNotification({channel:'bark'});
+  assert.deepEqual(calls,[['bridge:test-notification',{channel:'bark'}]]);
+});
+
 test('startup timeout replaces pending feedback and a late ready state recovers',async()=>{
   const ui=await renderer();await ui.start();ui.advance(71000);await ui.poll();
   assert.equal(ui.nodes.get('feedback').hidden,true);
@@ -262,4 +317,34 @@ test('download and retry states disable updates without permanently locking sett
   await ui.poll();assert.equal(ui.nodes.get('install-update').disabled,true);assert.equal(ui.nodes.get('settings').inert,true);assert.equal(ui.nodes.get('update-progress').value,20);
   ui.value.update.state='error';ui.value.update.message='download failed';await ui.poll();
   assert.equal(ui.nodes.get('install-update').disabled,false);assert.equal(ui.nodes.get('settings').inert,false);
+});
+
+test('login validity is collected as zero and survives polling and language edits',async()=>{
+  const ui=await renderer();const field=ui.nodes.get('session-hours');field.id='session-hours';field.type='number';field.closest=selector=>selector==='#connections'?null:({dataset:{panel:'network'}});
+  ui.nodes.get('settings').querySelectorAll=()=>[field];
+  ui.run('dirty=false;render(snapshot)');assert.equal(Number(field.value),12);
+  field.value='0';ui.run('updateDirty()');await ui.poll();ui.run("applyLanguage('en')");
+  assert.equal(field.value,'0');assert.equal(ui.run('collect().auth.sessionHours'),0);
+});
+
+test('device policy drafts survive list refresh and language changes and use local IPC',async()=>{
+  const ui=await renderer();const calls=[];
+  const state={policy:{allowlistEnabled:false,allowlist:[],blocklist:[],trustedProxies:[]},sessions:[]};
+  ui.api.devices=async payload=>{calls.push(payload);if(payload.action==='save')Object.assign(state.policy,payload.policy);return structuredClone(state);};
+  await ui.run('loadDevices()');
+  ui.nodes.get('ip-allowlist').value='192.0.2.7';ui.nodes.get('allowlist-enabled').checked=true;
+  ui.nodes.get('device-policy').oninput();await ui.run('loadDevices()');ui.run("applyLanguage('en')");
+  assert.equal(ui.nodes.get('ip-allowlist').value,'192.0.2.7');
+  assert.equal(ui.nodes.get('allowlist-enabled').checked,true);
+  await ui.nodes.get('device-policy').onsubmit({preventDefault(){}});
+  assert.equal(calls.at(-1).action,'save');assert.deepEqual([...calls.at(-1).policy.allowlist],['192.0.2.7']);
+  assert.equal(ui.run('devicesDirty'),false);assert.equal(ui.nodes.get('device-policy').inert,false);
+});
+
+test('failed device policy save retains the editable draft',async()=>{
+  const ui=await renderer();ui.api.devices=async()=>{throw Error('synthetic failure');};
+  ui.nodes.get('ip-allowlist').value='192.0.2.7';ui.nodes.get('device-policy').oninput();
+  await ui.nodes.get('device-policy').onsubmit({preventDefault(){}});
+  assert.equal(ui.run('devicesDirty'),true);assert.equal(ui.nodes.get('ip-allowlist').value,'192.0.2.7');
+  assert.equal(ui.nodes.get('device-policy').inert,false);
 });
