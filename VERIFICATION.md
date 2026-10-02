@@ -1,13 +1,15 @@
 # 验证记录
 
-## v1.2.0 发布准备（2026-10-03）
+## v1.2.0 正式发布与官网更新（2026-10-03）
 
 - 版本号与 lockfile 统一为 `1.2.0`，整合下文已验证的工作模式、目标栏与长模型显示、通知监控管理、多附件、会话状态标识和 Fast 设置；双语发布说明及下载文档同步更新。
 - 发布前本地完整 Python 回归共 221 项：217 通过、4 项既有环境检查跳过；桌面/网页 Node 75 项全部通过；更新器 Node 共 14 项：13 通过、1 项平台条件跳过。版本一致性、新资源引用和 Git diff 空白检查通过。
-- 三平台打包与正式 Release 尚待工作流完成；本地回归不代表 Windows/Intel Mac 实机或真实手机硬件验收。本轮不改变正在运行的网关、配置或真实模型会话。
-- 首轮 Windows Python 3.13 在通知监控测试的临时目录清理时报 `WinError 32`，日志确认是测试夹具未关闭 SQLite 连接；连接上下文只管理事务。按现有测试模式使用 `contextlib.closing` 显式释放句柄，5 项监控定向测试通过，交由 Windows runner 复验。
+- [发布前桌面构建](https://github.com/try2love/codex-mobile-bridge/actions/runs/37052529242)、[正式签名发布](https://github.com/try2love/codex-mobile-bridge/actions/runs/37053611646)和[版本标签测试矩阵](https://github.com/try2love/codex-mobile-bridge/actions/runs/37053610860)全部通过。正式流程在 Apple Silicon Mac、Intel Mac 和 Windows x64 原生 runner 上重新构建，完成包内运行时、Mac DMG/ZIP 安装、App 启动、通知、登录设备、扫码与升级/故障回滚验收。
+- 首轮 Windows Python 3.13 在通知监控测试的临时目录清理时报 `WinError 32`，日志确认是测试夹具未关闭 SQLite 连接；连接上下文只管理事务。按现有测试模式使用 `contextlib.closing` 显式释放句柄，5 项监控定向测试与 Windows runner 复验通过。
 - 修复后提交 `427080b` 的[五组 Python 测试矩阵](https://github.com/try2love/codex-mobile-bridge/actions/runs/37052529284)全部通过，覆盖 Windows/Ubuntu 的 Python 3.9、3.13 和 macOS Python 3.13。
-- 官网及演示改为 v1.2.0 功能说明。中英文 320/390/768/1280 宽度无横向溢出；语言记忆、链接、放大图和键盘导航通过。128.667 秒视频包含 9 章和各 23 条中英字幕，中段/末章播放和切换语言保留位置通过；最终抽帧及封面确认无旧版预览标记。更新后的下载入口将在正式安装包发布后上线。
+- [v1.2.0 Release](https://github.com/try2love/codex-mobile-bridge/releases/tag/v1.2.0)已公开并标记为最新正式版，来源提交 `bf17c666d7e8e80468027a3c1c05c9b6bf7370e3`。8 个附件齐全；下载公开更新清单和校验文件，使用 App 内既有公钥验证 1.1.0、1.0.0、beta.7 到全部三个目标的版本筛选与签名，共 9 组通过。六个包的 GitHub SHA-256 与校验文件一致，三个 ZIP 的大小与摘要也匹配签名清单。本机未重新下载全部大型安装包，包内运行验收来自上述 CI。
+- 官网及演示改为 v1.2.0 功能说明，下载指向正式发布的三个安装包。中英文 320/390/768/1280 宽度无横向溢出；语言记忆、链接、放大图和键盘导航通过。128.667 秒视频包含 9 章和各 23 条中英字幕，中段/末章播放和切换语言保留位置通过；最终抽帧及封面确认无旧版预览标记。视频、封面和字幕使用版本查询参数更新浏览器缓存。
+- 本轮未替换正在运行的本地 App、网关、配置或真实模型会话，也未在用户的 Windows、Intel Mac 或真实手机硬件上复验。Mac 仍为 ad-hoc 签名且未获 Apple 公证，Windows 无证书签名；更新清单签名沿用既有身份。
 
 ## v1.1.0 正式发布与官网更新（2026-10-02）
 
