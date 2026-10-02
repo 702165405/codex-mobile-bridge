@@ -51,9 +51,9 @@ async function main(){
   await until(async()=>{const response=await fetch(`http://127.0.0.1:${gatewayPort}/api/auth`);return response.ok;},'original gateway');
   let appChild,newPid,helper;
   try{
-    for(const scenario of ['success','rollback']){
+    for(const scenario of mac?['success','rollback']:['legacy-cwd','success','rollback']){
       const debugPort=await port();
-      appChild=spawn(app,['--remote-debugging-address=127.0.0.1','--remote-debugging-port='+debugPort],{env,stdio:'ignore'});
+      appChild=spawn(app,['--remote-debugging-address=127.0.0.1','--remote-debugging-port='+debugPort],{cwd:target,env,stdio:'ignore'});
       const exit=new Promise(resolve=>appChild.once('exit',resolve));
       await inspectUI(debugPort,path.join(work,scenario+'-updates.png'));
       const {publicKey,privateKey}=generateKeyPairSync('ed25519');
@@ -70,7 +70,7 @@ async function main(){
             const plan=JSON.parse(await fs.readFile(planFile,'utf8'));
             await fs.rename(paths(plan.staged).app,paths(plan.staged).app+'.broken');
           }
-          helper=spawn(prepared.helper,['update-apply','--data-dir',data,'--plan',planFile],{env:{...env,PYINSTALLER_RESET_ENVIRONMENT:'1'},stdio:'ignore',windowsHide:true});
+          helper=spawn(prepared.helper,['update-apply','--data-dir',data,'--plan',planFile],{cwd:scenario==='legacy-cwd'?target:path.dirname(target),env:{...env,PYINSTALLER_RESET_ENVIRONMENT:'1'},stdio:'ignore',windowsHide:true});
           await until(async()=>JSON.parse(await fs.readFile(path.join(path.dirname(planFile),'ready.json'),'utf8')).token===token,'update helper');
           appChild.kill();await exit;
         }});
@@ -78,7 +78,8 @@ async function main(){
       assert.equal((await updater.install()).state,'restarting');
       const result=await until(async()=>JSON.parse(await fs.readFile(path.join(path.dirname(planFile),'result.json'),'utf8')),scenario+' result',90000);
       assert.equal(result.state,scenario==='success'?'updated':'failed',JSON.stringify(result));
-      if(scenario==='rollback')assert.equal(result.recovered,true,JSON.stringify(result));
+      if(scenario!=='success')assert.equal(result.recovered,true,JSON.stringify(result));
+      if(scenario==='legacy-cwd')assert.match(result.message,/WinError 32/);
       const state=await worker(runtime,data,'snapshot');assert.equal(state.runtime.running,true);assert.notEqual(state.runtime.pid,before);newPid=state.runtime.pid;
       for(let i=0;i<preserved.length;i++)assert.deepEqual(await fs.readFile(path.join(data,preserved[i])),originals[i],preserved[i]);
       // Stop only the isolated app launched by this helper before the next scenario.

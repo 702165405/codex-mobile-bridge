@@ -15,7 +15,7 @@
     "build:mac": "electron-builder --mac dmg zip --publish never",
     "build:windows": "electron-builder --win nsis zip --x64 --publish never",
     "test:pairing": "electron scripts/smoke-pairing.cjs",
-    "test:updater": "node --test tests/updater.test.cjs"
+    "test:updater": "node --test tests/updater.test.cjs tests/update-handoff.test.cjs"
   },
   "devDependencies": {
     "electron": "44.5.1",

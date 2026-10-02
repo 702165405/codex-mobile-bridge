@@ -56,8 +56,10 @@ async function installUpdate(candidate){
   fs.mkdirSync(app.getPath('userData'),{recursive:true});
   fs.writeFileSync(path.join(app.getPath('userData'),'bridge-location.json'),JSON.stringify({dataDir}),{mode:0o600});
   const log=fs.openSync(path.join(dataDir,'desktop-update.log'),'a',0o600);
+  // A Windows process locks its cwd. Use a stable directory outside both the
+  // installation being replaced and the transaction cleaned up on a later update.
   const child=spawn(prepared.helper,['update-apply','--data-dir',dataDir,'--plan',prepared.plan],{
-    detached:true,windowsHide:true,stdio:['ignore',log,log],env:{...process.env,PYINSTALLER_RESET_ENVIRONMENT:'1'}});
+    cwd:path.dirname(target),detached:true,windowsHide:true,stdio:['ignore',log,log],env:{...process.env,PYINSTALLER_RESET_ENVIRONMENT:'1'}});
   fs.closeSync(log);
   let spawnError;child.on('error',error=>{spawnError=error;});child.unref();
   const ready=path.join(path.dirname(prepared.plan),'ready.json'),end=Date.now()+15000;
