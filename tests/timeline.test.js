@@ -80,3 +80,57 @@ async function runTimelineTests() {
   second.dispose();
   return checks;
 }
+
+async function runTimelineVisibilityTests() {
+  const checks=[];
+  document.getElementById('messages').replaceChildren();
+  const check=(value,label)=>{if(!value)throw Error(label);checks.push(label);};
+  const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+  const rows=[
+    {key:'user',role:'user',kind:'userMessage',text:'User message'},
+    {key:'reasoning',role:'activity',kind:'reasoning',text:'Reasoning summary'},
+    {key:'command',role:'activity',kind:'commandExecution',text:'Command output'},
+    {key:'tool',role:'activity',kind:'storedToolEvent',text:'Tool output'},
+    {key:'files',role:'activity',kind:'fileChange',text:'File changes'},
+    {key:'progress',role:'assistant',kind:'agentMessage',phase:'commentary',text:'Progress update'},
+    {key:'final',role:'assistant',kind:'agentMessage',phase:'final_answer',text:'Final reply\n'+('Reply text '.repeat(250))},
+    {key:'legacy',role:'assistant',kind:'agentMessage',text:'Reply without a phase'},
+    {key:'error',role:'error',text:'Execution failed'},
+  ].map((row,order)=>({...row,order,version:'v1'}));
+  let requested=0,meta;
+  const page=(items,sequence=1,hasMore=false)=>({rows:items,sequence,epoch:'visibility',before:'visibility.'+items[0]?.key,hasMore,meta:{requests:[{id:'pending'}]},files:[]});
+  const timeline=new ChatTimeline({url:action=>'/fixture/'+action+'?host=local',request:async()=>{requested++;return page(rows);},renderMeta:value=>meta=value,renderText:(node,text)=>node.textContent=text,status:()=>{}});
+  const visible=()=>[...timeline.container.children].filter(node=>!node.hidden).map(node=>node.dataset.key);
+  timeline.setVisibility({showReasoning:true,showProcess:true});
+  timeline.apply(page(rows),true);await frame();
+  check(visible().length===9,'Default display retains all message categories');
+  timeline.details.set('command',{version:'v1',text:'Command output',next:null});
+  timeline.nodes.get('command').node.open=true;
+  timeline.setVisibility({showReasoning:false,showProcess:true});
+  check(!visible().includes('reasoning')&&visible().includes('command'),'Reasoning can be hidden independently');
+  timeline.setVisibility({showReasoning:true,showProcess:false});
+  check(visible().includes('reasoning')&&!visible().includes('progress')&&!visible().includes('command'),'Activity filter includes tools and commentary but retains reasoning');
+  timeline.setVisibility({showReasoning:false,showProcess:false});
+  check(JSON.stringify(visible())===JSON.stringify(['user','final','legacy','error']),'Reply view retains user text, final replies, unknown-phase replies and errors');
+  check(meta.requests[0].id==='pending'&&timeline.pendingRequests,'Pending user requests remain available');
+  timeline.viewport.scrollTop=timeline.nodes.get('final').node.offsetTop+20;
+  timeline.following=false;timeline.newer.hidden=true;
+  const anchor=timeline.capture();
+  timeline.apply({...page([{...rows[2],version:'v2',text:'Streaming command output'}],2),meta:{requests:[]}});
+  check(timeline.nodes.get('command').node.hidden&&timeline.newer.hidden,'Hidden streaming activity stays hidden without a new-content alert');
+  check(timeline.capture()?.key===anchor?.key,'Hidden updates preserve the reading anchor');
+  timeline.apply(page([{...rows[6],version:'v2',text:rows[6].text+'\nLive reply'}],3));
+  check(!timeline.nodes.get('final').node.hidden&&!timeline.newer.hidden,'Streaming reply remains visible and signals new content');
+  timeline.setVisibility({showReasoning:true,showProcess:true});
+  check(visible().length===9&&timeline.nodes.get('command').node.open,'Restoring activity preserves its expansion state');
+  timeline.dispose();
+  timeline.container.replaceChildren();
+  const backfill=new ChatTimeline({url:action=>'/fixture/'+action+'?host=local',request:async()=>{requested++;return page(rows);},renderMeta:()=>{},renderText:(node,text)=>node.textContent=text,status:()=>{}});
+  backfill.setVisibility({showReasoning:false,showProcess:false});requested=0;
+  backfill.apply(page([{...rows[2],key:'latest-command',order:20}],4,true),true);
+  for(let i=0;i<10&&(!requested||backfill.busy);i++)await frame();
+  check(requested===1&&!backfill.nodes.get('final').node.hidden,'A page of hidden activity backfills earlier replies');
+  check(!backfill.hasMore,'Filtered history still stops at the end');
+  backfill.dispose();
+  return checks;
+}

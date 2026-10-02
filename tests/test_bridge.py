@@ -575,6 +575,16 @@ class HttpTests(unittest.TestCase):
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         return {'Cookie': headers['Set-Cookie'].split(';')[0], 'X-CSRF-Token': body['csrf']}
 
+    def test_web_appearance_assets_are_served_with_correct_types(self):
+        for name, content_type in [('presentation.js', 'text/javascript'), ('presentation.css', 'text/css')]:
+            conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
+            self.addCleanup(conn.close)
+            conn.request('GET', '/' + name, headers={'Origin': self.origin})
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertTrue(response.getheader('Content-Type').startswith(content_type))
+            self.assertEqual(response.read(), (ROOT / 'web' / name).read_bytes())
+
     def test_account_routes_require_login_csrf_and_same_origin(self):
         from unittest.mock import Mock
         account = self.server.bridge.account = Mock()
@@ -691,7 +701,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             scripts = re.findall(r'<script src="([^"]+)"', response.read().decode())
             self.assertEqual(scripts, ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
-                                       '/vendor/texmath.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/app.js'])
+                                       '/vendor/texmath.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/app.js', '/presentation.js'])
             for script in scripts:
                 conn.request('GET', script)
                 response = conn.getresponse()

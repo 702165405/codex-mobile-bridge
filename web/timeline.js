@@ -12,6 +12,8 @@ class ChatTimeline {
     this.abort=new AbortController();this.rows=new Map();this.nodes=new Map();this.details=new Map();
     this.files=new Map();this.sequence=-1;this.epoch='';this.before=null;this.hasMore=false;
     this.busy=false;this.generation=0;this.windowRevision=0;this.following=true;this.lastTop=0;this.retryCount=0;
+    this.showReasoning=document.documentElement.dataset.showReasoning!=='false';
+    this.showProcess=document.documentElement.dataset.showProcess!=='false';
     this.onScroll=()=>{
       if(this.suppress)return;
       const upward=this.viewport.scrollTop<this.lastTop;
@@ -27,15 +29,28 @@ class ChatTimeline {
   }
   dispose(){this.abort.abort();clearTimeout(this.startRetry);this.resize.disconnect();this.viewport.removeEventListener('scroll',this.onScroll);this.newer.hidden=true;}
   atBottom(){return this.viewport.scrollHeight-this.viewport.scrollTop-this.viewport.clientHeight<110;}
-  nearTop(){const nodes=[...this.container.children];return nodes.length>0&&nodes.slice(0,11).some(n=>n.getBoundingClientRect().bottom>=this.viewport.getBoundingClientRect().top);}
-  capture(){const top=this.viewport.getBoundingClientRect().top;const node=[...this.container.children].find(n=>n.getBoundingClientRect().bottom>top);return node?{key:node.dataset.key,offset:node.getBoundingClientRect().top-top}:null;}
+  nearTop(){const nodes=[...this.container.children].filter(n=>!n.hidden);return nodes.length>0&&nodes.slice(0,11).some(n=>n.getBoundingClientRect().bottom>=this.viewport.getBoundingClientRect().top);}
+  capture(accept=()=>true){const top=this.viewport.getBoundingClientRect().top;const nodes=[...this.container.children].filter(n=>!n.hidden&&accept(n));const node=nodes.find(n=>n.getBoundingClientRect().bottom>top)||nodes[nodes.length-1];return node?{key:node.dataset.key,offset:node.getBoundingClientRect().top-top}:null;}
+  rowVisible(row){
+    if(row.role==='user'||row.role==='error')return true;
+    if(row.kind==='reasoning')return this.showReasoning;
+    if(row.role==='activity'||row.phase==='commentary')return this.showProcess;
+    return true;
+  }
+  setVisibility({showReasoning,showProcess}){
+    if(this.showReasoning===showReasoning&&this.showProcess===showProcess)return;
+    this.showReasoning=showReasoning;this.showProcess=showProcess;
+    const anchor=this.capture(node=>this.rowVisible(this.rows.get(node.dataset.key).row)),bottom=this.following;
+    for(const [key,{node}] of this.nodes)node.hidden=!this.rowVisible(this.rows.get(key).row);
+    this.restore(anchor,bottom);this.fillRecent();
+  }
   jumpBottom(){this.viewport.scrollTop=this.viewport.scrollHeight;this.following=true;this.newer.hidden=true;}
   restore(anchor,bottom=false){
     if(this.abort.signal.aborted)return;
     this.suppress=true;
     const node=anchor&&this.nodes.get(anchor.key)?.node;
     if(bottom)this.jumpBottom();
-    else if(node)this.viewport.scrollTop+=node.getBoundingClientRect().top-this.viewport.getBoundingClientRect().top-anchor.offset;
+    else if(node&&!node.hidden)this.viewport.scrollTop+=node.getBoundingClientRect().top-this.viewport.getBoundingClientRect().top-anchor.offset;
     this.lastTop=this.viewport.scrollTop;
     this.anchor=this.capture();
     requestAnimationFrame(()=>this.suppress=false);
@@ -54,7 +69,11 @@ class ChatTimeline {
     }catch(e){if(this.abort.signal.aborted)return;this.older.disabled=false;this.older.textContent=timelineText('读取失败，点击重试');this.status(e.message);this.startRetry=setTimeout(()=>this.start(),3000);}
     finally{this.starting=false;}
   }
-  fillRecent(){if(!this.abort.signal.aborted&&this.rows.size>0&&this.rows.size<100&&!this.retryCount)this.loadOlder(100-this.rows.size);}
+  fillRecent(){
+    const filtered=!this.showReasoning||!this.showProcess,target=filtered?20:100;
+    const count=filtered?[...this.nodes.values()].filter(({node})=>!node.hidden).length:this.rows.size;
+    if(!this.abort.signal.aborted&&this.rows.size>0&&count<target&&!this.retryCount)this.loadOlder(filtered?100:target-count);
+  }
   historyStatus(){this.older.hidden=!this.hasMore;this.older.disabled=this.busy;this.older.textContent=this.busy?timelineText('正在读取更早内容…'):this.retryCount?timelineText('历史加载失败，点击重试'):timelineText('查看更早内容');}
   async loadOlder(count){
     if(this.busy||!this.hasMore||this.abort.signal.aborted)return;
@@ -81,9 +100,9 @@ class ChatTimeline {
       this.rows.set(row.key,{row,sequence:page.sequence});
       const stamp=JSON.stringify(row),old=this.nodes.get(row.key);
       if(old?.stamp===stamp)continue;
-      changed=true;
       const open=old?.node.tagName==='DETAILS'&&old.node.open;
       const node=this.renderRow(row,open);node.dataset.key=row.key;
+      node.hidden=!this.rowVisible(row);changed=changed||!node.hidden;
       if(old)old.node.replaceWith(node);
       this.nodes.set(row.key,{node,stamp});
     }
