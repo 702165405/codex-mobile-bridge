@@ -3,6 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 import uuid
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,7 +34,7 @@ class WatchManagementTests(unittest.TestCase):
         return {'action': action, 'host': host, 'id': self.id, **extra}
 
     def test_offline_update_remove_and_host_isolation_preserve_chat(self):
-        with sqlite3.connect(self.data/'state_5.sqlite') as db:
+        with closing(sqlite3.connect(self.data/'state_5.sqlite')) as db, db:
             db.execute('CREATE TABLE threads (id TEXT, originator TEXT, title TEXT, cwd TEXT)')
             db.execute('INSERT INTO threads VALUES (?, ?, ?, ?)', (self.id, 'Codex Desktop', 'Local chat title', '/local/project'))
         before = (self.data/'state_5.sqlite').read_bytes()
