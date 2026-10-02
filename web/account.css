@@ -1,0 +1,7 @@
+.account-heading,.account-window{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.account-heading strong{overflow-wrap:anywhere}.account-heading button{flex-shrink:0}
+.account-muted{font-size:13px;color:#73756c;line-height:1.6}.account-quota,.account-cards{margin:18px 0}
+.account-quota h3,.account-cards h3{font-size:15px;margin:0 0 12px}.account-quota progress{width:100%;height:9px;accent-color:#677c45}
+.account-window{font-size:14px;margin-bottom:8px}.account-card{padding:14px 0;border-top:1px solid #dedfd5}
+#account-dialog{width:min(480px,calc(100vw - 32px));max-height:85dvh;overflow:auto}
+#account-status{font-size:11px;text-align:center}

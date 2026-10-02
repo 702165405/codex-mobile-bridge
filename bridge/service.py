@@ -19,6 +19,7 @@ from .catalog import Catalog
 from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh_read, payload
 from .create import create_empty, open_in_desktop, CreationError
 from .timeline import Timeline
+from .account import Account
 
 
 class LiveSession:
@@ -85,6 +86,7 @@ class Bridge:
         self.host_errors = []
         self.store = RemoteStore(alias) if alias else SessionStore(codex_home)
         self.catalog_reader = RemoteCatalog(alias) if alias else Catalog(codex_home, codex_bin)
+        self.account = Account(codex_home, data_dir, codex_bin) if host == 'local' else None
         self.live = {}
         self.lock = threading.RLock()
         self.ipc = DesktopIPC(ipc_path or ipc_endpoint(codex_home), self._event, self._disconnected)

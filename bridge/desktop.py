@@ -201,6 +201,14 @@ class Desktop:
         request_stop(self.data_dir)
         return {'message': '网关已停止'}
 
+    def account(self, value):
+        record = read_record(self.data_dir/'gateway-control.json') or {}
+        if not self.status()['running'] or not record.get('accountManagement'):
+            if value.get('action', 'read') == 'read':
+                return {'visible': False}
+            raise ValueError('请启动新版网关后重试')
+        return request_pairing(self.data_dir, {'action': 'account', 'value': value}, timeout=100)
+
     def devices(self, value):
         if self.status()['running']:
             record = read_record(self.data_dir/'gateway-control.json') or {}

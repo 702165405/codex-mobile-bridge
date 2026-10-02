@@ -10,7 +10,7 @@ def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stdin.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'deployment', 'export-deployment', 'check-entry', 'devices', 'pairing', 'serve', 'update-prepare', 'update-apply'])
+    parser.add_argument('action', choices=['snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'deployment', 'export-deployment', 'check-entry', 'devices', 'pairing', 'account', 'serve', 'update-prepare', 'update-apply'])
     parser.add_argument('--data-dir', required=True)
     parser.add_argument('--plan')
     args = parser.parse_args()
@@ -29,7 +29,7 @@ def main():
             result = apply(args.plan)
         elif args.action == 'test-notification':
             result = desktop.test_notification(json.loads(sys.stdin.read(100000) or '{}'))
-        elif args.action in ('save', 'deployment', 'export-deployment', 'check-entry', 'devices', 'pairing'):
+        elif args.action in ('save', 'deployment', 'export-deployment', 'check-entry', 'devices', 'pairing', 'account'):
             result = getattr(desktop, args.action.replace('-', '_'))(json.loads(sys.stdin.read(100000)))
         else:
             method = getattr(desktop, args.action.replace('-', '_'))

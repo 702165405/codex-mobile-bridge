@@ -1,36 +1,39 @@
-## v0.2.0-beta.8
+## v1.0.0
 
-- 新增 Intel Mac（x64）桌面安装包，包含对应架构的网关运行时。
-- Apple Silicon（arm64）与 Intel（x64）均提供 DMG，打开后将 App 拖入“应用程序”即可安装。
-- 两种 Mac 均保留 ZIP 更新包，应用内更新按当前架构下载；SHA256 校验文件同时覆盖 DMG 和 ZIP。
+Codex Mobile Bridge 1.0.0 正式版。
+
+### 安装包
+
+- **Intel Mac（英特尔）**：`Codex-Mobile-Bridge-1.0.0-macOS-x64.dmg`
+- **Apple Silicon Mac（M 系列）**：`Codex-Mobile-Bridge-1.0.0-macOS-arm64.dmg`
+- **Windows x64**：`Codex-Mobile-Bridge-1.0.0-Windows-x64-Setup.exe`
+
+Mac 打开 DMG 后，将 App 拖入“应用程序”即可安装。三个平台同时提供 ZIP，供应用内更新或手动替换；Windows ZIP 也可完整解压后直接运行。`SHA256SUMS.txt` 包含所有安装包的校验值，`bridge-update.json` 提供签名更新清单。
+
+### 本次更新
+
+- 新增 Intel Mac 支持，两种 Mac 均提供 DMG 安装包与对应架构的网关运行时。
+- 官方 ChatGPT 账号可在电脑和手机查看剩余额度、恢复时间及可用重置卡。使用重置卡需桌面授权并逐次确认；中断后沿用原请求重试，避免重复消费。
+- 手机首次进入自动读取账号状态，显示加载提示，临时失败会自动重试。API 接入显示不可点击的状态文字，未登录和读取失败有独立提示。
+- 手机图标、名称和语言选择合并到顶部，收拢列表工具与底栏入口，扩大聊天列表的可滚动区域。
+- 保留本机及 SSH 聊天、模型与 Skill 选择、待确认操作、Bark / ntfy 通知、登录有效期、设备管理和应用内更新。
+
+### 升级说明
+
+beta.7 用户可通过“应用更新”升级；beta.5 / beta.6 的更新检查存在 HTTP 415 问题，请手动安装一次 1.0.0。手动替换前停止网关并退出 App，保留原数据目录。临时 HTTPS 连接在重启后可能变化，请以 App 显示的最新地址为准。
+
+Mac 包使用 ad-hoc 完整性签名，尚无 Apple Developer ID 签名与公证；Windows 包未做证书签名。首次打开说明见 [README](https://github.com/try2love/codex-mobile-bridge#macos-first-launch)。Windows ARM 暂无专用安装包。
 
 ### English
 
-- Add an Intel Mac (x64) desktop package with its matching gateway runtime.
-- Provide DMG installers for both Apple Silicon (arm64) and Intel (x64). Open the image and drag the App to Applications.
-- Keep architecture-specific ZIPs for in-app updates; SHA256 checksums cover both DMG and ZIP files.
+**Codex Mobile Bridge 1.0.0 is the first stable release.**
 
-## v0.2.0-beta.7
+- Installers: Intel Mac x64 DMG, Apple Silicon arm64 DMG, and Windows x64 Setup.exe. All three targets also include ZIP packages for updates or manual replacement.
+- Native ChatGPT accounts can view remaining usage, reset times and available usage resets on desktop and phone. Consuming a reset requires desktop permission and explicit confirmation; retries retain the original request ID.
+- The phone automatically loads account status and retries temporary failures. API connections show non-clickable status text, with separate states for signed-out accounts and unavailable status.
+- A shared top bar for the logo, name and language selector, with consolidated list controls and footer, leaves more space for scrolling.
+- Includes existing local/SSH chats, model and Skill selection, approvals, Bark/ntfy notifications, login validity, device management and in-app updates.
 
-- 修复应用内更新查询 GitHub 版本列表时的 HTTP 415 错误；版本列表与安装包分别使用正确的请求格式。
-- 包含 beta.6 的全部手机通知与登录设备功能：
-- 新增可配置登录有效期（默认 12 小时，0 表示不自动过期），网关重启保留登录；修改认证设置后重启会要求重新登录。
-- 新增电脑端登录设备列表，显示 IP、浏览器和最近访问；支持撤销登录、封禁 IP，以及立即生效的 IP 白名单和黑名单。局域网与可信代理均可识别访问来源。
-- macOS 与 Windows 同步新增 Bark 推送。iPhone 可使用 Bark，Android 继续使用 ntfy；两个通道可分别启用，也可同时接收提醒。
-- Bark 与 ntfy 提供独立的配置、测试通知和发送状态，支持 Bark 官方服务及自建服务。使用 Bark 手机首页推送地址中的 Device Key，保存后密钥不回显。
-- 每个已订阅会话可单独选择“运行完成后通知”，默认关闭。仅提醒当前正在运行及之后正常完成的任务；失败、手动停止和开启前已完成的历史不通知。
-- 两个通道分别去重和重试；一个通道失败不影响另一个。新增接收设备不补发已完成历史，原有 ntfy 配置、投递记录和会话订阅保留。
-- 通知默认只包含状态，可按需显示聊天标题；点击通知返回对应会话。局域网链接需手机与电脑处于同一网络。
+Beta.7 users can update in the App. Beta.5 / beta.6 users should manually install 1.0.0 once due to the older HTTP 415 update-check issue. Preserve the data directory and stop the gateway before manual replacement. Temporary HTTPS addresses may change after restarting.
 
-**beta.5 / beta.6 用户请从本页手动下载安装一次。** 旧版更新检查会遇到 HTTP 415，无法靠发布新版自动修复旧客户端。先停止网关并退出 App，再替换程序，保留原数据目录和配置。beta.7 修复该问题，后续可使用“应用更新”。使用临时 HTTPS 时，请重新打开最新地址。
-
-### English
-
-- Fix HTTP 415 when checking GitHub releases: metadata requests now accept JSON while asset downloads request bytes. Includes all beta.6 notification and device-management features.
-- Configurable login validity (12 hours by default; 0 disables automatic expiry), preserved across gateway restarts. Authentication-setting changes invalidate prior logins on restart.
-- Desktop login-device list with IPs, browser identifiers and last activity; revoke logins, block IPs and apply allow/block lists immediately. MAC addresses are not used; IP rules affect devices sharing an address.
-- Bark notifications are available on both macOS and Windows. Use Bark for iPhone, ntfy for Android, or enable both channels.
-- Each channel has separate settings, a test button, delivery status, deduplication and retries. Official and self-hosted Bark servers are supported; saved keys are hidden.
-- Each watched chat can opt into successful-run completion notifications. The option is off by default and excludes failed, stopped and previously completed runs.
-- Existing ntfy settings, delivery records and chat subscriptions are preserved. New destinations do not replay completed history.
-- **beta.5 / beta.6 users must manually install this release once** because their update checker sends an unsupported Accept header. Stop the gateway and quit the App before replacing it; preserve the data directory. Subsequent updates can use the fixed in-app updater. LAN notification links require the phone to be on the same network.
+Mac packages are ad-hoc signed but not Apple-notarized; Windows packages have no certificate signature. Windows ARM packages are not available. Verify downloads against `SHA256SUMS.txt`.

@@ -575,6 +575,25 @@ class HttpTests(unittest.TestCase):
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         return {'Cookie': headers['Set-Cookie'].split(';')[0], 'X-CSRF-Token': body['csrf']}
 
+    def test_account_routes_require_login_csrf_and_same_origin(self):
+        from unittest.mock import Mock
+        account = self.server.bridge.account = Mock()
+        account.read.return_value = {'visible': False}
+        account.consume.return_value = {'outcome': 'reset', 'account': {'visible': True}}
+        self.assertEqual(self.request('GET', '/api/account')[0], 401)
+        self.assertEqual(self.request('POST', '/api/account/reset', {})[0], 401)
+        account.read.assert_not_called();account.consume.assert_not_called()
+        auth = self.login()
+        self.assertEqual(self.request('GET', '/api/account', headers=auth)[2], {'visible': False})
+        self.assertEqual(self.request('POST', '/api/account/reset', {}, {'Cookie': auth['Cookie']})[0], 403)
+        self.assertEqual(self.request('POST', '/api/account/reset', {}, {**auth, 'Origin': 'https://other.test'})[0], 403)
+        account.consume.assert_not_called()
+        body = {'confirmed': True, 'requestId': str(uuid.uuid4()), 'creditId': 'card-1', 'accountKey': 'a'*64}
+        self.assertEqual(self.request('POST', '/api/account/reset', body, auth)[2]['outcome'], 'reset')
+        account.consume.assert_called_once_with(body)
+        account.consume.side_effect = PermissionError('Only native login')
+        self.assertEqual(self.request('POST', '/api/account/reset', body, auth)[0], 403)
+
     def test_login_cookie_lifetime_and_device_revocation(self):
         self.server.auth = Auth({'mode': 'none', 'sessionHours': 0})
         status, headers, body = self.request('POST', '/api/login', {}, {'User-Agent': 'iPhone Test'})
@@ -672,7 +691,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             scripts = re.findall(r'<script src="([^"]+)"', response.read().decode())
             self.assertEqual(scripts, ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
-                                       '/vendor/texmath.js', '/markdown.js', '/i18n.js', '/timeline.js', '/app.js'])
+                                       '/vendor/texmath.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/app.js'])
             for script in scripts:
                 conn.request('GET', script)
                 response = conn.getresponse()

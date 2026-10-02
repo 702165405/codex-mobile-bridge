@@ -8,6 +8,7 @@ import secrets
 import threading
 import time
 from pathlib import Path
+from .account import AccountError
 
 
 def read_record(path):
@@ -25,9 +26,10 @@ class GatewayControl:
         self.closed = threading.Event()
         self.worker = None
 
-    def start(self, shutdown, pairing=None, instance_id=None, auth=None):
+    def start(self, shutdown, pairing=None, instance_id=None, auth=None, account=None):
         self.pairing_dir = Path(tempfile.mkdtemp(prefix=".pairing-", dir=self.path.parent))
-        self.record.update(pairingDir=self.pairing_dir.name, instanceId=instance_id, deviceManagement=auth is not None)
+        self.record.update(pairingDir=self.pairing_dir.name, instanceId=instance_id, deviceManagement=auth is not None,
+                           accountManagement=account is not None)
         self.request_path.unlink(missing_ok=True)
         self.path.write_text(json.dumps(self.record), encoding='utf-8')
         self.path.chmod(0o600)
@@ -41,6 +43,21 @@ class GatewayControl:
                         value = read_record(request)
                         request.unlink(missing_ok=True)
                         if not isinstance(value, dict) or value.get('control') != self.record:
+                            continue
+                        if value.get('payload', {}).get('action') == 'account' and account:
+                            def account_request(request=request, value=value):
+                                try:
+                                    result = {'ok': True, 'result': account(value['payload'].get('value', {}))}
+                                except (AccountError, PermissionError, ValueError) as exc:
+                                    result = {'ok': False, 'error': str(exc)}
+                                except Exception:
+                                    result = {'ok': False, 'error': '账号操作未完成，请刷新账号信息后重试'}
+                                if not self.closed.is_set():
+                                    try:
+                                        private_json(request.with_suffix('.response'), result)
+                                    except OSError:
+                                        pass
+                            threading.Thread(target=account_request, daemon=True).start()
                             continue
                         try:
                             payload = value.get('payload', {})

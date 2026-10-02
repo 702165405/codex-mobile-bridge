@@ -23,11 +23,14 @@ from .catalog import CatalogError
 from .store import StoreUnavailable
 from .remote import RemoteUnavailable
 from .create import CreationError
+from .account import AccountError
 
 LOG = logging.getLogger(__name__)
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/i18n.js": ("i18n.js", "text/javascript; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+          "/account.js": ("account.js", "text/javascript; charset=utf-8"),
+          "/account.css": ("account.css", "text/css; charset=utf-8"),
           "/markdown.js": ("markdown.js", "text/javascript; charset=utf-8"),
           "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),
           "/vendor/markdown-it.min.js": ("vendor/markdown-it.min.js", "text/javascript; charset=utf-8"),
@@ -237,6 +240,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.read_json()
                 self.server.auth.logout(self.token())
                 return self.output(200, {"ok": True}, cookie=self.cookie("", clear=True))
+            if not write and path == '/api/account':
+                return self.output(200, self.server.bridge.account.read())
+            if write and path == '/api/account/reset':
+                return self.output(200, self.server.bridge.account.consume(self.read_json()))
             if not write and path == "/api/sessions":
                 rows = self.server.bridge.list(query=query.get("q", [""])[0][:200], offset=max(0, int(query.get("offset", [0])[0])), archived=query.get("archived", ["false"])[0] == "true")
                 return self.output(200, {"sessions": rows, "unavailableHosts": self.server.bridge.host_errors})
@@ -313,7 +320,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self.close_connection = True
             self.output(400, {"error": str(exc)})
-        except (IPCError, CatalogError, RemoteUnavailable, CreationError, StoreUnavailable) as exc:
+        except (IPCError, CatalogError, RemoteUnavailable, CreationError, StoreUnavailable, AccountError) as exc:
             self.close_connection = True
             self.output(409, {"error": str(exc), "code": "desktop_unavailable"})
         except (BrokenPipeError, ConnectionResetError, socket.timeout):

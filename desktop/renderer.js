@@ -4,7 +4,8 @@ let connectionDraft=[],savedConnections='[]';
 let snapshot,dirty=false,loading=false,startingUntil=0,activeTab='overview',savedFields={},feedbackKind='',lastFeedback;
 const busyActions=new Set();
 let startPending=false,cloudflaredBusy=false,cloudflaredResult=null,cloudflaredProgress=null;
-const titles={overview:t('连接与状态'),network:t('网络与登录'),devices:t('登录设备'),notifications:t('手机通知'),advanced:t('运行配置'),updates:t('应用更新'),logs:t('运行日志')};
+const titles={overview:t('连接与状态'),network:t('网络与登录'),devices:t('登录设备'),notifications:t('手机通知'),advanced:t('运行配置'),account:t('账户与额度'),updates:t('应用更新'),logs:t('运行日志')};
+const accountPanel=new AccountPanel({root:$('account-content'),button:$('account-button'),read:()=>api.account({action:'read'}),consume:value=>api.account({action:'consume',...value}),onHidden:()=>{if(activeTab==='account')tab('overview');}});
 function fields(){return [...$('settings').querySelectorAll('input,textarea,select')].filter(node=>!node.closest('#connections')&&node.id!=='connection-kind');}
 function fieldValues(){return Object.fromEntries(fields().map(node=>[node.id,node.type==='checkbox'?node.checked:node.value]));}
 function updateDirty(){
@@ -23,7 +24,7 @@ function updateDirty(){
   document.querySelectorAll('[data-connection-action]').forEach(button=>button.disabled=dirty||busyActions.has(button.dataset.key)||!connectionDraft.find(c=>c.id===button.dataset.connection)?.enabled);
 }
 function feedback(text,error=false,kind=''){lastFeedback=[text,error,kind];text=t(text.replace(/^Error invoking remote method '[^']+': (?:Error: )?/,''));feedbackKind=kind;$('error').hidden=!error;$('feedback').hidden=error;const target=$(error?'error':'feedback');if(target.textContent!==text)target.textContent=text;}
-function tab(name){activeTab=name;document.querySelectorAll('[data-panel]').forEach(node=>node.hidden=node.dataset.panel!==name);document.querySelectorAll('[data-tab]').forEach(node=>node.classList.toggle('active',node.dataset.tab===name));$('page-title').textContent=t(titles[name]);if(snapshot)updateDirty();if(name==='logs')loadLogs();if(name==='devices')loadDevices();if(snapshot)renderUpdate();}
+function tab(name){activeTab=name;if(name==='account')accountPanel.refresh();document.querySelectorAll('[data-panel]').forEach(node=>node.hidden=node.dataset.panel!==name);document.querySelectorAll('[data-tab]').forEach(node=>node.classList.toggle('active',node.dataset.tab===name));$('page-title').textContent=t(titles[name]);if(snapshot)updateDirty();if(name==='logs')loadLogs();if(name==='devices')loadDevices();if(snapshot)renderUpdate();}
 document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>tab(button.dataset.tab));
 document.querySelectorAll('[data-jump]').forEach(button=>button.onclick=()=>tab(button.dataset.jump));
 $('settings').oninput=$('settings').onchange=()=>{if(snapshot){updateDirty();}};
@@ -31,7 +32,9 @@ function input(id,value){$(id).value=value??'';}
 function render(value){
   if(snapshot&&(snapshot.runtime.instanceId!==value.runtime.instanceId||snapshot.dataDir!==value.dataDir))resetPairing();
   if(snapshot&&snapshot.dataDir!==value.dataDir){devicesState=null;devicesDirty=false;$('device-list').replaceChildren();}
+  if(snapshot&&(snapshot.runtime.instanceId!==value.runtime.instanceId||snapshot.dataDir!==value.dataDir))accountPanel.clear();
   snapshot=value;const running=value.runtime.running;
+  if(running){if(Date.now()-accountPanel.checkedAt>60000)accountPanel.refresh();}else accountPanel.clear();
   if(running||value.runtime.portOccupied)startingUntil=0;
   const starting=Date.now()<startingUntil;
   if(feedbackKind==='gateway'){
@@ -145,7 +148,7 @@ $('refresh-logs').onclick=loadLogs;
 api.language().then(applyLanguage).catch(error=>feedback(error.message,true)).then(()=>refresh()).then(()=>{if(snapshot?.preferences.autoStart&&!snapshot.updateManaged&&!snapshot.runtime.running&&!snapshot.runtime.portOccupied)$('start').click();});setInterval(refresh,3000);
 
 function applyLanguage(value){
-  BridgeI18n.setLanguage(value==='en'?'en':'zh');BridgeI18n.apply();
+  BridgeI18n.setLanguage(value==='en'?'en':'zh');BridgeI18n.apply();accountPanel.render();
   $('language').value=BridgeI18n.language();
   document.title=t('Codex 手机网关');
   if(snapshot){const pending=dirty;dirty=true;render(snapshot);dirty=pending;renderConnections();updateDirty();}

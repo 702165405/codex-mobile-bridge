@@ -12,6 +12,10 @@ let csrf='', currentId=null, state=null, listOffset=0, listQuery='', approvalSta
 let currentHost='local', listRows=[], listGeneration=0;
 let chatTimeline=null;
 const submittedRequestIds=new Set();
+const accountPanel=new AccountPanel({root:$('account-content'),button:$('account-button'),status:$('account-status'),read:()=>api('/api/account'),consume:body=>api('/api/account/reset',body),onHidden:()=>$('account-dialog').close()});
+$('account-button').onclick=()=>{$('account-dialog').showModal();accountPanel.refresh();};
+window.addEventListener('focus',()=>{if(!$('app').hidden)accountPanel.refresh();});
+setInterval(()=>{if(!$('app').hidden&&!document.hidden)accountPanel.refresh();},60000);
 function chatKey(id=currentId,host=currentHost){return host+'|'+id;}
 function sessionUrl(id,action='',host=currentHost){return '/api/sessions/'+id+(action?'/'+action:'')+'?host='+encodeURIComponent(host);}
 function hostUrl(path,host=currentHost){return /^\/api\/sessions\/[0-9a-f-]{36}/.test(path)&&!/[?&]host=/.test(path)?path+(path.includes('?')?'&':'?')+'host='+encodeURIComponent(host):path;}
@@ -19,7 +23,7 @@ let catalogData=null, selectedSkills=new Set();
 function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;return node;}
 function toast(text){text=t(text);$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,4200);}
 async function api(path,body,signal){const options={signal,credentials:'same-origin',cache:'no-store',headers:{}};if(body!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-CSRF-Token':csrf};options.body=JSON.stringify(body);}const response=await fetch(hostUrl(path),options);const data=await response.json();if(!response.ok){if(response.status===401)showLogin();throw Error(data.error||t('请求失败'));}return data;}
-function showLogin(passwordless=false){chatTimeline?.dispose();chatTimeline=null;document.querySelectorAll('dialog[open]').forEach(d=>d.close());$('app').hidden=true;$('login').hidden=false;$('credentials').hidden=passwordless;$('noauth').hidden=!passwordless;$('username').required=!passwordless;$('password').required=!passwordless;$('password').value='';}
+function showLogin(passwordless=false){accountPanel.clear();chatTimeline?.dispose();chatTimeline=null;document.querySelectorAll('dialog[open]').forEach(d=>d.close());$('app').hidden=true;$('login').hidden=false;$('credentials').hidden=passwordless;$('noauth').hidden=!passwordless;$('username').required=!passwordless;$('password').required=!passwordless;$('password').value='';}
 async function start(pairingToken=null){
   const auth=await api('/api/auth');
   if(pairingToken!==null){
@@ -32,7 +36,7 @@ async function start(pairingToken=null){
   }
   if(!auth.authenticated){showLogin(auth.passwordless);return;}csrf=auth.csrf;await enter();
 }
-async function enter(){$('login').hidden=true;$('app').hidden=false;const list=loadList(true).catch(e=>toast(e.message));const [id,host='local']=location.hash.slice(1).split('~');if(/^[0-9a-f-]{36}$/.test(id))await openChat(id,decodeURIComponent(host));await list;}
+async function enter(){$('login').hidden=true;$('app').hidden=false;accountPanel.refresh();const list=loadList(true).catch(e=>toast(e.message));const [id,host='local']=location.hash.slice(1).split('~');if(/^[0-9a-f-]{36}$/.test(id))await openChat(id,decodeURIComponent(host));await list;}
 $('login-form').addEventListener('submit',async event=>{event.preventDefault();$('login-button').disabled=true;$('login-error').textContent='';try{const result=await api('/api/login',{username:$('username').value,password:$('password').value});csrf=result.csrf;$('password').value='';await enter();}catch(error){$('login-error').textContent=t(error.message);}finally{$('login-button').disabled=false;}});
 $('logout').onclick=async()=>{await api('/api/logout',{});csrf='';state=null;currentId=null;$('messages').replaceChildren();$('approvals').replaceChildren();$('queued').replaceChildren();$('sessions').replaceChildren();$('message').value='';sessionStorage.clear();showLogin();};
 function dateText(value){if(!value)return '';return new Date(value*1000).toLocaleDateString(BridgeI18n.locale(),{month:'numeric',day:'numeric'});}
@@ -188,7 +192,7 @@ $('phone-language').value=BridgeI18n.language();
 $('phone-language').onchange=()=>{
   if(approvalBusy||creatingChat)return;
   const replies=[...$('approvals').querySelectorAll('input,textarea,select')].map(node=>({value:node.value,checked:node.checked}));
-  BridgeI18n.setLanguage($('phone-language').value);BridgeI18n.apply();renderList();
+  BridgeI18n.setLanguage($('phone-language').value);BridgeI18n.apply();accountPanel.render();renderList();
   if(!$('new-chat-title').dataset.edited)$('new-chat-title').value=t('新聊天');
   for(const id of ['login-error','send-error','model-error','skills-error','new-chat-error','notify-error','toast'])$(id).textContent=t($(id).textContent);
   for(const option of $('new-chat-project').options){const project=newChatProjects.find(p=>p.key===option.value);if(project)option.textContent=project.name+' · '+(project.host==='local'?t('此电脑'):project.hostLabel);}

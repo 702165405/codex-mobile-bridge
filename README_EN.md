@@ -20,15 +20,16 @@ The phone and desktop use the same chat. Read replies, send messages, choose mod
 
 ## Download and quick start (recommended)
 
-Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v0.2.0-beta.7 (prerelease)**.
+Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v1.0.0 (stable)**.
 
 | Platform | Download | Open |
 | --- | --- | --- |
-| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
-| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
-| macOS Apple Silicon (M series) | [Download arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-macOS-arm64.zip) | Extract, move the `.app` to Applications, and open it |
+| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/Codex-Mobile-Bridge-1.0.0-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
+| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/Codex-Mobile-Bridge-1.0.0-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
+| macOS Apple Silicon (M series) | [Download arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/Codex-Mobile-Bridge-1.0.0-macOS-arm64.dmg) | Open the DMG and drag the App to Applications |
+| macOS Intel | [Download x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/Codex-Mobile-Bridge-1.0.0-macOS-x64.dmg) | Open the DMG and drag the App to Applications |
 
-[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/SHA256SUMS.txt). The published beta.7 has no Intel Mac or Windows ARM packages. The unreleased beta.8 development branch adds Intel Mac (x64) and builds DMG and ZIP files for both Mac architectures. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
+[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/SHA256SUMS.txt). Both Mac architectures also include ZIPs for in-app updates or manual replacement. Windows ARM packages are not available. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
 
 1. Open the original **Codex App** on the computer, then open **Codex Mobile Bridge**.
 2. Keep LAN access enabled under **Network and login**, save, and click **Start gateway**. Preserve the existing port if you already have a configuration.
@@ -43,6 +44,12 @@ For access outside your LAN, add temporary HTTPS, an own-server connection or a 
 
 Starting with `v0.2.0-beta.5`, use **App updates** to check for a release, read its notes, and select **Update and restart**. The app verifies the signed manifest and package before replacing itself, preserves login, network, notification and watched-chat settings, and restores a previously running gateway. Installation failures attempt to restore the previous app. Older versions need one manual upgrade to a version with this feature. Temporary HTTPS addresses change when the gateway restarts.
 
+### Native account limits and usage resets
+
+After starting the updated gateway, **Account and usage** appears in the desktop panel and phone chat list only for native ChatGPT sign-in on this computer. For API keys and custom providers, the phone shows non-clickable “API connection” text; signed-out accounts have a separate status. The page reads this status automatically on entry and retries temporary failures. These are this computer's account limits, independent of the selected SSH chat.
+
+View remaining percentages, reset times and available usage resets. Missing information is shown as unavailable. Using a reset requires the Codex desktop usage-reset permission and confirmation for each operation. Interrupted requests retain their original redemption ID for retry. The bundled runtime manages account credentials; they are never sent to the phone.
+
 ### Login validity and device access
 
 - Set **Network and login → Login validity (hours)** to an integer from 0 to 87600, then restart the gateway. The default is 12 hours; 0 sets no server expiry. A finite deadline starts at login and does not slide with activity.
@@ -55,12 +62,12 @@ Starting with `v0.2.0-beta.5`, use **App updates** to check for a release, read 
 
 ### First launch on macOS: “damaged” or unidentified developer
 
-The Mac build has an **ad-hoc integrity signature**, but **no Apple Developer ID signature or notarization**. macOS can still block the first launch. The older `v0.2.0-beta.1` also has a bundle-signing defect; use `v0.2.0-beta.7` or later.
+The Mac build has an **ad-hoc integrity signature**, but **no Apple Developer ID signature or notarization**. macOS can still block the first launch. The older `v0.2.0-beta.1` also has a bundle-signing defect; use `v1.0.0` or later.
 
-1. Download the DMG or ZIP for your Mac's chip and `SHA256SUMS.txt` from this repository's Release. Calculate the downloaded file's hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app. The example below uses the published beta.7 ZIP; replace the filename for other downloads.
+1. Download the DMG or ZIP for your Mac's chip and `SHA256SUMS.txt` from this repository's Release. Calculate the downloaded file's hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app. The example below uses the 1.0.0 Apple Silicon DMG; replace the filename for other downloads.
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.7-macOS-arm64.zip"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.0.0-macOS-arm64.dmg"
    ```
 
 2. Open the DMG, drag `Codex Mobile Bridge.app` to Applications, then eject the disk image. For a ZIP, extract it and move the App instead. Try opening it from Applications, then go to **System Settings → Privacy & Security → Open Anyway** and confirm.

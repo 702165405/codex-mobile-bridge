@@ -20,15 +20,16 @@
 
 ## 下载与快速开始（推荐）
 
-日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v0.2.0-beta.7 预发布版**。
+日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.0.0 正式版**。
 
 | 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
-| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
-| macOS Apple Silicon（M 系列） | [下载 arm64 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/Codex-Mobile-Bridge-0.2.0-beta.7-macOS-arm64.zip) | 解压，将 `.app` 放入“应用程序”后打开 |
+| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/Codex-Mobile-Bridge-1.0.0-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
+| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/Codex-Mobile-Bridge-1.0.0-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
+| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/Codex-Mobile-Bridge-1.0.0-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/Codex-Mobile-Bridge-1.0.0-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
 
-[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v0.2.0-beta.7/SHA256SUMS.txt)。已发布的 beta.7 未提供 Intel Mac 或 Windows ARM 专用安装包。开发分支 beta.8 新增 Intel Mac（x64），并为两种 Mac 生成 DMG 和 ZIP，尚未发布。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.0.0/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
 
 1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
 2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
@@ -45,6 +46,12 @@
 
 从 `v0.2.0-beta.5` 起，可在桌面 App 的「应用更新」中检查新版、查看说明并点击「更新并重启」。下载与校验完成后短暂重启网关，保留登录、网络、通知和关注聊天配置；失败时尝试恢复原版本。此前版本需要先手动安装一次支持更新的版本。使用临时 HTTPS 时，重启后请打开最新地址。发布与恢复说明见 [桌面更新文档](docs/desktop-updates.md)。
 
+### 官方账号额度与重置卡
+
+启动新版网关后，电脑控制面板和手机聊天列表会显示「账户与额度」。仅在此电脑使用官方 ChatGPT 登录时显示可点击入口；手机端在 API Key 或第三方提供商模式显示不可点击的“API 接入”，未登录时显示对应状态。首次进入自动读取，临时失败会自动重试。额度属于此电脑的账号，不随 SSH 聊天切换。
+
+可查看剩余百分比、恢复时间和可用重置卡。缺失的数据会标为暂未提供。使用重置卡前需在 Codex 桌面设置允许额度重置，并逐次确认；请求中断后可重试原请求，不会重新生成消费标识。账号凭据由桌面内置运行时管理，不传给手机。
+
 ### 登录有效期与设备管理
 
 - 在 **网络与登录 → 登录有效期（小时）** 中设置。保存后重启网关生效；修改账号、密码、登录方式或有效期会撤销此前登录。普通网关重启和 App 更新保留未过期登录。
@@ -56,12 +63,12 @@
 
 ### macOS 首次打开：提示“已损坏”或开发者无法验证
 
-当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v0.2.0-beta.7` 或后续版本。
+当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v1.0.0` 或后续版本。
 
-1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以已发布的 beta.7 ZIP 为例，其他文件请替换文件名：
+1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.0.0 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-0.2.0-beta.7-macOS-arm64.zip"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.0.0-macOS-arm64.dmg"
    ```
 
 2. 打开 DMG，将 `Codex Mobile Bridge.app` 拖入“应用程序”，再推出磁盘映像；ZIP 则先解压并移动 App。尝试从“应用程序”打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。

@@ -79,12 +79,12 @@ async function renderer(initialLanguage='zh-CN'){
     auth:{mode:'password',username:'admin'},notifications:{enabled:false,server:'https://ntfy.sh',topic:''},
     notificationStatus:{},watches:[],origins:[],urls:[],dataDir:'/test',credentialsAvailable:false};
   let now=1000,poll;
-  const api={language:async()=>initialLanguage,setLanguage:async value=>value,snapshot:async()=>structuredClone(value),start:async()=>({started:true,message:'正在启动网关'}),
+  const api={account:async()=>({visible:false}),language:async()=>initialLanguage,setLanguage:async value=>value,snapshot:async()=>structuredClone(value),start:async()=>({started:true,message:'正在启动网关'}),
     save:async payload=>{value.preferences={...value.preferences,...payload.preferences};return structuredClone(value);},logs:async()=>({text:''})};
   const context=vm.createContext({window:{bridgeDesktop:api},
     localStorage:{getItem(){return null;},setItem(){}},document:{documentElement:{},getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
-    URL,Date:class extends Date{static now(){return now;}},setInterval:(callback,ms)=>{if(callback.name==='refresh')poll=callback;}});
-  for(const name of ['web/i18n.js','desktop/connections.js','desktop/pairing.js','desktop/renderer.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',name),'utf8'),context);
+    URL,Date:class extends Date{static now(){return now;}},setTimeout(){},clearTimeout(){},setInterval:(callback,ms)=>{if(callback.name==='refresh')poll=callback;}});
+  for(const name of ['web/i18n.js','desktop/connections.js','desktop/pairing.js','web/account.js','desktop/renderer.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',name),'utf8'),context);
   await new Promise(setImmediate);
   return {nodes,value,context,api,run:code=>vm.runInContext(code,context),poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
 }

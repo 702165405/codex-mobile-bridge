@@ -15,7 +15,7 @@ async function fixture(){
   const response=(data,status=200)=>({ok:status===200,status,json:async()=>data});
   const context=vm.createContext({document:{documentElement:{},getElementById:id=>nodes.get(id),querySelectorAll:()=>[],createElement:node},
     window:{addEventListener(){}},localStorage:storage(),sessionStorage:storage(),
-    location:{hash:'',pathname:'/',search:''},history:{replaceState(){}},setTimeout(){},clearTimeout(){},
+    location:{hash:'',pathname:'/',search:''},history:{replaceState(){}},setTimeout(){},clearTimeout(){},setInterval(){},
     ChatTimeline:class{constructor(){this.abort=new AbortController();}async start(){}dispose(){this.abort.abort();}relabel(){}},
     fetch:async(url,options={})=>{
       if(url==='/api/auth')return response({authenticated:false});
@@ -28,7 +28,7 @@ async function fixture(){
       }
       return response(saved.get(url)||{available:true,watching:false,notifyOnCompletion:false});
     }});
-  for(const file of ['web/i18n.js','web/app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context);
+  for(const file of ['web/i18n.js','web/account.js','web/app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context);
   await new Promise(setImmediate);
   const run=code=>vm.runInContext(code,context);
   return {nodes,writes,saved,run,html,response,setPost:handle=>{nextPost=handle;},
