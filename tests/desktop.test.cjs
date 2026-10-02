@@ -84,7 +84,7 @@ async function renderer(initialLanguage='zh-CN'){
   const context=vm.createContext({window:{bridgeDesktop:api},
     localStorage:{getItem(){return null;},setItem(){}},document:{documentElement:{},getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
     URL,Date:class extends Date{static now(){return now;}},setTimeout(){},clearTimeout(){},setInterval:(callback,ms)=>{if(callback.name==='refresh')poll=callback;}});
-  for(const name of ['web/i18n.js','desktop/connections.js','desktop/pairing.js','web/account.js','desktop/renderer.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',name),'utf8'),context);
+  for(const name of ['web/i18n.js','desktop/connections.js','desktop/pairing.js','web/account.js','desktop/watches.js','desktop/renderer.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',name),'utf8'),context);
   await new Promise(setImmediate);
   return {nodes,value,context,api,run:code=>vm.runInContext(code,context),poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
 }
@@ -320,7 +320,7 @@ test('download and retry states disable updates without permanently locking sett
 });
 
 test('login validity is collected as zero and survives polling and language edits',async()=>{
-  const ui=await renderer();const field=ui.nodes.get('session-hours');field.id='session-hours';field.type='number';field.closest=selector=>selector==='#connections'?null:({dataset:{panel:'network'}});
+  const ui=await renderer();const field=ui.nodes.get('session-hours');field.id='session-hours';field.type='number';field.closest=selector=>selector==='[data-panel]'?({dataset:{panel:'network'}}):null;
   ui.nodes.get('settings').querySelectorAll=()=>[field];
   ui.run('dirty=false;render(snapshot)');assert.equal(Number(field.value),12);
   field.value='0';ui.run('updateDirty()');await ui.poll();ui.run("applyLanguage('en')");

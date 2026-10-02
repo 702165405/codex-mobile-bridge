@@ -1,6 +1,6 @@
 """Read model/skill metadata using the desktop's bundled runtime.
 
-This short-lived helper only allows initialize, model/list and skills/list.
+This short-lived helper only reads models, skills, login and configuration capabilities.
 All thread mutations and all turns remain on the existing desktop IPC owner.
 """
 import hashlib
@@ -19,7 +19,7 @@ class CatalogError(RuntimeError):
 
 
 class Catalog:
-    METHODS = {"initialize", "model/list", "skills/list"}
+    METHODS = {"initialize", "model/list", "skills/list", "config/read", "account/read", "configRequirements/read"}
 
     def __init__(self, codex_home, executable=None):
         self.home = Path(codex_home)
@@ -83,7 +83,7 @@ class Catalog:
         def request(method, params):
             nonlocal counter
             if method not in self.METHODS:
-                raise ValueError("目录接口只允许读取模型和 Skill")
+                raise ValueError("目录接口只允许读取模型、Skill 与能力配置")
             counter += 1
             process.stdin.write(json.dumps({'id': counter, 'method': method, 'params': params}) + '\n')
             process.stdin.flush()
@@ -115,7 +115,7 @@ class Catalog:
                 if not cursor:
                     break
             skills = request('skills/list', {'cwds': [cwd], 'forceReload': True})
-            return {'models': models, 'skillEntries': skills.get('data', [])}
+            return {'models': models, 'skillEntries': skills.get('data', []), 'fastMode': self.fast_mode(request, cwd)}
         finally:
             process.stdin.close()
             try:
@@ -130,6 +130,36 @@ class Catalog:
             reader.join(timeout=1)
             process.stdout.close()
 
+    @staticmethod
+    def fast_mode(request, cwd):
+        # Return capability metadata only; credentials/config contents stay in the runtime.
+        unavailable = {'allowed': False}
+        try:
+            config = request('config/read', {'includeLayers': False, 'cwd': cwd}).get('config', {})
+            profile = (config.get('profiles') or {}).get(config.get('profile'), {})
+            effective = {**config, **profile}
+            provider = effective.get('model_provider') or 'openai'
+            definition = (effective.get('model_providers') or {}).get(provider) or {}
+            if provider != 'openai' or any(definition.get(key) for key in
+                    ('base_url', 'env_key', 'experimental_bearer_token', 'http_headers', 'env_http_headers', 'auth', 'gateway_oauth')):
+                return unavailable
+            auth = request('account/read', {'refreshToken': False})
+            if (auth.get('account') or {}).get('type') != 'chatgpt' or auth.get('requiresOpenaiAuth') is not True:
+                return unavailable
+            requirements = request('configRequirements/read', {}).get('requirements') or {}
+            features = {**(config.get('features') or {}), **(profile.get('features') or {})}
+            allowed = features.get('fast_mode') is not False and (requirements.get('featureRequirements') or {}).get('fast_mode') is not False
+            return {'allowed': allowed, 'defaultServiceTier': effective.get('service_tier')}
+        except CatalogError:
+            # Older/offline runtimes still expose their existing model and Skill list.
+            return unavailable
+
+    @staticmethod
+    def fast_tier(model):
+        return next((tier['id'] for tier in model.get('serviceTiers') or []
+                     if isinstance(tier.get('id'), str) and (tier['id'] in ('fast', 'priority') or
+                         str(tier.get('name', '')).strip().lower() in ('fast', 'priority'))), None)
+
     def get(self, cwd, refresh=False):
         cwd = str(Path(cwd).resolve())
         with self.lock:
@@ -139,7 +169,8 @@ class Catalog:
             raw = self._fetch(cwd)
             models = [{'id': m.get('model', m.get('id')), 'name': m.get('displayName', m.get('model')),
                        'description': m.get('description', ''), 'efforts': [e['reasoningEffort'] for e in m.get('supportedReasoningEfforts', [])],
-                       'defaultEffort': m.get('defaultReasoningEffort')} for m in raw['models'] if not m.get('hidden')]
+                       'defaultEffort': m.get('defaultReasoningEffort'), 'fastTier': self.fast_tier(m),
+                       'defaultServiceTier': m.get('defaultServiceTier')} for m in raw['models'] if not m.get('hidden')]
             skills, errors = [], []
             for entry in raw['skillEntries']:
                 errors.extend(entry.get('errors', []))
@@ -150,6 +181,6 @@ class Catalog:
                     skills.append({'id': hashlib.sha256(path.encode()).hexdigest(), 'name': skill['name'],
                                    'description': skill.get('description', ''), 'path': path,
                                    'scope': skill.get('scope'), 'displayName': (skill.get('interface') or {}).get('displayName') or skill['name']})
-            value = {'models': models, 'skills': skills, 'errors': errors}
+            value = {'models': models, 'skills': skills, 'errors': errors, 'fastMode': raw.get('fastMode', {'allowed': False})}
             self.cache[cwd] = (time.monotonic(), value)
             return value

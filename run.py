@@ -161,7 +161,7 @@ def main(connections=None):
             tunnel_thread = threading.Thread(target=connect_tunnel, daemon=True)
             tunnel_thread.start()
         notifications.start()
-        control.start(server.shutdown, server.pairing.control, server.instance_id, server.auth, bridge.account.control)
+        control.start(server.shutdown, server.pairing.control, server.instance_id, server.auth, bridge.account.control, server.notifications.control)
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass

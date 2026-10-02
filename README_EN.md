@@ -6,9 +6,9 @@
 
 [简体中文](README.md) · [English](README_EN.md)
 
-**[Product tour and screenshots (Chinese) ↗](https://try2love.github.io/codex-mobile-bridge/)** · **[Download the desktop App](https://github.com/try2love/codex-mobile-bridge/releases)**
+**[Product tour and walkthrough ↗](https://try2love.github.io/codex-mobile-bridge/?lang=en)** · **[Download the desktop App](https://github.com/try2love/codex-mobile-bridge/releases)**
 
-[![Desktop App: connections and status (demonstration data)](site/assets/desktop-overview.png)](https://try2love.github.io/codex-mobile-bridge/)
+[![Desktop App: connections and status (demonstration data)](site/assets/desktop-overview.png)](https://try2love.github.io/codex-mobile-bridge/?lang=en)
 
 Continue **existing chats in the desktop Codex App** from your phone browser, or create an empty chat in a saved project.
 
@@ -20,16 +20,16 @@ The phone and desktop use the same chat. Read replies, send messages, choose mod
 
 ## Download and quick start (recommended)
 
-Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v1.1.0 (stable)**.
+Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v1.2.0 (stable)**.
 
 | Platform | Download | Open |
 | --- | --- | --- |
-| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/Codex-Mobile-Bridge-1.1.0-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
-| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/Codex-Mobile-Bridge-1.1.0-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
-| macOS Apple Silicon (M series) | [Download arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/Codex-Mobile-Bridge-1.1.0-macOS-arm64.dmg) | Open the DMG and drag the App to Applications |
-| macOS Intel | [Download x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/Codex-Mobile-Bridge-1.1.0-macOS-x64.dmg) | Open the DMG and drag the App to Applications |
+| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/Codex-Mobile-Bridge-1.2.0-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
+| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/Codex-Mobile-Bridge-1.2.0-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
+| macOS Apple Silicon (M series) | [Download arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/Codex-Mobile-Bridge-1.2.0-macOS-arm64.dmg) | Open the DMG and drag the App to Applications |
+| macOS Intel | [Download x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/Codex-Mobile-Bridge-1.2.0-macOS-x64.dmg) | Open the DMG and drag the App to Applications |
 
-[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/SHA256SUMS.txt). Both Mac architectures also include ZIPs for in-app updates or manual replacement. Windows ARM packages are not available. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
+[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/SHA256SUMS.txt). Both Mac architectures also include ZIPs for in-app updates or manual replacement. Windows ARM packages are not available. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
 
 1. Open the original **Codex App** on the computer, then open **Codex Mobile Bridge**.
 2. Keep LAN access enabled under **Network and login**, save, and click **Start gateway**. Preserve the existing port if you already have a configuration.
@@ -44,7 +44,7 @@ For access outside your LAN, add temporary HTTPS, an own-server connection or a 
 
 Starting with `v0.2.0-beta.5`, use **App updates** to check for a release, read its notes, and select **Update and restart**. The app verifies the signed manifest and package before replacing itself, preserves login, network, notification and watched-chat settings, and restores a previously running gateway. Installation failures attempt to restore the previous app. Older versions need one manual upgrade to a version with this feature. Temporary HTTPS addresses change when the gateway restarts.
 
-**Windows beta.7 / 1.0.0 users:** the old updater may roll back with `WinError 32` because its working directory is locked. Choose **Stop gateway and quit** in the tray, then install **1.1.0 Setup.exe** to the same location. Do not uninstall or delete your data. Version 1.1.0 fixes this working-directory issue for subsequent updates.
+**Windows beta.7 / 1.0.0 users:** the old updater may roll back with `WinError 32` because its working directory is locked. Choose **Stop gateway and quit** in the tray, then install **1.2.0 Setup.exe** to the same location. Do not uninstall or delete your data. Version 1.1.0 fixes this working-directory issue for subsequent updates.
 
 ### Phone reading and display settings
 
@@ -73,10 +73,10 @@ View remaining percentages, reset times and available usage resets. Missing info
 
 The Mac build has an **ad-hoc integrity signature**, but **no Apple Developer ID signature or notarization**. macOS can still block the first launch. The older `v0.2.0-beta.1` also has a bundle-signing defect; use `v1.1.0` or later.
 
-1. Download the DMG or ZIP for your Mac's chip and `SHA256SUMS.txt` from this repository's Release. Calculate the downloaded file's hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app. The example below uses the 1.1.0 Apple Silicon DMG; replace the filename for other downloads.
+1. Download the DMG or ZIP for your Mac's chip and `SHA256SUMS.txt` from this repository's Release. Calculate the downloaded file's hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app. The example below uses the 1.2.0 Apple Silicon DMG; replace the filename for other downloads.
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.1.0-macOS-arm64.dmg"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.2.0-macOS-arm64.dmg"
    ```
 
 2. Open the DMG, drag `Codex Mobile Bridge.app` to Applications, then eject the disk image. For a ZIP, extract it and move the App instead. Try opening it from Applications, then go to **System Settings → Privacy & Security → Open Anyway** and confirm.
@@ -183,6 +183,7 @@ The desktop App and phone website each have a **Language / 语言** selector and
 4. Start the gateway, refresh the phone website, open **Reminders** in a chat, check **Enable chat reminders** and save. Local and SSH chats are watched separately.
 5. New command, file, permission or question requests trigger a notification. Clicking it opens that chat using the normal web login and confirmation flow.
 6. Each watched chat has an optional **Notify when a run completes** checkbox, off by default. Enable it for the current running turn and future successful runs. Failed, stopped and already completed historical runs do not trigger it. Turning only this option off keeps confirmation reminders enabled.
+7. In the desktop App, **Phone notifications → Watched chats** shows each chat's name, device, directory and ID. Toggle completion notifications or **Remove watch**; changes save immediately. Removing a watch stops that chat's reminders without deleting the chat. Add new watches from the phone. Saved watches remain manageable when the gateway is stopped or notification channels are disabled. Remote names use the last available title; the device and chat ID remain visible when the name is unavailable.
 
 Watched chats remain monitored after the phone page closes, provided the computer, gateway, original App and relevant SSH connections stay online. Delivery and retries are tracked separately per channel, destination, chat and event, including after restart. Failure in one channel does not affect the other. New channels or destinations do not replay completed history; runs observed in progress on their first live connection and future completions can notify. Existing ntfy configuration and delivery records are preserved. Failed delivery retries with backoff and rechecks whether the request is still pending. Completion retries continue while that chat has the option enabled and stop when it is disabled. Completed history from before the first live connection is not replayed. Strict exactly-once delivery is not guaranteed during network failures.
 
@@ -199,7 +200,8 @@ An explicitly configured notification click URL takes priority over automatic se
 | Original execution | Send, steer, queue, withdraw queued messages, stop and respond to supported confirmation cards |
 | Local and SSH | Execute on the chat's original computer or server |
 | Chat navigation | Sort by recent activity or group by expandable projects |
-| Model and Skills | Choose model/reasoning effort or send installed Skills from the chat's host |
+| Model and Skills | Choose model/reasoning effort, toggle Fast for eligible official accounts, or send installed Skills from the chat's host |
+| Plan and Goal modes | Start a plan or native goal from the composer; implement or revise a completed plan in the browser |
 | Independent authentication | Username/password or explicit passwordless mode |
 | Parallel access | LAN, temporary HTTPS and multiple fixed entries |
 | File previews | Local chat references inside the working directory, up to 50 MiB per file |
@@ -281,9 +283,18 @@ Preserve the external Host header, Origin, cookies and CSRF header; disable prox
 
 - **New chat:** choose a saved desktop project and name. Creation stores an empty chat through the official runtime, closes the helper and opens it in the original App. Sending waits for desktop ownership. Creation may change the desktop's visible chat. Saved request IDs prevent blind duplicate creation after an uncertain result.
 - **Model/Skills:** settings follow the current chat's host and project. Custom model availability depends on the provider. Changing a model does not change authentication or permission policy. Select up to eight Skills to send with the next message.
+- **Fast mode:** the model panel shows a toggle when the chat's host uses official ChatGPT login and its model and workspace allow Fast. Toggle it and select **Apply to this chat**; changes take effect from the next turn. Turning it off explicitly selects standard speed. The panel reads desktop settings and retains them after a refresh. Leaving the toggle untouched preserves the existing speed tier, including when changing model or reasoning effort. API/custom providers and unsupported models hide it; SSH chats use their remote account and workspace. Fast uses more allowance; see the [official speed guide](https://learn.chatgpt.com/docs/agent-configuration/speed).
+- **Long model names:** the toolbar truncates the name while keeping reasoning effort visible. Open the model panel to read the full ID, or hover over the button on a computer.
+- **Work mode:** choose Default, Plan or Goal between the send-type selector and Send. Plan mode discusses the task first; its completion card lets you view the plan, implement it in Default mode, or send requested changes in Plan mode.
+- **Goal mode:** enter an objective of up to 4,000 characters after the current turn ends. The original chat is asked to call native `create_goal`. The browser shows a pending request until desktop goal state confirms activation, then displays the objective, status and token usage. If the tool is unavailable or no goal is created, check the Codex reply. An unfinished goal or unresolved goal request prevents another start.
+- **Goal panel:** use × to hide it while the goal keeps running. Select **Goal progress** beside Send to restore it; narrow screens use a target icon. The same goal stays hidden after refreshing the current browser tab, and new goals are shown automatically.
+- **Attachments:** select the paperclip to the left of the send-type selector to add multiple files or images. Up to 10 files per message, 1 byte–20 MiB each and 100 MiB total. Uploads can be removed from the draft or retried individually; drafts stay with their chat and host. Send, queue and steer retain attachments, including after a failed send. Default messages can contain attachments without text. PNG, JPEG, GIF and WebP use native image inputs; other files supply original file paths, subject to model/tool capabilities and chat permissions. Remote chats upload through their configured SSH connection. Uploading does not start a model turn.
+- **Chat indicators:** green means running, blue means completed and unread, amber means failed or stopped. Entering the chat clears its completion marker; a running marker stays. A previously running chat with unavailable live state turns gray. Disable markers under **Display settings → Chat list**. Preferences and read state are stored in this browser. Existing completed history is not marked unread on first use; loaded list entries refresh about every five seconds while the page is visible. Phone push notifications use their separate watch settings.
 - **Send modes:** new message, queue after the active task, or steer the current task. Queued messages can be withdrawn before submission.
 - **Confirmations:** respond to supported command, file, permission and question requests. Unsupported requests should be handled in the desktop App.
 - **Unknown result:** inspect chat history before trying again. The gateway does not automatically replay an uncertain submission.
+
+Work mode follows the chat unless manually selected. Default and Plan messages can be queued; steering retains the running turn's mode. Modes preserve the original host, model, provider and permissions. After a goal request is accepted, subsequent messages return to ordinary input without cancelling the goal. The browser currently supports starting and displaying goals; use existing Codex controls for pausing, resuming or managing budgets. These features require desktop runtime support; see [verification scope](VERIFICATION.md).
 
 ## Login settings
 
@@ -300,6 +311,8 @@ Use `py -3 -B .\run.py --set-password` on Windows. Passwords must contain at lea
 The bridge reads desktop chat metadata/history and forwards actions through the App's original IPC owner. It does not need a matching mobile OpenAI login and does not copy model API keys. Empty-chat creation uses a short-lived official app-server helper and then hands ownership to the App. See [architecture](ARCHITECTURE.md).
 
 Gateway data stays in its configured directory, normally `.local`. It includes login hashes, desktop preferences, notification settings/tokens, watched chats, submission/creation deduplication records, caches, process control records and logs. Each SSH connection has separate status/log files. Do not publish this directory or `.tmp`. Keep backups private and use the App's directory selector to adopt an existing installation.
+
+Uploaded files are retained in `uploads/` or `hosts/<host hash>/uploads/` inside gateway data, separated by chat. Remote copies are stored under that host's `$CODEX_HOME/mobile-bridge/uploads/` (default `~/.codex/mobile-bridge/uploads/`). Removing a draft attachment does not delete uploaded files, and automatic cleanup is not provided. Manually deleting a file can break historical or queued references to it.
 
 The local desktop management interface uses guarded Electron IPC and a private stdio worker. It is not exposed through the phone HTTP API. Public HTTP access remains constrained by authentication, allowed Host/Origin checks and CSRF validation.
 

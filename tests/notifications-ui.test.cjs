@@ -6,14 +6,14 @@ const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 async function fixture(){
   const nodes=new Map(),saved=new Map(),writes=[];
   const node=()=>({value:'',checked:false,disabled:false,hidden:false,open:false,textContent:'',dataset:{},options:[],
-    classList:{add(){},remove(){},toggle(){}},addEventListener(){},replaceChildren(){},append(){},querySelectorAll(){return [];},querySelector(){return null;},
+    classList:{add(){},remove(){},toggle(){}},addEventListener(){},replaceChildren(){},append(){},querySelectorAll(){return [];},querySelector(){return {disabled:false};},
     showModal(){this.open=true;},close(){this.open=false;}});
   const html=fs.readFileSync(path.join(__dirname,'../web/index.html'),'utf8');
   for(const match of html.matchAll(/\bid="([^"]+)"/g))nodes.set(match[1],node());
-  const storage=()=>({getItem(){return null;},setItem(){}});
+  const storage=()=>({getItem(){return null;},setItem(){},removeItem(){}});
   let nextPost;
   const response=(data,status=200)=>({ok:status===200,status,json:async()=>data});
-  const context=vm.createContext({document:{documentElement:{},getElementById:id=>nodes.get(id),querySelectorAll:()=>[],createElement:node},
+  const context=vm.createContext({document:{addEventListener(){},documentElement:{},getElementById:id=>nodes.get(id),querySelectorAll:()=>[],createElement:node},
     window:{addEventListener(){}},localStorage:storage(),sessionStorage:storage(),
     location:{hash:'',pathname:'/',search:''},history:{replaceState(){}},setTimeout(){},clearTimeout(){},setInterval(){},
     ChatTimeline:class{constructor(){this.abort=new AbortController();}async start(){}dispose(){this.abort.abort();}relabel(){}},
@@ -28,7 +28,7 @@ async function fixture(){
       }
       return response(saved.get(url)||{available:true,watching:false,notifyOnCompletion:false});
     }});
-  for(const file of ['web/i18n.js','web/account.js','web/app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context);
+  for(const file of ['web/i18n.js','web/account.js','web/modes.js','web/attachments.js','web/activity.js','web/fast-mode.js','web/app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context);
   await new Promise(setImmediate);
   const run=code=>vm.runInContext(code,context);
   return {nodes,writes,saved,run,html,response,setPost:handle=>{nextPost=handle;},

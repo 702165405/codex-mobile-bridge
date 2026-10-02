@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('bridgeDesktop',{
   installUpdate:()=>ipcRenderer.invoke('bridge:install-update'),
   language:()=>ipcRenderer.invoke('bridge:language'),
   setLanguage:value=>ipcRenderer.invoke('bridge:set-language',value),
+  notificationWatches:value=>ipcRenderer.invoke('bridge:notification-watches',value),
   devices:value=>ipcRenderer.invoke('bridge:devices',value),
   pairing:value=>ipcRenderer.invoke('bridge:pairing',value),
   installCloudflared:()=>ipcRenderer.invoke('bridge:install-cloudflared'),

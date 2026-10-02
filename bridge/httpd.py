@@ -13,6 +13,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from .uploads import MAX_FILE
 from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit, quote
 
@@ -29,6 +30,10 @@ LOG = logging.getLogger(__name__)
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/i18n.js": ("i18n.js", "text/javascript; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+          "/modes.js": ("modes.js", "text/javascript; charset=utf-8"),
+          "/attachments.js": ("attachments.js", "text/javascript; charset=utf-8"),
+          "/activity.js": ("activity.js", "text/javascript; charset=utf-8"),
+          "/fast-mode.js": ("fast-mode.js", "text/javascript; charset=utf-8"),
           "/account.js": ("account.js", "text/javascript; charset=utf-8"),
           "/account.css": ("account.css", "text/css; charset=utf-8"),
           "/presentation.js": ("presentation.js", "text/javascript; charset=utf-8"),
@@ -42,7 +47,7 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/icon.png": ("icon.png", "image/png")}
-THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications))?$")
+THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications|uploads))?$")
 FONT_ROUTE = re.compile(r"^/vendor/katex/fonts/(KaTeX_[A-Za-z0-9_-]+\.(woff2|woff|ttf))$")
 
 
@@ -251,6 +256,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.output(200, {"sessions": rows, "unavailableHosts": self.server.bridge.host_errors})
             if not write and path == '/api/projects':
                 return self.output(200, {'projects': self.server.bridge.hosts.projects()})
+            if write and path == '/api/activity':
+                groups = self.read_json().get('hosts')
+                if not isinstance(groups, dict) or len(groups) > 20:
+                    raise ValueError('会话状态请求无效')
+                rows = []
+                for host, identifiers in groups.items():
+                    rows.extend(self.server.bridge.for_host(host).activity(identifiers))
+                return self.output(200, {'sessions': rows})
             if write and path == '/api/sessions':
                 body = self.read_json()
                 return self.output(200, self.server.bridge.create_chat(body.get('project'), body.get('title'), body.get('id')))
@@ -262,6 +275,15 @@ class Handler(BaseHTTPRequestHandler):
             if not match:
                 return self.output(404, {"error": "页面不存在"})
             thread_id, action = match.groups()
+            if write and action == 'uploads':
+                sizes = self.headers.get_all('Content-Length', [])
+                if self.headers.get('Transfer-Encoding') or len(sizes) != 1 or not sizes[0].isdigit() or not 0 < int(sizes[0]) <= MAX_FILE:
+                    raise ValueError('每个附件需为 1 字节至 20 MB')
+                size = int(sizes[0])
+                data = self.rfile.read(size)
+                if len(data) != size:
+                    raise ValueError('附件上传中断，请重试')
+                return self.output(200, bridge.upload(thread_id, query.get('id', [''])[0], query.get('name', [''])[0], data))
             if action == 'notifications':
                 if self.server.notifications is None:
                     return self.output(200, {'available': False, 'watching': False, 'notifyOnCompletion': False})
@@ -287,9 +309,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.output(404, {"error": "接口不存在"})
             body = self.read_json()
             if action == "send":
-                result = bridge.send(thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"), body.get("skills", []))
+                result = bridge.send(thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"), body.get("skills", []), work_mode=body.get("workMode"), attachments=body.get('attachments'))
             elif action == "settings":
-                result = bridge.settings(thread_id, body.get("model"), body.get("effort"))
+                if 'fastMode' in body and not isinstance(body['fastMode'], bool):
+                    raise ValueError('Fast 模式开关无效')
+                result = bridge.settings(thread_id, body.get("model"), body.get("effort"), **({'fast_mode': body['fastMode']} if 'fastMode' in body else {}))
             elif action == "stop":
                 result = bridge.interrupt(thread_id)
             elif action == "history":

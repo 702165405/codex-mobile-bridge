@@ -15,7 +15,7 @@ async function fixture(read){
   }
   const storage=()=>({getItem(){return null;},setItem(){},clear(){}});
   const response=(data,status=200)=>({ok:status===200,status,json:async()=>data});
-  const context=vm.createContext({Date,document:{documentElement:{},getElementById:id=>nodes.get(id),querySelectorAll:()=>[],createElement:node},
+  const context=vm.createContext({Date,document:{addEventListener(){},documentElement:{},getElementById:id=>nodes.get(id),querySelectorAll:()=>[],createElement:node},
     window:{addEventListener(){}},localStorage:storage(),sessionStorage:storage(),
     location:{hash:'',pathname:'/',search:''},history:{replaceState(){}},
     setTimeout(fn,delay){timers.set(++timerId,{fn,delay});return timerId;},clearTimeout(id){timers.delete(id);},setInterval(){},
@@ -26,7 +26,7 @@ async function fixture(read){
       if(url==='/api/account')return read(response);
       throw Error('Unexpected request '+url);
     }});
-  for(const file of ['web/i18n.js','web/account.js','web/app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context);
+  for(const file of ['web/i18n.js','web/account.js','web/modes.js','web/attachments.js','web/activity.js','web/fast-mode.js','web/app.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context);
   await new Promise(setImmediate);
   return {nodes,requests,timers,run:code=>vm.runInContext(code,context),
     async retry(){const entry=[...timers.entries()].find(([,t])=>t.delay<=5000);assert.ok(entry,'Account read should retry promptly without user input');timers.delete(entry[0]);await entry[1].fn();await new Promise(setImmediate);}};

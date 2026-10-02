@@ -12,7 +12,9 @@ from pathlib import Path
 
 from .auth import Auth, password_record, session_hours
 from .lifecycle import read_record, request_stop, request_pairing
-from .notifications import read_json, write_json, settings, save_settings, publish, publish_bark
+from .notifications import Notifications, read_json, write_json, settings, save_settings, publish, publish_bark
+from .store import SessionStore, StoreUnavailable
+from .remote import AppHosts
 from . import access
 
 
@@ -95,7 +97,7 @@ class Desktop:
         notifications = settings(self.data_dir)
         return {'preferences': preferences, 'auth': {'username': config['auth'].get('username', 'admin'), 'mode': config['auth']['mode'], 'sessionHours': config['auth'].get('sessionHours', 12)},
                 'origins': config.get('origins', []), 'notifications': {**notifications, 'token': '', 'hasToken': bool(notifications['token']), 'barkKey': '', 'hasBarkKey': bool(notifications['barkKey'])},
-                'watches': read_json(self.data_dir/'notification-watches.json', []),
+                'watches': self.notification_watches({'action': 'list'})['watches'],
                 'notificationStatus': read_json(self.data_dir/'notification-status.json', {}),
                 'dataDir': str(self.data_dir), 'credentialsAvailable': (self.data_dir/'首次登录.txt').exists(),
                 'runtime': runtime, 'urls': urls, 'externalStatus': external, 'cloudflared': cloudflared, 'quickTunnel': quick}
@@ -218,6 +220,31 @@ class Desktop:
         if read_record(self.data_dir/'gateway-control.json'):
             raise ValueError('网关状态暂不可用，请稍后刷新设备列表')
         return Auth(self.config()['auth'], self.data_dir).manage(value)
+
+    def notification_watches(self, value):
+        if value.get('action') != 'list':
+            record = read_record(self.data_dir/'gateway-control.json')
+            if self.status()['running']:
+                if not record or not record.get('notificationManagement'):
+                    raise ValueError('请重新启动网关以管理会话通知')
+                request_pairing(self.data_dir, {'action': 'notification-watches', 'value': value}, timeout=35)
+            elif record:
+                raise ValueError('网关状态暂不可用，请稍后刷新')
+            else:
+                Notifications(None, self.data_dir).control(value)
+        rows = read_json(self.data_dir/'notification-watches.json', [])
+        home = Path(self.preferences()['codexHome']).expanduser()
+        store, hosts = SessionStore(home), AppHosts(home).hosts()
+        for row in rows:
+            row['hostLabel'] = '此电脑' if row['host'] == 'local' else hosts.get(row['host'], {}).get('displayName') or hosts.get(row['host'], {}).get('alias') or row['host']
+            if row['host'] == 'local':
+                try:
+                    meta = store.get(row['id'])
+                    row.update(title=meta.get('name') or meta.get('title') or '未命名聊天', cwd=meta.get('cwd', ''))
+                except (KeyError, StoreUnavailable):
+                    pass
+            row['notifyOnCompletion'] = bool(row.get('notifyOnCompletion'))
+        return {'watches': rows}
 
     def test_notification(self, value=None):
         channel = (value or {}).get('channel', 'ntfy')

@@ -92,6 +92,7 @@ class DesktopFixture:
                         settings = message['params']['threadSettings']
                         self.state['latestModel'] = settings['model']
                         self.state['latestReasoningEffort'] = settings['effort']
+                        self.state['latestThreadSettings'] = {**self.state.get('latestThreadSettings', {}), **settings}
                         self.revision += 1
                         self.snapshot()
                     result = {"applied": True} if method == 'thread-follower-update-thread-settings' else {"clientId": "gateway"} if method == 'initialize' else {"ok": True}
@@ -157,7 +158,7 @@ class IntegrationTests(unittest.TestCase):
         def unavailable(**kwargs):
             raise StoreUnavailable('Database temporarily unavailable')
         self.bridge.store.list = unavailable
-        remote = SimpleNamespace(host='remote:test', lock=threading.RLock(), live={},
+        remote = SimpleNamespace(host='remote:test', lock=threading.RLock(), live={}, listed=set(),
                                  store=SimpleNamespace(list=lambda **kw: [{'id': THREAD, 'title': 'Remote chat', 'cwd': '/remote', 'updated_at': 1}]))
         self.bridge.hosts.hosts = lambda: {'remote:test': {'alias': 'test'}}
         self.bridge.for_host = lambda host: remote
@@ -701,7 +702,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             scripts = re.findall(r'<script src="([^"]+)"', response.read().decode())
             self.assertEqual(scripts, ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
-                                       '/vendor/texmath.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/app.js', '/presentation.js'])
+                                       '/vendor/texmath.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/modes.js', '/attachments.js', '/activity.js', '/fast-mode.js', '/app.js', '/presentation.js'])
             for script in scripts:
                 conn.request('GET', script)
                 response = conn.getresponse()

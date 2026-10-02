@@ -26,10 +26,10 @@ class GatewayControl:
         self.closed = threading.Event()
         self.worker = None
 
-    def start(self, shutdown, pairing=None, instance_id=None, auth=None, account=None):
+    def start(self, shutdown, pairing=None, instance_id=None, auth=None, account=None, notifications=None):
         self.pairing_dir = Path(tempfile.mkdtemp(prefix=".pairing-", dir=self.path.parent))
         self.record.update(pairingDir=self.pairing_dir.name, instanceId=instance_id, deviceManagement=auth is not None,
-                           accountManagement=account is not None)
+                           accountManagement=account is not None, notificationManagement=notifications is not None)
         self.request_path.unlink(missing_ok=True)
         self.path.write_text(json.dumps(self.record), encoding='utf-8')
         self.path.chmod(0o600)
@@ -63,6 +63,8 @@ class GatewayControl:
                             payload = value.get('payload', {})
                             if payload.get('action') == 'devices' and auth:
                                 result = {'ok': True, 'result': auth.manage(payload.get('value', {}))}
+                            elif payload.get('action') == 'notification-watches' and notifications:
+                                result = {'ok': True, 'result': notifications(payload.get('value', {}))}
                             else:
                                 result = {'ok': True, 'result': pairing(payload)}
                         except (ValueError, TypeError, OSError) as exc:

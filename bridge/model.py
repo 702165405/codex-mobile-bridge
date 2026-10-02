@@ -95,6 +95,8 @@ def normalize_item(item):
         row.update(role="activity", title=" · ".join(str(x) for x in (item.get("server"), item.get("tool", item.get("toolName"))) if x), text=json.dumps(item.get("arguments", {}), ensure_ascii=False, indent=2), output=json.dumps(item.get("result", item.get("contentItems", item.get("error", ""))), ensure_ascii=False, indent=2))
     elif kind == "error":
         row.update(role="error", text=item.get("message", "执行失败"))
+    elif kind == "planImplementation":
+        row.update(role="assistant", title="计划", text=item.get("planContent", ""))
     else:
         row.update(role="activity", title=kind, text=json.dumps(item, ensure_ascii=False, indent=2))
     # Preserve non-text attachment descriptors. They are not fetched from arbitrary URLs.
@@ -131,9 +133,14 @@ def normalize_state(state, connected=True):
                        "startedAt": turn.get("turnStartedAtMs"), "messages": messages,
                        "error": turn.get("error"), "diff": turn.get("diff")})
     history = state.get("turnHistory", {}).get("history", {})
+    settings = state.get('latestThreadSettings') or {}
+    tier = settings if 'serviceTier' in settings else (turns[-1].get('params') or {}) if turns else {}
     return {"id": state.get("id", state.get("sessionId")), "title": state.get("title") or "未命名聊天",
             "cwd": state.get("cwd"), "model": state.get("latestModel"), "provider": state.get("modelProvider"), "effort": state.get("latestReasoningEffort") or (state.get("latestThreadSettings") or {}).get("effort"),
             "connected": connected, "status": state.get("threadRuntimeStatus", {}).get("type", "idle"),
+            "collaborationMode": (state.get("latestCollaborationMode") or {}).get("mode"),
+            **({'serviceTier': tier['serviceTier']} if 'serviceTier' in tier else {}),
+            "goal": copy.deepcopy(state.get("threadGoal") or state.get("completedThreadGoal")),
             "turns": result, "requests": pending_requests(state),
             "historyComplete": history.get("isComplete", state.get("turnsPagination", {}).get("hasLoadedOldest", True))}
 
@@ -164,6 +171,7 @@ def normalize_request(request):
         "item/permissions/requestApproval": ("reason", "permissions"),
         "item/tool/requestUserInput": ("questions",),
         "tool/requestUserInput": ("questions",),
+        "item/plan/requestImplementation": ("turnId", "planContent"),
         "mcpServer/elicitation/request": ("serverName", "message", "mode", "requestedSchema"),
     }
     # Identity verification is intentionally desktop-only, including its challenge data.

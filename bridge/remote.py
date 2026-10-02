@@ -147,3 +147,24 @@ class AppHosts:
                        projectName=project['name'] if project else (raw_cwd.replace('\\', '/') if host == 'local' and os.name == 'nt' else raw_cwd).rstrip('/').rsplit('/', 1)[-1] or '未归类',
                        recency=row.get('recency_at_ms') or (row.get('recency_at') or 0) * 1000 or row.get('updated_at_ms') or (row.get('updated_at') or 0) * 1000)
         return rows
+
+
+def upload_file(alias, thread, identifier, name, data, digest):
+    """Transfer only the selected file to a private directory on its execution host."""
+    value = {'thread': thread, 'id': identifier, 'name': name, 'data': base64.b64encode(data).decode('ascii'), 'sha256': digest}
+    source = 'import os,json,base64,hashlib\nfrom pathlib import Path\nv=' + payload(value) + '''
+p=Path(os.environ.get('CODEX_HOME', str(Path.home()/'.codex')))/'mobile-bridge'/'uploads'/v['thread']/v['id']/v['name']
+p.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+b=base64.b64decode(v['data'],validate=True)
+assert hashlib.sha256(b).hexdigest()==v['sha256']
+if p.is_symlink(): raise ValueError('Invalid attachment path')
+if p.exists():
+    assert hashlib.sha256(p.read_bytes()).hexdigest()==v['sha256']
+else:
+    tmp=p.parent/(v['id']+'.part')
+    with tmp.open('wb') as f: f.write(b)
+    tmp.chmod(0o600)
+    tmp.replace(p)
+print(json.dumps({'path':str(p.resolve())}))
+'''
+    return ssh_read(alias, source, timeout=90)['path']

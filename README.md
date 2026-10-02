@@ -6,9 +6,9 @@
 
 [简体中文](README.md) · [English](README_EN.md)
 
-**[图文介绍与功能预览 ↗](https://try2love.github.io/codex-mobile-bridge/)** · **[下载桌面 App](https://github.com/try2love/codex-mobile-bridge/releases)**
+**[双语介绍与使用演示 ↗](https://try2love.github.io/codex-mobile-bridge/?lang=zh)** · **[下载桌面 App](https://github.com/try2love/codex-mobile-bridge/releases)**
 
-[![桌面 App：连接与状态（演示数据）](site/assets/desktop-overview.png)](https://try2love.github.io/codex-mobile-bridge/)
+[![桌面 App：连接与状态（演示数据）](site/assets/desktop-overview.png)](https://try2love.github.io/codex-mobile-bridge/?lang=zh)
 
 在手机浏览器里，继续电脑 **Codex App 已有的聊天**，或在已保存项目中新建聊天。
 
@@ -20,16 +20,16 @@
 
 ## 下载与快速开始（推荐）
 
-日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.1.0 正式版**。
+日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.2.0 正式版**。
 
 | 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/Codex-Mobile-Bridge-1.1.0-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
-| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/Codex-Mobile-Bridge-1.1.0-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
-| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/Codex-Mobile-Bridge-1.1.0-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
-| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/Codex-Mobile-Bridge-1.1.0-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/Codex-Mobile-Bridge-1.2.0-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
+| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/Codex-Mobile-Bridge-1.2.0-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
+| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/Codex-Mobile-Bridge-1.2.0-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/Codex-Mobile-Bridge-1.2.0-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
 
-[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.1.0/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.0/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
 
 1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
 2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
@@ -46,7 +46,7 @@
 
 从 `v0.2.0-beta.5` 起，可在桌面 App 的「应用更新」中检查新版、查看说明并点击「更新并重启」。下载与校验完成后短暂重启网关，保留登录、网络、通知和关注聊天配置；失败时尝试恢复原版本。此前版本需要先手动安装一次支持更新的版本。使用临时 HTTPS 时，重启后请打开最新地址。发布与恢复说明见 [桌面更新文档](docs/desktop-updates.md)。
 
-**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.1.0 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
+**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.2.0 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
 
 ### 手机阅读与显示设置
 
@@ -74,10 +74,10 @@
 
 当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v1.1.0` 或后续版本。
 
-1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.1.0 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
+1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.2.0 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.1.0-macOS-arm64.dmg"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.2.0-macOS-arm64.dmg"
    ```
 
 2. 打开 DMG，将 `Codex Mobile Bridge.app` 拖入“应用程序”，再推出磁盘映像；ZIP 则先解压并移动 App。尝试从“应用程序”打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。
@@ -168,6 +168,7 @@ NAS 方案：Docker 只部署 HTTP 入口，原电脑仍需保持唤醒并运行
 4. 启动支持通知的新版网关，刷新手机网页，在聊天页面点击 **“提醒”**，勾选 **“开启聊天提醒”** 并保存。本机与 SSH 聊天分别关注。
 5. 新出现的命令、文件、权限请求或提问会触发通知；点击通知回到该聊天，沿用网页登录与确认卡片。
 6. 每个会话可单独勾选 **“运行完成后通知”**，默认关闭。开启后，当前正在运行及之后正常完成的运行会触发通知；失败、手动停止和开启前已结束的历史不触发。只关闭完成通知时，待确认提醒继续保留。
+7. 电脑 App 的 **“手机通知 → 已关注聊天”** 显示会话名称、所在设备、目录与会话 ID，可直接切换完成通知或 **“删除监控”**，操作即时保存。删除监控停止该会话的提醒，不删除会话；新增监控仍在手机端完成。网关停止或通知通道关闭时，也可管理已保存的监控。远程会话显示最近获取的名称，尚未获取时保留设备和会话 ID。
 
 被关注聊天在手机网页关闭后继续监听，前提是电脑、网关、原 Codex App 及相关 SSH 连接仍可用。每个通道、接收目标、聊天和事件分别记录投递状态，网关重连或重启后去重；一个通道失败不影响另一个。更换接收目标或新增通道不补发已完成历史；首次实时连接时仍在运行的任务及之后的新完成事件可触发通知。旧 ntfy 配置和已投递记录会保留。发送失败会退避重试，并在重试前重新核对请求是否仍待处理；完成通知在该会话仍开启此选项时重试，关闭后取消重试。首次实时连接建立前的已完成历史不会补发。网络中断时不承诺严格恰好投递一次。
 
@@ -206,10 +207,12 @@ App 设置界面通过本机进程通信管理网关，管理接口不对局域�
 | Markdown 与公式 | 标题、列表、引用、表格、代码块及 LaTeX 公式；资源与字体本地提供，无需 CDN |
 | 渐进加载 | 先显示最近 20 条，后台补齐到 100 条；上翻至顶部附近自动再读 100 条，工具正文按需展开 |
 | 同一会话执行 | 发送新消息、补充当前任务、排队、撤回待发送消息、停止任务 |
+| 上传附件 | 多选文件或图片，随消息发送到原会话，支持排队和补充任务 |
 | 手机回应 | 支持命令、文件、临时权限请求及提问卡片；复杂请求提示回到桌面处理 |
 | SSH 会话 | 显示桌面 App 已连接主机的聊天，操作继续交给对应主机的会话 |
-| 聊天列表 | 最近交互排序，或按项目聚合；项目可展开/收起，显示主机标签 |
-| 模型设置 | 更改当前聊天的模型与推理强度，支持手动填写自定义模型 ID |
+| 聊天列表 | 最近交互或项目视图、主机标签、运行中与完成未查看标识 |
+| 模型设置 | 更改当前聊天的模型与推理强度，支持自定义模型 ID；符合条件的官方账号可开关 Fast 模式 |
+| 计划与目标模式 | 从网页开启计划或原生目标；计划完成后可直接执行或继续修改 |
 | Skill | 按会话所在主机与工作目录读取已安装技能，搜索后随消息发送原生 Skill 引用 |
 | 登录方式 | 独立账号密码；可配置免密 |
 | 连接方式 | 局域网、临时 Cloudflare 与多个固定 HTTPS 入口可并行；配置可添加、命名、启停和删除 |
@@ -217,7 +220,7 @@ App 设置界面通过本机进程通信管理网关，管理接口不对局域�
 | 响应压缩 | 支持 gzip，减少大聊天通过外网传输的数据量 |
 | 文件预览 | 查看本地聊天引用的工作目录内文件和图片；单个文件不超过 50 MiB |
 
-默认继承桌面会话的模型、provider 和权限策略。手动切换模型时只更新模型与推理强度；模型是否可用取决于当前 provider。
+默认继承桌面会话的模型、provider 和权限策略。手动切换模型时更新模型与推理强度；只有主动切换 Fast 开关才更新速度设置。模型是否可用取决于当前 provider。
 
 ### 阅读长聊天
 
@@ -389,7 +392,39 @@ SSH 列表复用 App 保存的连接和项目配置。手机不需要保存 SSH 
 
 点击输入框上方的模型按钮，选择模型与推理强度。当前任务正在运行时，新设置从下一轮使用。自定义模型 ID 必须由当前 provider 支持。
 
+使用官方 ChatGPT 账号，且当前聊天的模型与工作区允许时，面板显示 **Fast 模式** 开关。勾选或取消后点击 **应用到此聊天**，从下一轮生效；取消会明确切回标准速度。开关同步桌面实际设置，刷新后仍可查看。只调整模型或推理强度而未操作开关时，会保留原有速度档位。
+
+Fast 会增加额度消耗，具体以[官方速度说明](https://learn.chatgpt.com/docs/agent-configuration/speed)为准。API、自定义服务或不支持的模型不显示该开关；SSH 聊天按远端账号和工作区判断。设置只作用于当前聊天。
+
+较长的模型名称会在工具栏中省略，推理强度完整保留。点击按钮可在设置面板查看完整模型 ID，电脑端也可悬停查看。
+
 点击 **Skill**，搜索并选择当前会话可用的已安装技能，最多 8 个。选中项会随下一条消息以原生 Skill 输入传给会话；发送成功后清空选择。SSH 会话读取远端技能目录。
+
+### 计划与目标模式
+
+在底部发送栏中间选择 **工作模式**，再输入任务并发送：
+
+- **普通模式**：直接处理任务。
+- **计划模式**：先讨论并制定计划。计划完成后，可在网页展开全文、点击 **执行计划**，或填写修改意见后点击 **继续修改**。执行计划会切回普通模式，继续修改保留计划模式。
+- **目标模式**：输入要完成的目标。网关会在原聊天中请求调用原生 `create_goal`；桌面返回目标状态后，网页显示目标内容、状态和 Token 用量。请求已提交时先显示等待确认，若工具不可用或未成功创建目标，提示查看 Codex 的回复。
+
+目标栏右侧的 **×** 可隐藏该栏，目标继续运行。隐藏后，点击发送键旁的 **目标进度** 恢复显示；窄屏下显示为目标图标。同一目标在当前浏览器标签页刷新后保持隐藏，新目标默认显示。
+
+模式选择跟随当前聊天，并保留手动选择。补充正在运行的任务会沿用该任务的模式；普通和计划消息可排队，目标需等当前任务结束后直接发送，最多 4000 字。已有未完成目标或尚未确认的目标请求时，不能重复开启。
+
+模式操作使用聊天原有的主机、模型、provider 和权限设置。目标提交成功后，后续消息恢复普通输入；这不会取消已经创建的目标。当前网页提供目标开启和状态显示，目标的暂停、恢复及预算管理仍使用 Codex 原有操作。相关能力依赖桌面运行时支持，实测范围见[验证记录](VERIFICATION.md)。
+
+### 文件与图片附件
+
+点击发送方式左边的 **回形针**，可一次选择多个文件或图片。每条消息最多 10 个附件，单个 1 字节至 20 MiB，总计不超过 100 MiB。上传完成后，可单独移除、失败重试，或随消息直接发送、排队、补充当前任务；普通消息可只发附件。发送失败保留草稿和已上传附件，重试沿用原提交标识。
+
+附件跟随当前聊天和主机，切换聊天保留各自草稿。PNG、JPEG、GIF、WebP 使用原生图片输入；其他文件提供原始文件路径，能否读取取决于模型、工具和会话权限。远端聊天会通过该主机已配置的 SSH 连接上传文件。上传本身不会启动模型任务。
+
+### 会话运行标识
+
+聊天列表默认显示 **绿点（运行中）**、**蓝点（正常完成、未查看）**，失败或停止为橙色。进入聊天清除完成标识，运行中的绿点保留。已知运行中的会话暂时断开时显示灰点，重新连接后更新。
+
+在 **显示设置 → 聊天列表** 可关闭标识；显示偏好和已查看状态保存在当前浏览器。首次使用不把已完成历史全部标为未读；网页可见时约每 5 秒刷新已加载列表中的状态。关闭网页不会取消任务，后台手机推送仍由单独的聊天通知配置管理。
 
 ### 发送与回应
 
@@ -456,6 +491,7 @@ flowchart TD
 | `首次登录.txt` | 首次生成的网关密码；修改密码后删除 |
 | `submissions.json` | 本地聊天的发送去重记录、正文与队列 |
 | `hosts/<主机哈希>/submissions.json` | 按 SSH 主机隔离的发送记录 |
+| `uploads/`、`hosts/<主机哈希>/uploads/` | 本地附件和远端附件的本机副本，按会话隔离 |
 | `gateway.pid` | 本网关进程记录 |
 | `gateway-control.json`、`gateway.stop` | 本次实例的本地控制令牌与停止请求，退出时清理 |
 | `auth-sessions.json` | 私有登录记录（令牌只保存哈希）、IP 访问规则；请勿分享，正常更新保留 |
@@ -463,6 +499,8 @@ flowchart TD
 | `外网地址.txt`、`tunnel.log` | 临时隧道地址与日志 |
 
 服务前台日志输出到启动终端。`.local/`、`.tmp/`、环境文件与本地开发记录均已加入 `.gitignore`，不要把它们上传到 issue 或公开仓库。
+
+上传文件保留在网关数据目录；远端副本位于该主机 `$CODEX_HOME/mobile-bridge/uploads/`（默认 `~/.codex/mobile-bridge/uploads/`）。移除草稿附件不会删除已上传文件，当前没有自动清理；手动删除会使依赖该文件的历史或待发送消息无法再读取附件。
 
 如果发送的确认响应丢失，页面会显示“发送结果待确认”，网关不会自动重发。删除发送记录会丢失去重信息与队列。
 
@@ -472,7 +510,7 @@ flowchart TD
 - 内部 IPC 不是稳定的公开 API；Codex App 更新后可能出现不兼容。
 - 尚未加载的聊天可查看保存历史，发送前可能需要在 App 中打开一次。
 - SSH 连接需已有可非交互使用的认证；网关不提供 SSH 密码、主机指纹或 MFA 交互。
-- 云聊天、手机上传附件、SSH 文件下载尚未接入。
+- 云聊天、SSH 文件下载尚未接入。
 - 本地文件只允许访问聊天引用的工作目录及 Codex visualizations 内文件；目录外附件只显示描述。
 - 复杂 MCP 表单、身份验证挑战和部分特殊请求需要在桌面处理。
 - 保存历史的格式可能含上下文注入文本，手机排版与桌面不保证完全一致。

@@ -20,6 +20,8 @@ from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh
 from .create import create_empty, open_in_desktop, CreationError
 from .timeline import Timeline
 from .account import Account
+from .uploads import Uploads
+from .remote import upload_file
 
 
 class LiveSession:
@@ -39,6 +41,7 @@ class LiveSession:
         self.error = None
         self.viewers = 0
         self.watched = False
+        self.activity_only = False
         self.touched = time.monotonic()
         self.condition = threading.Condition(threading.RLock())
         self.attach_lock = threading.Lock()
@@ -84,8 +87,11 @@ class Bridge:
         self.hosts = AppHosts(codex_home)
         self.remote_bridges = {}
         self.host_errors = []
+        self.listed = set()
+        self.activity_following = False
         self.store = RemoteStore(alias) if alias else SessionStore(codex_home)
         self.catalog_reader = RemoteCatalog(alias) if alias else Catalog(codex_home, codex_bin)
+        self.uploads = Uploads(data_dir, (lambda *args: upload_file(alias, *args)) if alias else None)
         self.account = Account(codex_home, data_dir, codex_bin) if host == 'local' else None
         self.live = {}
         self.lock = threading.RLock()
@@ -177,6 +183,7 @@ class Bridge:
                 rows = bridge.store.list(limit=limit + offset, archived=archived, query=query)
                 rows = self.hosts.decorate(rows, bridge.host, label)
                 with bridge.lock:
+                    bridge.listed.update(row['id'] for row in rows)
                     for row in rows:
                         session = bridge.live.get(row['id'])
                         row['connected'] = bool(session and session.connected)
@@ -190,6 +197,47 @@ class Bridge:
         rows = [row for group, _ in results for row in group]
         rows.sort(key=lambda row: (row['recency'], row['id'], row['host']), reverse=True)
         return rows[offset:offset + limit]
+
+    def activity(self, identifiers):
+        if not isinstance(identifiers, list) or len(identifiers) > 500 or any(not isinstance(v, str) for v in identifiers):
+            raise ValueError('会话状态请求无效')
+        with self.lock:
+            sessions = []
+            for identifier in dict.fromkeys(identifiers):
+                if identifier not in self.listed:
+                    continue
+                session = self.live.get(identifier)
+                if session is None:
+                    session = self.live[identifier] = LiveSession(identifier)
+                    session.activity_only = True
+                session.touched = time.monotonic()
+                sessions.append(session)
+            pending = [s for s in sessions if not s.connected and time.monotonic() >= s.retry_at]
+            if pending and not self.activity_following:
+                self.activity_following = True
+                def follow():
+                    try:
+                        for session in pending:
+                            if self.closed.is_set(): break
+                            session.retry_at = time.monotonic() + 15
+                            self._attach(session, timeout=0)
+                    finally:
+                        with self.lock: self.activity_following = False
+                threading.Thread(target=follow, daemon=True).start()
+        rows = []
+        for session in sessions:
+            with session.condition:
+                state = session.state or {}
+                turns = ordered_turns(state)
+                last = next((t for t in reversed(turns) if t.get('turnId')), {})
+                rows.append({'id': session.id, 'host': self.host, 'connected': session.connected,
+                             'status': state.get('threadRuntimeStatus', {}).get('type') if session.connected else 'unknown',
+                             'turnId': last.get('turnId'), 'turnStatus': last.get('status')})
+        return rows
+
+    def upload(self, thread_id, identifier, name, data):
+        self.store.get(thread_id)  # Uploads do not activate a desktop chat.
+        return self.uploads.put(thread_id, identifier, name, data)
 
     def session(self, thread_id, attach=True, background=False, force=False):
         uuid.UUID(thread_id)
@@ -207,24 +255,25 @@ class Bridge:
             return session
         if attach and not session.connected:
             self._attach(session)
-        if session.state is None:
+        if session.state is None or session.activity_only:
             fallback = self.store.history(thread_id)
             with session.condition:
-                if session.state is None:
+                if session.state is None or session.activity_only:
                     session.set_history(fallback)
+                    session.activity_only = False
         return session
 
     def _refresh_async(self, session, force=False):
         with session.condition:
-            if session.connected or session.connecting or self.closed.is_set():
+            if (session.connected and not session.activity_only) or session.connecting or self.closed.is_set():
                 return
-            if not force and time.monotonic() < session.retry_at:
+            if not force and time.monotonic() < session.retry_at and not session.activity_only:
                 return
             session.connecting = True
             session.changed()
         def refresh():
             try:
-                if session.state is None:
+                if session.state is None or session.activity_only:
                     try:
                         fallback = self.store.history(session.id)
                         with session.condition:
@@ -232,6 +281,8 @@ class Bridge:
                     except (OSError, ValueError, KeyError, RemoteUnavailable, StoreUnavailable):
                         # A missing saved rollout must not prevent a live snapshot.
                         logging.getLogger(__name__).warning("Saved history unavailable; trying desktop snapshot")
+                    finally:
+                        session.activity_only = False
                 if not self.closed.is_set():
                     self._attach(session)
             except Exception:
@@ -426,11 +477,42 @@ class Bridge:
         with session.condition:
             artifacts = artifact_paths(session.state or {}, self.store.home) if self.host == "local" else {}
         view["files"] = [{"id": k, "name": v["name"], "reference": v["reference"], "image": v["image"]} for k, v in artifacts.items()]
-        with self.submit_lock:
-            view["submissions"] = [{"id": k.split(":")[1], "text": v["text"], "status": v["status"]}
-                                   for k, v in self.submissions.items()
-                                   if k.startswith(thread_id + ":") and v["status"] in ("queued", "unknown")]
+        self._submission_meta(session, view)
         return view
+
+    @staticmethod
+    def _goal_text(objective):
+        return ("请开启本会话的原生目标模式：先调用 create_goal，将下方原文设为 objective，"
+                "再持续推进该目标。不要只用文字声称已开启；若工具不可用，请明确说明。\n\n" + objective)
+
+    def _submission_meta(self, session, view):
+        with self.submit_lock:
+            entries = [(k.split(":")[1], copy.deepcopy(v)) for k, v in self.submissions.items()
+                       if k.startswith(session.id + ":")]
+        view["submissions"] = [{"id": k, "text": v["text"], "status": v["status"], **({'attachments': v['attachmentNames']} if v.get('attachmentNames') else {})}
+                               for k, v in entries if v["status"] in ("queued", "unknown")]
+        goals = [(k, v) for k, v in entries if v.get("workMode") == "goal"]
+        view["goalSubmission"] = None
+        if not goals:
+            return
+        key, entry = max(goals, key=lambda pair: pair[1]["at"])
+        if entry.get("goalConfirmed"):
+            return
+        goal = view.get("goal")
+        if goal and goal != entry.get("previousGoal") and goal.get("objective", "").strip() == entry["text"].strip():
+            with self.submit_lock:
+                self.submissions[session.id + ":" + key]["goalConfirmed"] = True
+                self._save_ledger()
+            return
+        status = "unknown" if entry["status"] == "unknown" else "pending"
+        with session.condition:
+            for turn in ordered_turns(session.state or {}):
+                params = turn.get("params", {})
+                if (params.get("clientUserMessageId") == key or
+                        any(item.get("text") == self._goal_text(entry["text"]) for item in params.get("input", []))):
+                    if turn.get("status") in ("completed", "failed", "interrupted"):
+                        status = "unconfirmed"
+        view["goalSubmission"] = {"id": key, "objective": entry["text"], "status": status}
 
     def artifact(self, thread_id, artifact_id):
         session = self.session(thread_id, attach=False)
@@ -460,10 +542,7 @@ class Bridge:
         artifacts = artifact_paths(file_state, self.store.home) if self.host == 'local' else {}
         result['files'] = [{'id': k, 'name': v['name'], 'reference': v['reference'], 'image': v['image']} for k, v in artifacts.items()]
         if mode != 'detail':
-            with self.submit_lock:
-                result['meta']['submissions'] = [{'id': k.split(':')[1], 'text': v['text'], 'status': v['status']}
-                                                 for k, v in self.submissions.items()
-                                                 if k.startswith(thread_id + ':') and v['status'] in ('queued', 'unknown')]
+            self._submission_meta(session, result['meta'])
         return result
 
     def catalog(self, thread_id, refresh=False):
@@ -473,7 +552,11 @@ class Bridge:
             model = session.state.get("latestModel")
             effort = session.state.get("latestReasoningEffort") or (session.state.get("latestThreadSettings") or {}).get("effort")
         catalog = self.catalog_reader.get(cwd, refresh=refresh)
-        return {**catalog, "currentModel": model, "currentEffort": effort}
+        with session.condition:
+            view = session.view()
+        return {**catalog, "currentModel": model, "currentEffort": effort,
+                'fastMode': {**catalog.get('fastMode', {}), 'allowed': view.get('provider') == 'openai' and catalog.get('fastMode', {}).get('allowed') is True},
+                **({'currentServiceTier': view['serviceTier']} if 'serviceTier' in view else {})}
 
     def _resolve_skills(self, session, skills):
         if not isinstance(skills, list) or len(skills) > 8 or not all(isinstance(s, str) for s in skills):
@@ -490,22 +573,34 @@ class Bridge:
             selected.append({"id": key, "name": skill["name"], "path": skill["path"]})
         return selected
 
-    def settings(self, thread_id, model, effort):
+    def settings(self, thread_id, model, effort, *, fast_mode=None):
         if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,199}", model):
             raise ValueError("模型 ID 格式不正确")
         if effort not in ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"):
             raise ValueError("请选择有效的推理强度")
+        if fast_mode is not None and not isinstance(fast_mode, bool):
+            raise ValueError('Fast 模式开关无效')
         session = self._target(thread_id)
-        known = next((m for m in self.catalog(thread_id)["models"] if m["id"] == model), None)
-        if known and effort not in known["efforts"]:
-            raise ValueError("这个模型不支持所选推理强度")
         with session.action_lock:
-            result = self._call(session, "thread-follower-update-thread-settings", {"threadSettings": {"model": model, "effort": effort}})
+            # Recheck login/model/policy on the execution host before a speed change.
+            catalog = self.catalog(thread_id, refresh=fast_mode is not None)
+            known = next((m for m in catalog["models"] if m["id"] == model), None)
+            if known and effort not in known["efforts"]:
+                raise ValueError("这个模型不支持所选推理强度")
+            settings = {'model': model, 'effort': effort}
+            if fast_mode is not None:
+                if not catalog.get('fastMode', {}).get('allowed') or not known or not known.get('fastTier'):
+                    raise ValueError('当前账号、模型或工作区不支持 Fast 模式，请刷新模型设置')
+                # null can inherit a default; "default" explicitly opts out of Fast.
+                settings['serviceTier'] = known['fastTier'] if fast_mode else 'default'
+            result = self._call(session, "thread-follower-update-thread-settings", {"threadSettings": settings})
         if not result.get("applied"):
             raise IPCError("桌面未应用模型设置，请刷新后重试")
         with session.condition:
-            confirmed = session.condition.wait_for(lambda: session.state.get("latestModel") == model and session.view().get("effort") == effort, timeout=5)
-        return {"applied": True, "confirmed": confirmed, "model": model, "effort": effort}
+            confirmed = session.condition.wait_for(lambda: session.state.get("latestModel") == model and session.view().get("effort") == effort and
+                (fast_mode is None or (session.state.get('latestThreadSettings') or {}).get('serviceTier') == settings['serviceTier']), timeout=5)
+        return {"applied": True, "confirmed": confirmed, "model": model, "effort": effort,
+                **({'serviceTier': settings['serviceTier']} if fast_mode is not None else {})}
 
     def cancel_queued(self, thread_id, submission_id):
         uuid.UUID(submission_id)
@@ -522,12 +617,20 @@ class Bridge:
                 session.changed()
         return {"status": "cancelled"}
 
-    def send(self, thread_id, text, submission_id, mode="send", skills=None):
+    def send(self, thread_id, text, submission_id, mode="send", skills=None, *, work_mode=None, plan_response=None, attachments=None):
         uuid.UUID(submission_id)
-        if not isinstance(text, str) or not text.strip() or len(text) > 100000:
+        identifiers = [] if attachments is None else attachments
+        files = self.uploads.resolve(thread_id, identifiers)
+        if not isinstance(text, str) or (not text.strip() and not files) or len(text) > 100000:
             raise ValueError("请输入 1–100000 字的消息")
         if mode not in ("send", "steer", "queue"):
             raise ValueError("未知发送方式")
+        if work_mode not in (None, "default", "plan", "goal"):
+            raise ValueError("未知工作模式")
+        if mode == "steer" and work_mode is not None:
+            raise ValueError("补充当前任务时不能切换工作模式")
+        if work_mode == "goal" and (mode != "send" or not text.strip() or len(text) > 4000):
+            raise ValueError("目标需在当前任务结束后直接发送，且不超过 4000 字")
         session = self._target(thread_id)
         selected = self._resolve_skills(session, [] if skills is None else skills)
         key = thread_id + ":" + submission_id
@@ -535,7 +638,8 @@ class Bridge:
             with self.submit_lock:
                 prior = self.submissions.get(key)
                 if prior:
-                    if prior["text"] != text or prior["mode"] != mode or prior.get("skills", []) != selected:
+                    if (prior["text"] != text or prior["mode"] != mode or prior.get("skills", []) != selected or
+                            prior.get("workMode") != work_mode or prior.get("planResponse") != plan_response or prior.get('attachments', []) != identifiers):
                         raise ValueError("同一消息标识不能用于不同内容")
                     return {"status": prior["status"], "duplicate": True, "id": submission_id}
             with session.condition:
@@ -544,8 +648,37 @@ class Bridge:
                     raise ValueError("Codex 正在执行。请选择「排队发送」或「补充当前任务」。")
                 if not active and mode == "steer":
                     raise ValueError("当前任务已经结束，请使用普通发送")
+                if work_mode == "goal":
+                    goal = session.state.get("threadGoal")
+                    if goal and goal.get("status") != "complete":
+                        raise ValueError("此聊天已有未完成目标，请先处理当前目标")
+                if work_mode is not None and not (session.state.get("latestModel") or
+                        (session.state.get("latestCollaborationMode") or {}).get("settings", {}).get("model")):
+                    raise ValueError("尚未取得桌面模型设置，请重新连接后再切换模式")
+                if plan_response is not None:
+                    pending = next((r for r in session.state.get("requests", [])
+                                    if r.get("id") == plan_response["requestId"] and r.get("method") == "item/plan/requestImplementation"), None)
+                    if pending is None:
+                        raise ValueError("此计划已处理或已过期，请刷新后查看最新计划")
+                    if plan_response["action"] == "implement":
+                        if text != "Implement the following plan:\n\n" + pending.get("params", {}).get("planContent", ""):
+                            raise ValueError("计划已更新，请刷新后重试")
+            if work_mode == "goal":
+                pending_view = session.view()
+                self._submission_meta(session, pending_view)
+                if (pending_view.get("goalSubmission") or {}).get("status") in ("pending", "unknown"):
+                    raise ValueError("上一条目标请求尚未确认，请先查看会话结果")
             with self.submit_lock:
                 entry = {"text": text, "mode": mode, "skills": selected, "status": "queued" if mode == "queue" else "unknown", "at": time.time()}
+                if identifiers:
+                    entry['attachments'] = identifiers
+                    entry['attachmentNames'] = [f['name'] for f in files]
+                if work_mode is not None:
+                    entry["workMode"] = work_mode
+                if work_mode == "goal":
+                    entry["previousGoal"] = pending_view.get("goal")
+                if plan_response is not None:
+                    entry["planResponse"] = plan_response
                 self.submissions[key] = entry
                 self._save_ledger()
             with session.condition:
@@ -572,15 +705,33 @@ class Bridge:
 
     def _dispatch(self, session, key, entry):
         submission_id = key.split(":")[1]
-        request = {"threadId": session.id, "input": [{"type": "text", "text": entry["text"], "text_elements": []}], "clientUserMessageId": submission_id}
+        text = self._goal_text(entry["text"]) if entry.get("workMode") == "goal" else entry["text"]
+        files = self.uploads.resolve(session.id, entry.get('attachments', []))
+        if files:
+            manifest = '# Attached files\n' + '\n'.join(json.dumps({'name': f['name'], 'path': f['path']}, ensure_ascii=False) for f in files)
+            text = manifest + '\n\n' + text if entry.get('workMode') == 'goal' else text + '\n\n' + manifest
+        request = {"threadId": session.id, "input": [{"type": "text", "text": text, "text_elements": []}], "clientUserMessageId": submission_id}
+        request['input'].extend({'type': 'localImage', 'path': f['path']} for f in files if f['image'])
+        context = {'attachments': [], 'commentAttachments': []}
+        if files:
+            context['fileAttachments'] = [{'path': f['path'], 'label': f['name']} for f in files]
+        if entry.get("workMode") is not None:
+            with session.condition:
+                current = session.state
+                model = current.get("latestModel") or (current.get("latestCollaborationMode") or {}).get("settings", {}).get("model")
+                effort = current.get("latestReasoningEffort") or (current.get("latestThreadSettings") or {}).get("effort")
+            if not model:
+                raise ValueError("尚未取得桌面模型设置，请重新连接后再切换模式")
+            request["collaborationMode"] = {"mode": "plan" if entry["workMode"] == "plan" else "default",
+                                            "settings": {"model": model, "reasoning_effort": effort, "developer_instructions": None}}
         request["input"].extend({"type": "skill", "name": s["name"], "path": s["path"]} for s in entry.get("skills", []))
         if entry["mode"] != "steer":
             response = self._call(session, "thread-follower-start-turn", {
-                "turnStart": {"request": request, "context": {"inheritThreadSettings": True, "attachments": [], "commentAttachments": []}}}, timeout=90)
+                "turnStart": {"request": request, "context": {"inheritThreadSettings": True, **context}}}, timeout=90)
         else:
             response = self._call(session, "thread-follower-steer-turn", {
                 "input": request["input"], "clientUserMessageId": submission_id,
-                "restoreMessage": {"request": request, "context": {"attachments": [], "commentAttachments": []}},
+                "restoreMessage": {"request": request, "context": context},
                 "attachments": []}, timeout=30)
         with self.submit_lock:
             self.submissions[key]["status"] = "accepted"
@@ -604,6 +755,13 @@ class Bridge:
 
     def respond(self, thread_id, request_id, response):
         session = self._target(thread_id)
+        plan_id = str(uuid.uuid5(uuid.UUID(thread_id), "plan:" + str(request_id)))
+        with self.submit_lock:
+            prior = copy.deepcopy(self.submissions.get(thread_id + ":" + plan_id))
+        if prior and prior.get("planResponse"):
+            if prior["planResponse"] != {"requestId": request_id, **response}:
+                raise ValueError("此计划已经提交了不同操作，请查看会话结果")
+            return {"status": prior["status"], "duplicate": True, "id": plan_id}
         with session.condition:
             async_pending = next((r for r in async_requests(session.state) if r["id"] == request_id), None)
         if async_pending:
@@ -626,6 +784,19 @@ class Bridge:
             raise ValueError("此类请求请在桌面 App 中处理")
         method = pending.get("method", "")
         params = pending.get("params", {})
+        if method == "item/plan/requestImplementation":
+            action = response.get("action")
+            if action == "implement" and set(response) == {"action"}:
+                plan = params.get("planContent")
+                if not isinstance(plan, str) or not plan.strip():
+                    raise ValueError("计划内容尚未加载，请刷新后重试")
+                text, work_mode = "Implement the following plan:\n\n" + plan, "default"
+            elif action == "revise" and set(response) == {"action", "text"} and isinstance(response.get("text"), str) and response["text"].strip():
+                text, work_mode = response["text"], "plan"
+            else:
+                raise ValueError("请选择执行计划或填写修改意见")
+            return self.send(thread_id, text, plan_id, work_mode=work_mode,
+                             plan_response={"requestId": request_id, **response})
         mapping = {
             "item/commandExecution/requestApproval": "thread-follower-command-approval-decision",
             "item/fileChange/requestApproval": "thread-follower-file-approval-decision",
