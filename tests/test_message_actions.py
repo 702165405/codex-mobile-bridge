@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from bridge.create import CreationError, fork_copy
+from bridge.create import CreationError, ForkUnavailable, fork_copy
 from bridge.ipc import IPCError, DesktopIPC
 from bridge.service import Bridge, LiveSession
 from bridge.remote import RemoteStore
@@ -123,6 +123,23 @@ class MessageActionTests(unittest.TestCase):
         with self.assertRaises(CreationError): self.bridge.message_action(self.source, fork_body)
         self.assertEqual(self.bridge.message_action(self.source, fork_body)['status'], 'unknown')
         self.fork.assert_called_once()
+
+    def test_unsupported_runtime_can_retry_same_intent_after_update(self):
+        body = self.body('first', 'fork', 'assistant')
+        self.fork.side_effect = [ForkUnavailable('update required'), self.child]
+        with self.assertRaises(ForkUnavailable):
+            self.bridge.message_action(self.source, body)
+        self.assertNotIn(body['id'], self.bridge.message_actions)
+        self.assertEqual(self.bridge.message_action(self.source, body)['id'], self.child)
+
+    def test_remote_capability_failure_can_retry_without_replaying_a_fork(self):
+        self.bridge.host = 'remote-ssh-discovered:fixture'
+        self.bridge.hosts.hosts = lambda: {self.bridge.host: {'alias': 'fixture'}}
+        body = self.body('first', 'fork', 'assistant')
+        with patch('bridge.service.ssh_read', side_effect=[{'unavailable': 'update required'}, {'id': self.child}]):
+            with self.assertRaises(ForkUnavailable):
+                self.bridge.message_action(self.source, body)
+            self.assertEqual(self.bridge.message_action(self.source, body)['id'], self.child)
 
     def test_remote_fork_executes_on_original_host_with_encoded_payload(self):
         self.bridge.host = 'remote-ssh-discovered:fixture'

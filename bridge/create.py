@@ -20,6 +20,10 @@ class CreationError(RuntimeError):
     pass
 
 
+class ForkUnavailable(CreationError):
+    """The capability check failed before any thread could be created."""
+
+
 def _runtime_operation(executable, codex_home, cwd, operation):
     if not executable:
         raise CreationError('找不到 Codex 运行时，请在电脑启动器的运行配置中指定路径')
@@ -107,7 +111,7 @@ def create_empty(executable, codex_home, cwd, title):
 
 def fork_copy(executable, codex_home, cwd, source_id, turn_id, title, settings):
     if not executable:
-        raise CreationError('找不到 Codex 运行时，请在电脑启动器的运行配置中指定路径')
+        raise ForkUnavailable('找不到 Codex 运行时，请在电脑启动器的运行配置中指定路径')
     # Check the bundled runtime, not a guessed version. Older servers can silently
     # ignore unknown fields; that must never copy later turns or start a goal.
     kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
@@ -116,10 +120,10 @@ def fork_copy(executable, codex_home, cwd, source_id, turn_id, title, settings):
                                 capture_output=True, timeout=30, **kwargs)
         paths = list(Path(folder).rglob('ThreadForkParams.json'))
         if result.returncode or not paths:
-            raise CreationError('此 Codex 版本暂不支持安全分支，请更新电脑 Codex App')
+            raise ForkUnavailable('此 Codex 版本暂不支持安全分支，请更新电脑 Codex App')
         properties = json.loads(paths[0].read_text(encoding='utf-8')).get('properties', {})
         if not {'lastTurnId', 'deferGoalContinuation'} <= properties.keys():
-            raise CreationError('此 Codex 版本暂不支持安全分支，请更新电脑 Codex App')
+            raise ForkUnavailable('此 Codex 版本暂不支持安全分支，请更新电脑 Codex App')
     def fork(request):
         result = request('thread/fork', {'threadId': source_id, 'lastTurnId': turn_id,
                                         'deferGoalContinuation': True, 'ephemeral': False,

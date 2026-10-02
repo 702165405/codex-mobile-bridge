@@ -17,7 +17,7 @@ from .store import SessionStore, StoreUnavailable
 from .files import artifact_paths
 from .catalog import Catalog
 from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh_read, payload
-from .create import create_empty, fork_copy, open_in_desktop, CreationError
+from .create import create_empty, fork_copy, open_in_desktop, CreationError, ForkUnavailable
 from .timeline import Timeline
 from .account import Account
 from .uploads import Uploads
@@ -241,15 +241,24 @@ class Bridge:
                 if action != 'edit':
                     title = (entry['sourceTitle'][:90] + ' · 分支')
                     args = dict(cwd=snapshot['cwd'], source_id=thread_id, turn_id=entry['turnId'], title=title, settings=settings)
-                    if self.host == 'local':
-                        child = fork_copy(self.catalog_reader.executable, self.codex_home, **args)
-                    else:
-                        host = self.hosts.hosts()[self.host]
-                        source = Path(__file__).with_name('create.py').read_text(encoding='utf-8')
-                        source += '\nimport shutil\nhome=Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex")))\n'
-                        source += 'runtime=shutil.which("codex") or str(Path.home()/".local/bin/codex")\n'
-                        source += 'print(json.dumps({"id":fork_copy(runtime, home, **' + payload(args) + ')}))\n'
-                        child = ssh_read(host['alias'], source, timeout=120)['id']
+                    try:
+                        if self.host == 'local':
+                            child = fork_copy(self.catalog_reader.executable, self.codex_home, **args)
+                        else:
+                            host = self.hosts.hosts()[self.host]
+                            source = Path(__file__).with_name('create.py').read_text(encoding='utf-8')
+                            source += '\nimport shutil\nhome=Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex")))\n'
+                            source += 'runtime=shutil.which("codex") or str(Path.home()/".local/bin/codex")\n'
+                            source += 'try:\n print(json.dumps({"id":fork_copy(runtime, home, **' + payload(args) + ')}))\n'
+                            source += 'except ForkUnavailable as exc:\n print(json.dumps({"unavailable":str(exc)}))\n'
+                            result = ssh_read(host['alias'], source, timeout=120)
+                            if 'unavailable' in result:
+                                raise ForkUnavailable(result['unavailable'])
+                            child = result['id']
+                    except ForkUnavailable:
+                        del self.message_actions[identifier]
+                        self._save_actions()
+                        raise
                     uuid.UUID(child)
                     if child == thread_id:
                         raise CreationError('分支结果无效，请检查桌面聊天列表')
