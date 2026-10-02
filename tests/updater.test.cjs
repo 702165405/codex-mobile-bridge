@@ -2,13 +2,20 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path');
 const {generateKeyPairSync,sign,createHash}=require('node:crypto');
-const {Updater,manifest,compare,assetName,releaseUrl,allowedUrl,RELEASES}=require('../desktop/updater.cjs');
+const {Updater,manifest,compare,assetName,releaseUrl,allowedUrl,RELEASES,transfer}=require('../desktop/updater.cjs');
 const keys=generateKeyPairSync('ed25519');
 const current='0.2.0-beta.5',next='0.2.0-beta.6',platform='darwin',arch='arm64';
 function signed(value,key=keys.privateKey){const payload=Buffer.from(JSON.stringify(value));return Buffer.from(JSON.stringify({payload:payload.toString('base64'),signature:sign(null,payload,key).toString('base64')}));}
 const bytes=Buffer.from('fixture zip');
 const info=()=>({schema:1,version:next,notes:'Notes <script> are text',assets:{'darwin-arm64':{name:assetName(next,platform,arch),size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}}});
 const validate=value=>manifest(value,keys.publicKey,{current,platform,arch,expected:next});
+test('release metadata requests JSON while downloadable assets request bytes',async()=>{
+  for(const url of [RELEASES,releaseUrl(next,'bridge-update.json'),releaseUrl(next,assetName(next,platform,arch))]){
+    const expected=url===RELEASES?'application/vnd.github+json':'application/octet-stream';
+    const fetch=async(address,options)=>new Response('fixture',{status:options.headers.Accept===expected?200:415});
+    assert.equal((await transfer(fetch,url,{limit:100})).bytes.toString(),'fixture');
+  }
+});
 test('versions order beta, rc and stable numerically and reject ambiguous versions',()=>{
   assert.ok(compare('0.2.0-beta.10','0.2.0-beta.9')>0);assert.ok(compare('0.2.0-rc.0','0.2.0-beta.99')>0);
   assert.ok(compare('0.2.0','0.2.0-rc.99')>0);assert.ok(compare('0.3.0-beta.0','0.2.99')>0);

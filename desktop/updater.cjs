@@ -37,7 +37,7 @@ function manifest(bytes,key,{current,platform,arch,expected}){
   return {version:value.version,notes:typeof value.notes==='string'?value.notes.slice(0,20000):'',asset:{...asset,url:releaseUrl(value.version,name)}};
 }
 async function transfer(fetch,url,{limit,signal,file,onProgress=()=>{}}){
-  const response=await fetch(allowedUrl(url),{signal,headers:{'User-Agent':'Codex-Mobile-Bridge','Accept':'application/octet-stream'}});
+  const response=await fetch(allowedUrl(url),{signal,headers:{'User-Agent':'Codex-Mobile-Bridge','Accept':url===RELEASES?'application/vnd.github+json':'application/octet-stream'}});
   if(!response.ok){await response.body?.cancel();throw Error('无法获取更新，请检查网络后重试。');}
   const reader=response.body.getReader(),chunks=[],hash=createHash('sha256');let size=0,handle;
   try{

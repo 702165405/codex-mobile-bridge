@@ -1,12 +1,21 @@
 # 验证记录
 
-## beta.6：手机通知、登录有效期与设备管理（2026-10-02，发布前验证）
+## beta.7：GitHub 更新查询修复（2026-10-02，发布前验证）
+
+- 对真实 GitHub Releases API 复现旧更新器 HTTP 415，响应明确指出版本列表不接受 `application/octet-stream`。原请求仍有 58 次配额，排除限流。
+- 版本列表改用 `application/vnd.github+json`，下载资产仍使用二进制请求头；新增请求格式回归，Node 更新器 11 项通过。真实 API 已返回 HTTP 200；使用 App 相同的 Electron 网络传输及签名校验，分别按 Mac arm64 / Windows x64 平台识别到公开 beta.6。命令行 Node 直连 GitHub 下载域名曾超时，不能与 App 的系统代理传输结果混用。
+- beta.5 / beta.6 的旧客户端需手动安装一次修正版。beta.6 安装包及功能验证仍有效；已发布标签和资产保持不变。
+
+## beta.6：手机通知、登录有效期与设备管理（2026-10-02，已发布）
 
 - macOS 与 Windows 共用 Bark / ntfy 独立通知通道；每个关注聊天可选择成功完成提醒，默认关闭。真实 iPhone 已确认收到 Bark 测试通知；自动检查只发送到隔离本机服务。
 - 新增可配置登录有效期、持久登录记录、电脑端登录设备列表、撤销登录和 IP 白/黑名单。记录代表浏览器登录，不使用硬件 MAC；IP 封禁影响共用该地址的设备。有限时长不随访问延长，0 无服务端到期时间；浏览器清理 Cookie、退出和域名变更仍需重新登录。
 - Python 共 165 项：161 通过，4 项 Windows 专用检查在 Mac 跳过。桌面/手机 Node 36 项通过，更新器 Node 10 项通过。覆盖到期边界、重启保持、认证配置变更失效、撤销持久化、IP 优先级、伪造转发头拒绝和本机管理通道。
 - PyInstaller 打包运行时已通过隔离端到端检查：登录、重启、撤销、封禁后重新登录拒绝、规则恢复、白名单、修改有效期失效；Bark / ntfy 的真实 HTTP 请求格式、密钥隐藏和独立错误处理通过。未发送模型请求或操作真实聊天。
-- macOS 候选 App 的完整性签名通过。公开发布以 GitHub macOS / Windows 构建和打包检查结果为准；CI 通过后补充发布记录。
+- macOS 候选 App 的完整性签名、实际界面启动、设备规则保存及无横向溢出检查通过。
+- [Python CI](https://github.com/try2love/codex-mobile-bridge/actions/runs/36970735722) 的 Windows/Ubuntu Python 3.9、3.13 和 macOS 3.13 矩阵全部通过；[Desktop builds](https://github.com/try2love/codex-mobile-bridge/actions/runs/36970735741) 的 Mac 与 Windows 均通过。Windows 检查真实打包 App 的登录有效期保存、设备页 IP 规则保存和双语布局；两个平台都运行打包通知、持久登录、封禁后登录拒绝及更新/恢复检查。
+- [签名发布流程](https://github.com/try2love/codex-mobile-bridge/actions/runs/36971300975) 对提交 `cd39fa2098031d0be62ff95441fa30e8f5c1e7da` 再次完成双平台构建和检查，于 2026-10-02 发布 [v0.2.0-beta.6](https://github.com/try2love/codex-mobile-bridge/releases/tag/v0.2.0-beta.6)：macOS arm64 ZIP、Windows x64 安装 EXE / ZIP、SHA256SUMS 和签名更新清单齐全。
+- Windows 证据来自 GitHub Windows runner 与真实打包程序，未在用户 Windows 电脑或真实手机上重新做端到端交互。新增设备规则测试使用隔离数据，未改变用户正在运行的网关设置。
 
 ## 点击自动连接与缺失 WAL 读取修复（2026-10-02，未发布）
 
