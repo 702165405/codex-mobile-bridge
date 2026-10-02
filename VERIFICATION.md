@@ -1,10 +1,12 @@
 # 验证记录
 
-## v1.0.0 发布准备（2026-10-02）
+## v1.0.0 正式发布（2026-10-02）
 
 - 版本号与 lockfile 统一为 `1.0.0`，发布说明、双语 README 和产品页明确提供 Intel Mac x64 DMG、Apple Silicon arm64 DMG、Windows x64 Setup.exe；三种架构保留 ZIP 更新包。
 - 本地完整 Python 测试共 181 项：177 通过，4 项 Windows 专用检查跳过；前端/桌面 Node 49 项及更新器 Node 12 项通过。核对三个安装包入口、版本一致性及 Git diff 空白检查通过。
-- 沿用既有更新签名公钥和三平台发布流程。该记录为发布前本地结果；正式安装包、签名清单与公开发布结果以对应 GitHub Actions 和 Release 为准。本次发布准备没有更改正在运行的局域网配置。
+- [版本标签测试](https://github.com/try2love/codex-mobile-bridge/actions/runs/37004590211) 的 Windows/Ubuntu Python 3.9、3.13 与 macOS Python 3.13 矩阵全部通过；[正式发布流程](https://github.com/try2love/codex-mobile-bridge/actions/runs/37004590655) 的 Intel Mac x64、Apple Silicon arm64、Windows x64 构建及打包程序检查全部通过，包含 Mac DMG/ZIP 安装、实际 App 启动、通知、登录设备、扫码和升级/失败恢复。
+- [v1.0.0](https://github.com/try2love/codex-mobile-bridge/releases/tag/v1.0.0) 已作为最新正式版公开发布，来源提交 `6e0c2191e73c09fda6d531883a49e4f6da72df73`。8 个附件齐全；6 个安装/更新包的 GitHub SHA-256 与公开校验文件一致，三个平台的更新清单均通过既有公钥验签，文件名、大小与哈希匹配。两份 README 和官网同步了三类安装包入口。
+- 远端平台验证来自 GitHub 原生 runner，未重新在用户的 Intel Mac、Windows 或实体手机上复验；真实重置卡消费仍只做模拟路径检查。Mac 为 ad-hoc 签名且未获 Apple 公证，Windows 无证书签名。本次公开发布未替换本地试用安装或更改其局域网配置。
 
 ## 手机首屏账户加载与 API 状态（2026-10-02，本地试用）
 
