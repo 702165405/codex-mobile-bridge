@@ -1,5 +1,13 @@
 # 验证记录
 
+## Windows 更新目录占用修复（2026-10-02，源码已同步，尚未发布）
+
+- beta.7 与已发布的 1.0.0 启动独立更新器时没有指定工作目录。隔离测试从安装目录启动旧方式的更新器，Windows 实际返回 `WinError 32`，阻止旧安装目录移到 `previous`。原打包测试从仓库目录启动，未覆盖此条件。
+- 修复提交 `e0bed28` 让更新器从安装目录的父目录启动；该目录同时位于安装与事务目录之外，避免后续 App/网关继承会被替换或清理的目录。真实主进程安装交接测试在修复前失败、修复后通过。
+- [桌面构建与测试](https://github.com/try2love/codex-mobile-bridge/actions/runs/37006940725) 的 Windows、Intel Mac 和 Apple Silicon Mac 全部通过。Windows 更新器 14 项检查通过；实际打包程序依次复现旧方式的目录占用、完成正常升级、完成故障回滚，三个场景均恢复网关并逐字节保留四份配置。两种 Mac 的升级与回滚检查通过。
+- [跨平台 Python 矩阵](https://github.com/try2love/codex-mobile-bridge/actions/runs/37006940792) 全部通过。本地额外通过 49 项前端/桌面检查、13 项更新器检查（1 项 Windows 专用检查跳过）及 10 项 Python 更新事务检查。
+- 证据来自隔离测试和 GitHub 原生 runner，未直接检查用户 Windows 电脑上的占用进程。修复未更新 v1.0.0 标签或公开安装包；受影响的旧客户端使用自身更新器，首次升级可停止网关并退出后用目标版本的 Setup.exe 覆盖安装，详见更新文档。
+
 ## v1.0.0 正式发布（2026-10-02）
 
 - 版本号与 lockfile 统一为 `1.0.0`，发布说明、双语 README 和产品页明确提供 Intel Mac x64 DMG、Apple Silicon arm64 DMG、Windows x64 Setup.exe；三种架构保留 ZIP 更新包。
