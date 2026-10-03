@@ -90,7 +90,7 @@ async function main(){
     assert.equal(await client.evaluate('snapshot.dataDir'),data);
     assert.equal(await client.evaluate('snapshot.update.state'),'unsupported');
     assert.equal(await client.evaluate('snapshot.runtime.running'),false);
-    await client.evaluate("applyLanguage('en')");
+    await client.evaluate("document.getElementById('language').value='en';document.getElementById('language').dispatchEvent(new Event('change'))");
     await until(()=>client.evaluate("document.documentElement.lang==='en'"),'English UI');
     for(const [width,height] of [[1100,850],[820,640]]){
       await client.call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});

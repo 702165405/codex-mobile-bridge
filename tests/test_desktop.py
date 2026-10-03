@@ -22,7 +22,8 @@ class AddressTests(unittest.TestCase):
 
     def test_dns_fallback_without_interface_command(self):
         from run import addresses
-        with patch('run.Path.exists', return_value=False), patch('run.socket.getaddrinfo') as lookup:
+        with patch('run.Path.exists', return_value=False), patch('run.shutil.which', return_value=None), \
+                patch('run.socket.getaddrinfo') as lookup:
             lookup.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.168.1.6', 0))]
             self.assertEqual(addresses(), ['127.0.0.1', '192.168.1.6', 'localhost'])
 

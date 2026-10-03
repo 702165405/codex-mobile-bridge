@@ -246,6 +246,8 @@ const en={
   "正在验证并准备更新…": "Verifying and preparing update…",
   "即将重启应用…": "Restarting the app…",
   "请使用安装版 App 检查更新。": "Use the installed app to check for updates.",
+  "当前系统或运行方式不支持应用内更新，请从发布页面下载新版。": "In-app updates are unavailable on this system or in this run mode. Download the new version from the releases page.",
+  "无法打开桌面聊天，请在桌面登录会话中运行网关，并检查 xdg-open 和 codex:// 协议关联": "Cannot open the desktop chat. Run the gateway in your desktop login session and check xdg-open and the codex:// protocol handler.",
   "已更新到 ": "Updated to ",
   "上次更新未完成，已恢复原版本。": "The last update failed. The previous version was restored.",
   "更新恢复未完成，请查看数据目录中的 desktop-update.log。": "Recovery could not finish. See desktop-update.log in your data folder.",

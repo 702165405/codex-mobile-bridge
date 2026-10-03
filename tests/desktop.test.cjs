@@ -360,6 +360,14 @@ test('download and retry states disable updates without permanently locking sett
   assert.equal(ui.nodes.get('install-update').disabled,false);assert.equal(ui.nodes.get('settings').inert,false);
 });
 
+test('unsupported updates explain manual downloads in both languages',async()=>{
+  const ui=await renderer();ui.value.update={state:'unsupported',current:'1.2.2'};
+  await ui.poll();assert.equal(ui.nodes.get('check-update').disabled,true);
+  assert.equal(ui.nodes.get('install-update').hidden,true);
+  assert.match(ui.nodes.get('update-state').textContent,/发布页面/);
+  ui.run("applyLanguage('en')");assert.match(ui.nodes.get('update-state').textContent,/releases page/);
+});
+
 test('login validity is collected as zero and survives polling and language edits',async()=>{
   const ui=await renderer();const field=ui.nodes.get('session-hours');field.id='session-hours';field.type='number';field.closest=selector=>selector==='[data-panel]'?({dataset:{panel:'network'}}):null;
   ui.nodes.get('settings').querySelectorAll=()=>[field];

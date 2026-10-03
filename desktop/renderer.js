@@ -192,7 +192,7 @@ $('language').onchange=async()=>{
 BridgeI18n.apply();
 $('add-connection').onclick=addConnection;
 
-const updateMessages={idle:'检查是否有新版本。',checking:'正在检查更新…',current:'当前已是最新可用版本。',available:'有新版本可用。',downloading:'正在下载更新…',preparing:'正在验证并准备更新…',restarting:'即将重启应用…',unsupported:'请使用安装版 App 检查更新。'};
+const updateMessages={idle:'检查是否有新版本。',checking:'正在检查更新…',current:'当前已是最新可用版本。',available:'有新版本可用。',downloading:'正在下载更新…',preparing:'正在验证并准备更新…',restarting:'即将重启应用…',unsupported:'当前系统或运行方式不支持应用内更新，请从发布页面下载新版。'};
 let updateBusy=false;
 function renderUpdate(){
   const value=snapshot?.update;if(!value)return;
