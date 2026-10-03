@@ -87,9 +87,11 @@ jobs:
           - os: ubuntu-22.04
             arch: x64
             deb-arch: amd64
+            appimage-arch: x86_64
           - os: ubuntu-22.04-arm
             arch: arm64
             deb-arch: arm64
+            appimage-arch: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -113,7 +115,9 @@ jobs:
       - run: npm run build:linux -- --${{ matrix.arch }}
       - name: Install and verify the Debian package
         run: |
-          package=(dist/desktop/*-Linux-${{ matrix.arch }}.deb)
+          shopt -s nullglob
+          package=(dist/desktop/*-Linux-${{ matrix.deb-arch }}.deb)
+          test "${#package[@]}" -eq 1
           test "$(dpkg-deb -f "${package[0]}" Architecture)" = '${{ matrix.deb-arch }}'
           test "$(dpkg-deb -f "${package[0]}" Version)" = "$(node -p 'require("./package.json").version')"
           sudo apt-get install -y "./${package[0]}"
@@ -126,7 +130,9 @@ jobs:
           CMB_TEST_RUNTIME="$runtime" dbus-run-session -- xvfb-run -a npm run test:pairing
       - name: Extract and launch the AppImage payload
         run: |
-          image=("$GITHUB_WORKSPACE"/dist/desktop/*-Linux-${{ matrix.arch }}.AppImage)
+          shopt -s nullglob
+          image=("$GITHUB_WORKSPACE"/dist/desktop/*-Linux-${{ matrix.appimage-arch }}.AppImage)
+          test "${#image[@]}" -eq 1
           mkdir -p "$RUNNER_TEMP/bridge-appimage"
           cd "$RUNNER_TEMP/bridge-appimage"
           "${image[0]}" --appimage-extract >/dev/null
@@ -143,4 +149,5 @@ jobs:
         if: always()
         with:
           name: linux-smoke-screenshots-${{ matrix.arch }}
+          include-hidden-files: true
           path: .tmp/linux-app-*/desktop-*.png

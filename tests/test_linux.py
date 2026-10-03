@@ -31,7 +31,7 @@ class LinuxTests(unittest.TestCase):
             with patch('bridge.catalog.sys.platform', 'linux'), \
                     patch('bridge.catalog.shutil.which', side_effect=lambda name: str(launcher) if name == 'chatgpt' else '/cli/codex'), \
                     patch('bridge.catalog.os.access', return_value=True):
-                self.assertEqual(Catalog.find_runtime(), runtime)
+                self.assertEqual(Catalog.find_runtime(), runtime.resolve())
 
     def test_runtime_fallback_and_missing_install(self):
         with patch('bridge.catalog.sys.platform', 'linux'), patch.object(Path, 'is_file', return_value=False):
@@ -56,7 +56,7 @@ class LinuxTests(unittest.TestCase):
                 runtime.chmod(0o600)
                 self.assertIsNone(Catalog.find_linux_runtime())
                 runtime.chmod(0o700)
-                self.assertEqual(Catalog.find_linux_runtime(), runtime)
+                self.assertEqual(Catalog.find_linux_runtime(), runtime.resolve())
 
     def test_desktop_link_is_literal_and_keeps_remote_host(self):
         tid = '11111111-1111-4111-8111-111111111111'

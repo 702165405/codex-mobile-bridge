@@ -48,7 +48,7 @@ async function checkElf(file){
   }finally{await handle.close();}
 }
 async function cleanupGateway(worker){
-  await worker('stop');
+  if((await worker('snapshot')).runtime.running)await worker('stop');
 }
 async function main(){
   assert.equal(process.platform,'linux');assert.ok(['x64','arm64'].includes(process.arch));

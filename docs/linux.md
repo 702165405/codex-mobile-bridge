@@ -9,7 +9,7 @@ verified releases.
 
 | Target | Build baseline | Packages | Current validation |
 | --- | --- | --- | --- |
-| Linux x64 / amd64 | Ubuntu 22.04 x64 | .deb, AppImage | Windows-hosted unit tests; native CI and VM execution pending |
+| Linux x64 / amd64 | Ubuntu 22.04 x64 | amd64.deb, x86_64.AppImage | Native packages built; installation validation pending |
 | Linux ARM64 / aarch64 | Ubuntu 22.04 ARM64 | .deb, AppImage | Asset/architecture unit tests; native CI and hardware execution pending |
 
 ARM means ARM64 here, not 32-bit ARM. Windows ARM64 is outside this change.
@@ -62,6 +62,8 @@ npm run build:linux -- --arm64
 
 The build hook rejects missing or mismatched gateway metadata. Outputs go to
 `dist/desktop/Codex-Mobile-Bridge-<version>-Linux-<arch>.deb` and `.AppImage`.
+For x64, electron-builder uses `amd64` in .deb filenames and `x86_64` in
+AppImage filenames. Both ARM64 package formats use `arm64`.
 The existing release workflow collects both architectures and includes these
 files in `SHA256SUMS.txt`. Linux is deliberately excluded from the macOS/Windows
 signed in-app update manifest until a Linux update/recovery strategy is tested.
@@ -75,7 +77,7 @@ that runs ChatGPT/Codex, never with `sudo`.
 For a .deb, replace the example filename with the actual downloaded package:
 
 ```sh
-sudo apt install ./Codex-Mobile-Bridge-VERSION-Linux-x64.deb
+sudo apt install ./Codex-Mobile-Bridge-VERSION-Linux-amd64.deb
 codex-mobile-bridge
 ```
 
