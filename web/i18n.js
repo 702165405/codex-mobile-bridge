@@ -3,6 +3,12 @@
 const BridgeI18n=(()=>{
 const en={
   "PushPlus 通知": "PushPlus notifications",
+  "使用微信登录 PushPlus、关注服务号并完成实名认证，复制个人资料中的 Token。勾选启用并保存后发送测试通知，再在需要提醒的聊天中开启提醒。": "Sign in to PushPlus with WeChat, follow its service account, complete real-name verification, and copy the token from your profile. Enable and save the channel, send a test notification, then enable reminders in each chat you want to follow.",
+  "PushPlus 需付费实名认证，最低 3.9 元；认证后可使用基础额度，无需另购会员。费用以官方页面为准。": "PushPlus requires paid real-name verification, starting at CNY 3.90. Verified users can use the basic allowance without a membership. Check the official page for current pricing.",
+  "微信渠道普通实名用户每天 200 次请求、每分钟 5 次；相同内容每小时最多 3 条，失败请求也计入额度。超限可能暂停推送。": "For ordinary verified users, the WeChat channel allows 200 requests per day and 5 per minute, with up to 3 identical messages per hour. Failed requests also count. Exceeding limits may suspend delivery.",
+  "PushPlus 官网与 Token ↗": "PushPlus website and token ↗",
+  "实名认证与费用 ↗": "Verification and pricing ↗",
+  "额度与频率限制 ↗": "Quotas and rate limits ↗",
   "启用 PushPlus": "Enable PushPlus",
   "发送 PushPlus 测试通知": "Send PushPlus test notification",
   "修改聊天名称": "Rename chat",

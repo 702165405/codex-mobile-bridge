@@ -448,6 +448,14 @@ Thanks to the [LINUX DO](https://linux.do/) community and its members for their 
 
 ### PushPlus notifications and chat names
 
+PushPlus delivers notifications through WeChat and **requires paid real-name verification, starting at CNY 3.90**. Verified users can use the basic allowance without purchasing a membership. This is a verification fee charged by PushPlus, not an unlimited messaging plan. Check the [official verification page](https://www.pushplus.plus/center/real-auth?source=push) for current pricing and the [verification guide](https://www.pushplus.plus/doc/function/verify.html) for requirements.
+
+1. Sign in to [PushPlus](https://www.pushplus.plus/) with WeChat, follow its service account, and complete real-name verification under Personal center → Profile.
+2. Copy the user token from your [profile](https://www.pushplus.plus/uc-profile.html). If you have changed the default channel, select WeChat under Function settings → Default delivery settings.
+3. Save the token and send a test as described below, then enable reminders in each chat. An accepted API request does not guarantee delivery; confirm that the test arrives in WeChat.
+
+**Limits:** the WeChat channel allows ordinary verified users 200 requests per day and 5 per minute; members receive 2,000 per day and 5 per 10 seconds. Both allow up to 3 identical messages per hour. Failed requests count toward the allowance, and exceeding limits may suspend delivery. All chats and other apps using the same account share this allowance. See the official [quota guide](https://www.pushplus.plus/doc/guide/use.html) and [delivery restrictions](https://www.pushplus.plus/doc/help/limit.html).
+
 - Click **PushPlus notifications** below the web chat list, enter the token from [PushPlus](https://www.pushplus.plus/), enable the channel, save, and test the saved settings. The desktop notification panel also supports PushPlus.
 - PushPlus settings are shared across the gateway. Changing the token changes the PushPlus recipient for all watched chats. Every signed-in device can edit these settings; passwordless access also grants this permission to devices that can reach the gateway.
 - Enable reminders in each chat you want to follow, optionally including successful run completion. Notifications continue after closing the page while the gateway remains running.

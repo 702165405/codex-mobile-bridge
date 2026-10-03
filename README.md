@@ -738,6 +738,14 @@ python3 -B -m unittest discover -s tests -v
 
 ### PushPlus 通知与聊天重命名
 
+PushPlus 通过微信接收通知，**接入前需要付费实名认证，最低 3.9 元**。认证后可使用基础额度，无需另购会员；3.9 元是实名认证费，不是无限量推送套餐。费用由 PushPlus 收取，以[官方实名认证页面](https://www.pushplus.plus/center/real-auth?source=push)为准；流程见[官方实名认证说明](https://www.pushplus.plus/doc/function/verify.html)。
+
+1. 在 [PushPlus 官网](https://www.pushplus.plus/)使用微信登录，关注其服务号，在「个人中心 → 个人资料 → 实名认证」完成认证。
+2. 在[个人资料](https://www.pushplus.plus/uc-profile.html)复制用户 Token；如果修改过默认渠道，在「功能设置 → 默认推送配置」确认使用微信渠道。
+3. 按下方说明保存 Token、发送测试通知，并在每个需要接收通知的聊天中开启提醒。接口接受请求不等于最终送达，请在微信确认实际收到了测试通知。
+
+**额度限制：**微信渠道普通实名用户每天 200 次请求、每分钟 5 次；会员每天 2,000 次、每 10 秒 5 次。两者均限制相同内容每小时最多 3 条。失败请求也计入额度，超限可能暂停推送；多个聊天及其他共用此账户的应用共同消耗额度。详见[官方额度说明](https://www.pushplus.plus/doc/guide/use.html)与[推送限制](https://www.pushplus.plus/doc/help/limit.html)。
+
 - 网页聊天列表底部点击 **PushPlus 通知**，填写在 [PushPlus 官网](https://www.pushplus.plus/) 获取的 Token，勾选启用并保存，然后点击 **测试已保存的配置**。桌面启动器的「手机通知」中也可以配置和测试。
 - PushPlus 配置由整个网关共享，更换 Token 会改变所有已关注聊天的 PushPlus 接收目标。所有已登录设备均可修改；开启免密访问时，能够访问网关的设备也拥有此权限。
 - 在需要通知的聊天中点击 **提醒**，开启聊天提醒；可另外勾选 **运行完成后通知**。网关持续运行时，关闭网页仍会发送通知。PushPlus 可与 Bark、ntfy 同时使用。
