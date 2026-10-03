@@ -14,6 +14,8 @@
     "pack:desktop": "electron-builder --dir --publish never",
     "build:mac": "electron-builder --mac dmg zip --publish never",
     "build:windows": "electron-builder --win nsis zip --x64 --publish never",
+    "build:linux": "electron-builder --linux AppImage deb --publish never",
+    "test:linux-app": "node scripts/smoke-linux.cjs",
     "test:pairing": "electron scripts/smoke-pairing.cjs",
     "test:updater": "node --test tests/updater.test.cjs tests/update-handoff.test.cjs"
   },
@@ -64,6 +66,17 @@
         "zip"
       ],
       "artifactName": "Codex-Mobile-Bridge-${version}-Windows-${arch}.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "desktop/assets/icon.png",
+      "category": "Development",
+      "executableName": "codex-mobile-bridge",
+      "artifactName": "Codex-Mobile-Bridge-${version}-Linux-${arch}.${ext}",
+      "maintainer": "try2love <try2love@users.noreply.github.com>"
+    },
+    "deb": {
+      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libuuid1", "libsecret-1-0", "libgbm1", "libasound2", "iproute2"]
     },
     "nsis": {
       "artifactName": "Codex-Mobile-Bridge-${version}-Windows-${arch}-Setup.${ext}",

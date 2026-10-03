@@ -242,6 +242,9 @@ test('Cloudflare installer selects official platform assets and rejects unsafe r
   assert.equal(cloudflared.assetName('darwin','arm64'),'cloudflared-darwin-arm64.tgz');
   assert.equal(cloudflared.assetName('darwin','x64'),'cloudflared-darwin-amd64.tgz');
   assert.equal(cloudflared.assetName('win32','x64'),'cloudflared-windows-amd64.exe');
+  assert.equal(cloudflared.assetName('linux','x64'),'cloudflared-linux-amd64');
+  assert.equal(cloudflared.assetName('linux','arm64'),'cloudflared-linux-arm64');
+  assert.throws(()=>cloudflared.assetName('linux','arm'),/手动/);
   assert.throws(()=>cloudflared.assetName('win32','arm64'),/手动/);
   let calls=0;
   const fetch=async()=>{calls++;return new Response(null,{status:302,headers:{location:'https://evil.example/cloudflared'}});};
@@ -283,6 +286,27 @@ test('Mac archive reader extracts only the regular executable and rejects symlin
   assert.throws(()=>cloudflared.executableFromArchive(archive('../cloudflared'),'mac.tgz'),/未找到/);
   assert.throws(()=>cloudflared.executableFromArchive(archive('cloudflared','2'),'mac.tgz'),/格式/);
   assert.throws(()=>cloudflared.executableFromArchive(archive('cloudflared','0',9999),'mac.tgz'),/不完整/);
+});
+
+for(const arch of ['x64','arm64'])test('Linux '+arch+' installer verifies the raw executable before probing',async()=>{
+  const fs=require('node:fs/promises'),os=require('node:os');
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'cloudflared-linux-'));
+  const bytes=Buffer.from('synthetic ELF'),name=cloudflared.assetName('linux',arch),tag='2026.1.0';
+  const asset={name,size:bytes.length,digest:'sha256:'+cloudflared.digest(bytes),browser_download_url:'https://github.com/cloudflare/cloudflared/releases/download/'+tag+'/'+name};
+  let checks=0,bad=false;
+  const fetch=async url=>new Response(url.includes('api.github.com')?JSON.stringify({tag_name:tag,assets:[{...asset,digest:bad?'sha256:'+'0'.repeat(64):asset.digest}]}):bytes);
+  try{
+    const args={dataDir:dir,platform:'linux',arch,fetch,check:async file=>{
+      checks++;assert.deepEqual(await fs.readFile(file),bytes);
+      if(process.platform!=='win32')assert.equal((await fs.stat(file)).mode&0o777,0o700);
+      return 'cloudflared version '+tag;
+    }};
+    bad=true;await assert.rejects(cloudflared.install(args),/SHA-256/);assert.equal(checks,0);
+    bad=false;const result=await cloudflared.install(args);assert.equal(checks,1);
+    assert.equal(path.basename(result.path),'cloudflared');
+    assert.equal(path.basename(path.dirname(result.path)),'cloudflared-'+tag+'-'+arch);
+    assert.deepEqual(await fs.readFile(result.path),bytes);
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
 test('missing Cloudflare opens setup before start and installing preserves drafts',async()=>{
