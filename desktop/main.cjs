@@ -11,6 +11,7 @@ const cloudflared=require('./cloudflared.cjs');
 const {Updater,allowedUrl}=require('./updater.cjs');
 const {spawn}=require('node:child_process');
 const {randomUUID}=require('node:crypto');
+const {interfaces}=require('./network.cjs');
 let language='zh-CN';
 const t=text=>translate(text,language);
 const root=path.resolve(__dirname,'..');
@@ -44,7 +45,7 @@ function worker(action,payload){
   if(writes&&updater?.busy)return Promise.reject(Error('正在更新应用，请稍候。'));
   if(writes)workerWrites++;
   if(action==='snapshot'&&snapshotPending)return snapshotPending;
-  const result=runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload).then(value=>action==='snapshot'?{...value,cloudflaredInstall:installStatus,update:updater?.status(),updateResult:updateResult(),updateManaged:updateManaged()}:value).finally(()=>{if(writes)workerWrites--;});
+  const result=runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload).then(value=>['snapshot','save'].includes(action)?{...value,networkInterfaces:interfaces(),cloudflaredInstall:installStatus,update:updater?.status(),updateResult:updateResult(),updateManaged:updateManaged()}:value).finally(()=>{if(writes)workerWrites--;});
   if(action==='snapshot')snapshotPending=result.then(value=>{lastSnapshot=value;return value;}).finally(()=>{snapshotPending=null;});
   return action==='snapshot'?snapshotPending:result;
 }
@@ -163,6 +164,9 @@ function register(){
   ipcMain.handle('bridge:open',async(event,target)=>{
     authorize(event);
     if(target==='releases')return shell.openExternal('https://github.com/try2love/codex-mobile-bridge/releases');
+    if(target==='project-home')return shell.openExternal('https://github.com/try2love/codex-mobile-bridge');
+    if(target==='project-issues')return shell.openExternal('https://github.com/try2love/codex-mobile-bridge/issues');
+    if(target==='project-pulls')return shell.openExternal('https://github.com/try2love/codex-mobile-bridge/pulls');
     if(target==='credentials')return shell.openPath(path.join(dataDir,'首次登录.txt'));
     if(target==='data')return shell.openPath(dataDir);
     if(target==='cloudflare-help')return shell.openExternal('https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/');

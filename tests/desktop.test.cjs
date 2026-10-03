@@ -348,3 +348,30 @@ test('failed device policy save retains the editable draft',async()=>{
   assert.equal(ui.run('devicesDirty'),true);assert.equal(ui.nodes.get('ip-allowlist').value,'192.0.2.7');
   assert.equal(ui.nodes.get('device-policy').inert,false);
 });
+
+test('LAN selection drafts survive polling and are saved with local browser access disabled',async()=>{
+  const ui=await renderer();
+  ui.value.networkInterfaces=[{name:'Ethernet',address:'192.168.1.7'},{name:'VMnet8',address:'192.168.55.1'}];
+  await ui.poll();
+  assert.deepEqual(Array.from(ui.run('lanDraft')),['192.168.1.7','192.168.55.1']);
+  ui.nodes.get('lan-scope').value='selected';
+  ui.nodes.get('local-access').checked=false;
+  ui.run("lanDraft=['192.168.1.7'];savedFields=fieldValues();savedLan='[]';updateDirty()");
+  await ui.poll();
+  assert.deepEqual(Array.from(ui.run('collect().preferences.lanAddresses')),['192.168.1.7']);
+  assert.equal(ui.run('collect().preferences.localAccess'),false);
+  let saved;
+  ui.api.save=async value=>{saved=value;ui.value.preferences={...ui.value.preferences,...value.preferences};return structuredClone(ui.value);};
+  await ui.nodes.get('settings').onsubmit({preventDefault(){}});
+  assert.deepEqual(Array.from(saved.preferences.lanAddresses),['192.168.1.7']);
+  assert.equal(ui.run('dirty'),false);
+  ui.value.runtime.running=true;await ui.poll();
+  assert.equal(ui.nodes.get('lan-scope').disabled,true);
+  assert.equal(ui.nodes.get('local-access').disabled,true);
+});
+
+test('project navigation uses fixed project destinations',async()=>{
+  const ui=await renderer(),opened=[];ui.api.open=async target=>opened.push(target);
+  for(const name of ['project-home','project-issues','project-pulls'])await ui.nodes.get(name).onclick();
+  assert.deepEqual(opened,['project-home','project-issues','project-pulls']);
+});

@@ -15,7 +15,7 @@ from .lifecycle import read_record, request_stop, request_pairing
 from .notifications import Notifications, read_json, write_json, settings, save_settings, publish, publish_bark, publish_pushplus
 from .store import SessionStore, StoreUnavailable
 from .remote import AppHosts
-from . import access
+from . import access, network
 
 
 class Desktop:
@@ -39,7 +39,7 @@ class Desktop:
         detected = str(executable) if executable.is_file() else shutil.which(name) or ''
         if not detected and sys.platform == 'darwin':
             detected = next((value for value in ('/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared') if Path(value).is_file()), '')
-        defaults = {'autoStart': False, 'port': 8787, 'lan': True, 'tunnel': (self.data_dir/'外网地址.txt').exists(),
+        defaults = {'autoStart': False, 'port': 8787, 'lan': True, 'lanAddresses': None, 'localAccess': True, 'tunnel': (self.data_dir/'外网地址.txt').exists(),
                     'cloudflared': detected,
                     'codexHome': os.environ.get('CODEX_HOME', str(Path.home()/'.codex')),
                     'ipcPath': '', 'codexBin': ''}
@@ -56,10 +56,14 @@ class Desktop:
         try:
             connection = http.client.HTTPConnection('127.0.0.1', preferences['port'], timeout=1)
             try:
-                connection.request('GET', '/api/auth')
+                connection.request('GET', '/api/health')
                 response = connection.getresponse()
                 payload = json.loads(response.read(65536))
-                connected = response.status == 200 and 'authenticated' in payload and 'passwordless' in payload
+                if response.status != 200 or payload.get('service') != 'codex-mobile-bridge':
+                    connection.request('GET', '/api/auth')
+                    response = connection.getresponse()
+                    payload = json.loads(response.read(65536))
+                connected = response.status == 200 and (payload.get('service') == 'codex-mobile-bridge' or ('authenticated' in payload and 'passwordless' in payload))
                 supports = bool(payload.get('notifications'))
                 instance = payload.get('instanceId')
             finally:
@@ -76,7 +80,10 @@ class Desktop:
         preferences = self.preferences()
         runtime = self.status()
         from run import addresses
-        hosts = addresses() if preferences['lan'] else ['127.0.0.1']
+        selected = preferences.get('lanAddresses')
+        hosts = (addresses() if selected is None else ['127.0.0.1'] + selected) if preferences['lan'] else ['127.0.0.1']
+        if not preferences['localAccess']:
+            hosts = [host for host in hosts if host not in ('127.0.0.1', 'localhost')]
         urls = [f'http://{host}:{preferences["port"]}/' for host in hosts if host != 'localhost']
         quick = read_json(self.data_dir/'cloudflare-status.json', {})
         if not runtime['running'] or quick.get('pid') != runtime.get('pid'):
@@ -112,7 +119,8 @@ class Desktop:
         port = preferences['port']
         if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
             raise ValueError('端口必须为 1–65535')
-        for key in ('lan', 'tunnel', 'autoStart'):
+        preferences['lanAddresses'] = network.selected_addresses(preferences['lanAddresses'])
+        for key in ('lan', 'tunnel', 'autoStart', 'localAccess'):
             if not isinstance(preferences[key], bool):
                 raise ValueError('网络开关格式不正确')
         for key in ('codexHome', 'codexBin', 'ipcPath', 'cloudflared'):
@@ -151,6 +159,8 @@ class Desktop:
         config['origins'] = origins
         config['publicUrl'] = access.public_url(preferences)
         config['connections'] = preferences['connections']
+        config['lanAddresses'] = preferences['lanAddresses']
+        config['localAccess'] = preferences['localAccess']
         write_json(self.config_path, config)
         write_json(self.data_dir/'desktop.json', preferences)
         if password:
@@ -183,15 +193,16 @@ class Desktop:
         access.validate_connections(preferences)
         if any(c['enabled'] and c['accessMode'] == 'server' for c in preferences['connections']) and not shutil.which('ssh'):
             raise ValueError('未找到 OpenSSH 客户端；请先安装或启用系统 SSH 客户端')
-        probe = socket.socket()
-        if os.name != "nt":
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            probe.bind(('0.0.0.0' if preferences['lan'] else '127.0.0.1', preferences['port']))
-        except OSError as exc:
-            raise ValueError('端口已被占用，请检查现有网关；不会自动更换端口') from exc
-        finally:
-            probe.close()
+        for address in network.bindings(preferences):
+            probe = socket.socket()
+            if os.name != "nt":
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind((address, preferences['port']))
+            except OSError as exc:
+                raise ValueError('所选地址不可用或端口已被占用，请检查网卡与端口；不会自动开放其他地址') from exc
+            finally:
+                probe.close()
         command = [sys.executable] if getattr(sys, 'frozen', False) else [sys.executable, str(Path(__file__).resolve().parents[1]/'desktop.py')]
         command += ['serve', '--data-dir', str(self.data_dir)]
         kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == 'nt' else {'start_new_session': True}

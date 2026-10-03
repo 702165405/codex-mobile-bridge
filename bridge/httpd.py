@@ -57,17 +57,24 @@ class GatewayServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, bridge, config, web_dir, data_dir=None):
-        self.bridge = bridge
-        self.notifications = None
-        self.instance_id = secrets.token_hex(16)
-        self.auth = Auth(config["auth"], data_dir)
-        self.origins = set(config["origins"])
-        self.pairing = Pairing(self.auth, self.origins)
-        self.hosts = {urlsplit(o).netloc for o in self.origins}
-        self.secure_hosts = {urlsplit(o).netloc for o in self.origins if o.startswith("https://")}
-        self.web_dir = Path(web_dir)
-        self.slots = threading.BoundedSemaphore(48)
+    def __init__(self, address, bridge, config, web_dir, data_dir=None, shared=None):
+        self.local_access = config.get('localAccess', True)
+        if shared is None:
+            self.bridge = bridge
+            self.notifications = None
+            self.instance_id = secrets.token_hex(16)
+            self.auth = Auth(config["auth"], data_dir)
+            self.origins = set(config["origins"])
+            self.pairing = Pairing(self.auth, self.origins)
+            self.hosts = {urlsplit(o).netloc for o in self.origins}
+            self.secure_hosts = {urlsplit(o).netloc for o in self.origins if o.startswith("https://")}
+            self.web_dir = Path(web_dir)
+            self.slots = threading.BoundedSemaphore(48)
+        else:
+            # Listeners serve one gateway: shared sessions, pairing, limits and
+            # mutable tunnel origins, with a single notification manager.
+            for name in ('bridge', 'notifications', 'instance_id', 'auth', 'origins', 'pairing', 'hosts', 'secure_hosts', 'web_dir', 'slots'):
+                setattr(self, name, getattr(shared, name))
         super().__init__(address, Handler)
 
     def server_bind(self):
@@ -162,6 +169,10 @@ class Handler(BaseHTTPRequestHandler):
     def check_request(self, write=False):
         if len(self.headers.get_all("Host", [])) != 1 or self.headers.get("Host") not in self.server.hosts:
             raise PermissionError("此访问地址未在网关配置中允许")
+        host = self.headers.get('Host', '')
+        local_host = urlsplit('http://' + host).hostname in ('127.0.0.1', 'localhost')
+        if not self.server.local_access and (local_host or (self.connection.getsockname()[0] == '127.0.0.1' and host not in self.server.secure_hosts)):
+            raise PermissionError('本机网页访问已关闭')
         origin = self.headers.get("Origin")
         if (origin and origin not in self.server.origins) or (write and not origin):
             raise PermissionError("不允许跨站请求")
@@ -204,6 +215,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_method(self, write):
         try:
+            if not write and self.path == '/api/health':
+                expected = {'127.0.0.1:' + str(self.server.server_port), 'localhost:' + str(self.server.server_port)}
+                if (self.client_address[0] != '127.0.0.1' or self.connection.getsockname()[0] != '127.0.0.1'
+                        or self.headers.get_all('Host', []) not in [[host] for host in expected]
+                        or self.headers.get('Origin') or self.headers.get('Sec-Fetch-Site') == 'cross-site'):
+                    raise PermissionError('仅允许本机状态检查')
+                return self.output(200, {'service': 'codex-mobile-bridge', 'instanceId': self.server.instance_id,
+                                         'notifications': self.server.notifications is not None})
             self.check_request(write)
             path = urlsplit(self.path).path
             query = parse_qs(urlsplit(self.path).query)
