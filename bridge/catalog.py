@@ -9,6 +9,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -29,6 +30,8 @@ class Catalog:
 
     @staticmethod
     def find_runtime():
+        if sys.platform == 'linux':
+            return Catalog.find_linux_runtime()
         if os.name == 'nt':
             local = Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData/Local')))
             candidates = sorted((local / 'OpenAI/Codex/bin').glob('*/codex.exe'),
@@ -58,6 +61,26 @@ class Catalog:
             if candidate.is_file():
                 return candidate
         return None
+
+    @staticmethod
+    def find_linux_runtime():
+        # Prefer a desktop-bundled runtime; resolve symlinked launchers first.
+        roots = []
+        for name in ('chatgpt', 'codex'):
+            launcher = shutil.which(name)
+            if launcher:
+                roots.append(Path(launcher).resolve().parent)
+        roots.extend(Path(folder) for folder in
+                     ('/opt/ChatGPT', '/opt/chatgpt', '/opt/Codex', '/opt/codex',
+                      '/usr/lib/chatgpt', '/usr/lib/codex'))
+        for root in roots:
+            for relative in ('resources/codex-cli/bin/codex', 'resources/codex'):
+                candidate = root / relative
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    return candidate
+        # Nonstandard packages can still use the explicit codexBin setting.
+        executable = shutil.which('codex')
+        return Path(executable) if executable else None
 
     def _fetch(self, cwd):
         if not self.executable:
