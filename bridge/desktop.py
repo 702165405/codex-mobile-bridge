@@ -82,7 +82,9 @@ class Desktop:
         if not runtime['running'] or quick.get('pid') != runtime.get('pid'):
             quick = {}
         public = self.data_dir/'外网地址.txt'
-        if runtime['running'] and preferences['tunnel'] and public.exists() and quick.get('state') != 'failed':
+        # Never offer a Quick Tunnel URL unless cloudflared says it is still ready.
+        # A lost tunnel keeps its old text for a moment but its DNS record is gone.
+        if runtime['running'] and preferences['tunnel'] and public.exists() and quick.get('state') == 'ready':
             value = public.read_text(encoding='utf-8').splitlines()[0]
             if value.startswith('https://'):
                 urls.insert(0, value)

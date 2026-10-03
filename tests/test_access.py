@@ -19,6 +19,16 @@ import run
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class LineStream:
+    def __init__(self, lines, gate):
+        self.lines = lines
+        self.gate = gate
+
+    def __iter__(self):
+        yield from self.lines
+        self.gate.wait(2)
+
+
 class AccessTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=ROOT/'.tmp')
@@ -284,3 +294,41 @@ class ConcurrentRuntimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, '隧道已停止'): tunnel.start()
             self.assertTrue(errors)
             tunnel.on_origin.assert_not_called()
+
+    def test_quick_tunnel_creates_new_url_after_tunnel_not_found(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as directory:
+            data = Path(directory)
+            executable = data/'cloudflared'
+            executable.touch()
+            old_gate, new_gate = threading.Event(), threading.Event()
+            old_process = MagicMock(stdout=LineStream([
+                'https://old.trycloudflare.com',
+                'Registered tunnel connection',
+                'ERR Connection terminated error="Unauthorized: Tunnel not found"',
+            ], old_gate))
+            old_process.poll.return_value = None
+            old_process.terminate.side_effect = old_gate.set
+            new_process = MagicMock(stdout=LineStream([
+                'https://new.trycloudflare.com',
+                'Registered tunnel connection',
+            ], new_gate))
+            new_process.poll.return_value = None
+            new_process.terminate.side_effect = new_gate.set
+            tunnel = QuickTunnel(executable, 8787, data, MagicMock())
+            tunnel.RESTART_DELAY = 0
+
+            with patch('bridge.tunnel.subprocess.Popen', side_effect=[old_process, new_process]):
+                starter = threading.Thread(target=tunnel.start)
+                starter.start()
+                self.assertEqual(starter.join(3), None)
+                self.assertEqual(tunnel.url, 'https://old.trycloudflare.com')
+                deadline = 3
+                while deadline > 0 and tunnel.url != 'https://new.trycloudflare.com':
+                    deadline -= .05
+                    threading.Event().wait(.05)
+                self.assertEqual(tunnel.url, 'https://new.trycloudflare.com')
+                self.assertEqual(tunnel.on_origin.call_args_list[0].args, ('https://old.trycloudflare.com',))
+                self.assertEqual(tunnel.on_origin.call_args_list[-1].args, ('https://new.trycloudflare.com',))
+                tunnel.close()
+                old_process.terminate.assert_called_once()
+                new_process.terminate.assert_called_once()
