@@ -12,6 +12,14 @@ from bridge.create import CreationError, open_in_desktop
 
 
 class LinuxTests(unittest.TestCase):
+    def test_ubuntu_chatgpt_package_layout(self):
+        runtime = Path('/usr/lib/chatgpt/resources/codex')
+        with patch('bridge.catalog.sys.platform', 'linux'), \
+                patch('bridge.catalog.shutil.which', return_value=None), \
+                patch.object(Path, 'is_file', autospec=True, side_effect=lambda path: path == runtime), \
+                patch('bridge.catalog.os.access', return_value=True):
+            self.assertEqual(Catalog.find_runtime(), runtime)
+
     def test_bundled_runtime_precedes_path_cli(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

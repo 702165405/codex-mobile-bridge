@@ -28,6 +28,7 @@
   "build": {
     "appId": "io.github.try2love.codexmobilebridge",
     "productName": "Codex Mobile Bridge",
+    "beforePack": "./scripts/verify-build.cjs",
     "directories": {
       "output": "dist/desktop"
     },

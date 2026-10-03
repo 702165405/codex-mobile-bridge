@@ -238,6 +238,23 @@ test('QR PNG decodes to the exact one-time fragment URL without exposing it in m
 });
 
 const cloudflared=require('../desktop/cloudflared.cjs');
+test('packaging rejects a gateway from another architecture, OS or version',async()=>{
+  const fs=require('node:fs/promises'),os=require('node:os'),{Arch}=require('builder-util');
+  const verify=require('../scripts/verify-build.cjs'),root=await fs.mkdtemp(path.join(os.tmpdir(),'gateway-build-'));
+  const context={packager:{projectDir:root,appInfo:{version:'1.2.2'}},arch:Arch.arm64,electronPlatformName:'linux'};
+  try{
+    await fs.mkdir(path.join(root,'dist/gateway'),{recursive:true});
+    const write=value=>fs.writeFile(path.join(root,'dist/update-version.json'),JSON.stringify(value));
+    const valid={platform:'linux',arch:'arm64',version:'1.2.2'};
+    await fs.writeFile(path.join(root,'dist/gateway/codex-mobile-gateway'),'fixture');
+    for(const wrong of [{arch:'x64'},{platform:'darwin'},{version:'1.2.1'}]){
+      await write({...valid,...wrong});await assert.rejects(verify(context),/does not match/);
+    }
+    await write(valid);await verify(context);
+    await fs.unlink(path.join(root,'dist/gateway/codex-mobile-gateway'));
+    await assert.rejects(verify(context),/ENOENT/);
+  }finally{await fs.rm(root,{recursive:true,force:true});}
+});
 test('Cloudflare installer selects official platform assets and rejects unsafe redirects',async()=>{
   assert.equal(cloudflared.assetName('darwin','arm64'),'cloudflared-darwin-arm64.tgz');
   assert.equal(cloudflared.assetName('darwin','x64'),'cloudflared-darwin-amd64.tgz');
