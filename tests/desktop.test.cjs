@@ -238,6 +238,32 @@ test('QR PNG decodes to the exact one-time fragment URL without exposing it in m
 });
 
 const cloudflared=require('../desktop/cloudflared.cjs');
+test('Linux CI artifact selectors match electron-builder architecture names',()=>{
+  const fs=require('node:fs'),yaml=require('js-yaml'),{Arch,getArtifactArchName}=require('builder-util');
+  const job=yaml.load(fs.readFileSync(path.join(__dirname,'../.github/workflows/desktop.yml'),'utf8')).jobs.linux;
+  for(const row of job.strategy.matrix.include){
+    for(const [stepName,extension] of [['Install and verify the Debian package','deb'],['Extract and launch the AppImage payload','AppImage']]){
+      const script=job.steps.find(step=>step.name===stepName).run.replace(/\$\{\{ matrix\.([\w-]+) \}\}/g,(_,key)=>row[key]);
+      assert.ok(script.includes(`*-Linux-${getArtifactArchName(Arch[row.arch],extension)}.${extension}`),`${row.arch} ${extension} selector`);
+    }
+  }
+});
+test('Linux smoke cleanup does not stop an already stopped gateway',async()=>{
+  const {cleanupGateway}=require('../scripts/smoke-linux.cjs');let running=true,stops=0;
+  const worker=async action=>{
+    if(action==='snapshot')return {runtime:{running}};
+    assert.equal(action,'stop');if(!running)throw Error('No gateway control record');
+    running=false;stops++;
+  };
+  await cleanupGateway(worker);await cleanupGateway(worker);assert.equal(stops,1);
+});
+test('Linux smoke cleanup preserves unexpected stop errors',async()=>{
+  const {cleanupGateway}=require('../scripts/smoke-linux.cjs');
+  await assert.rejects(cleanupGateway(async action=>{
+    if(action==='snapshot')return {runtime:{running:true}};
+    throw Error('owned gateway failed to stop');
+  }),/failed to stop/);
+});
 test('packaging rejects a gateway from another architecture, OS or version',async()=>{
   const fs=require('node:fs/promises'),os=require('node:os'),{Arch}=require('builder-util');
   const verify=require('../scripts/verify-build.cjs'),root=await fs.mkdtemp(path.join(os.tmpdir(),'gateway-build-'));

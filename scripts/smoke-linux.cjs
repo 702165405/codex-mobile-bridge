@@ -47,6 +47,9 @@ async function checkElf(file){
     assert.equal(header.readUInt16LE(18),{x64:62,arm64:183}[process.arch],'Wrong binary architecture: '+file);
   }finally{await handle.close();}
 }
+async function cleanupGateway(worker){
+  await worker('stop');
+}
 async function main(){
   assert.equal(process.platform,'linux');assert.ok(['x64','arm64'].includes(process.arch));
   assert.notEqual(process.getuid(),0,'Run the app as a regular desktop user');
@@ -117,7 +120,8 @@ async function main(){
       child.kill();await Promise.race([exited,delay(3000)]);
       if(child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await exited;}
     }
-    await worker('stop');
+    await cleanupGateway(worker);
   }
 }
-main().catch(error=>{console.error(error);process.exitCode=1;});
+if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});
+module.exports={cleanupGateway};
