@@ -18,6 +18,8 @@
 
 > 社区项目，与 OpenAI 无隶属关系。支持 macOS 和 Windows，依赖 Codex App 的内部 IPC；各平台的实测范围见 [验证记录](VERIFICATION.md)。App 更新后可能需要适配。
 
+Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明见 [Linux 文档](docs/linux.md)。已配置 `.deb` 和 AppImage 构建；尚未完成原生安装包与真实桌面 IPC 验收，现有 v1.2.2 Release 不包含这些新包。
+
 ## 消息编辑、分支与复制
 
 - 用户消息下方可复制内容。最近一条选择「编辑并重新发送」；更早的消息选择「编辑并新建分支」，原会话保留。

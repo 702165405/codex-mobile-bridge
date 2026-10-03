@@ -18,6 +18,8 @@ The phone and desktop use the same chat. Read replies, send messages, choose mod
 
 > Community project, not affiliated with OpenAI. Supports macOS and Windows and depends on internal Codex App IPC. See [verification records](VERIFICATION.md) for what was actually tested. App updates may require compatibility changes.
 
+Experimental Linux x64 / ARM64 integration, Ubuntu 22.04 builds, and VMware networking are covered in the [Linux guide](docs/linux.md). The .deb and AppImage build jobs are configured, but native package and real desktop IPC acceptance are still pending. These new packages are not part of the existing v1.2.2 release.
+
 ## Edit, branch and copy messages
 
 - Copy user messages from their action row. Choose **Edit and resend** on the latest user message, or **Edit in new branch** on an older message to keep the original conversation.
