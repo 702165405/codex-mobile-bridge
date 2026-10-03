@@ -165,3 +165,16 @@ class CloudflareSetupTests(unittest.TestCase):
             self.assertEqual(desktop.snapshot()['quickTunnel']['state'], 'failed')
             desktop.status = lambda: {'running': False, 'pid': None}
             self.assertEqual(desktop.snapshot()['quickTunnel'], {})
+
+    def test_quick_tunnel_url_is_hidden_when_tunnel_is_reconnecting(self):
+        from bridge.notifications import write_json
+        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as directory:
+            data = Path(directory)
+            desktop = Desktop(data)
+            desktop.status = lambda: {'running': True, 'pid': 100}
+            write_json(data/'desktop.json', {'tunnel': True, 'cloudflared': ''})
+            (data/'外网地址.txt').write_text('https://old.trycloudflare.com\n', encoding='utf-8')
+            write_json(data/'cloudflare-status.json', {'pid': 100, 'state': 'ready', 'message': ''})
+            self.assertIn('https://old.trycloudflare.com', desktop.snapshot()['urls'])
+            write_json(data/'cloudflare-status.json', {'pid': 100, 'state': 'reconnecting', 'message': ''})
+            self.assertNotIn('https://old.trycloudflare.com', desktop.snapshot()['urls'])
