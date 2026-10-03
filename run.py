@@ -145,7 +145,17 @@ def main(connections=None):
             ssh_tunnel.start()
         if args.tunnel:
             print("正在建立临时 HTTPS 外网连接…", flush=True)
+            quick_origin = None
             def allow_origin(origin):
+                nonlocal quick_origin
+                if quick_origin and quick_origin != origin:
+                    # A new Quick Tunnel has a new random hostname.  Remove the
+                    # obsolete origin instead of leaving it trusted forever.
+                    server.origins.discard(quick_origin)
+                    old_host = urlsplit(quick_origin).netloc
+                    server.hosts.discard(old_host)
+                    server.secure_hosts.discard(old_host)
+                quick_origin = origin
                 server.origins.add(origin)
                 host = urlsplit(origin).netloc
                 server.hosts.add(host)

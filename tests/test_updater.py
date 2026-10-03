@@ -110,9 +110,9 @@ class TransactionTests(unittest.TestCase):
             def wait(self, timeout): pass
         return Child()
 
-    def run_update(self, health=lambda *args: None, wait=lambda pid: None):
+    def run_update(self, health=lambda *args: None, wait=lambda pid: None, desktop=None):
         with patch.object(updater, 'registry_version'):
-            return updater.apply(self.plan_file, desktop=self.desktop, wait=wait,
+            return updater.apply(self.plan_file, desktop=desktop or self.desktop, wait=wait,
                                  launch=self.launch, health=health, start=self.start)
 
     def test_success_stops_and_restarts_gateway_and_keeps_backup(self):
@@ -141,6 +141,105 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(self.run_update()['state'], 'failed')
         self.assertNotIn('stop', self.calls)
         self.assertEqual((self.target / 'version').read_text(), 'old')
+
+    def test_transient_gateway_status_is_retried(self):
+        delayed = iter([{'running': False, 'portOccupied': False, 'instanceId': None}, None])
+        outer = self
+        class Desktop:
+            def status(self):
+                value = next(delayed, None)
+                return value or dict(outer.state)
+            def stop(self):
+                outer.calls.append('stop')
+                outer.state.update(running=False, instanceId=None)
+        result = self.run_update(desktop=Desktop())
+        self.assertEqual(result['state'], 'updated')
+        self.assertEqual(self.calls, ['stop', 'launch-new', 'start-new'])
+
+    def test_pending_transaction_is_rejected_until_helper_exits(self):
+        transaction = self.root / '.cmb-update-pending'
+        transaction.mkdir()
+        updater.write_json(transaction/'plan.json', {'target': str(self.target)})
+        (transaction/'helper.json').write_text(json.dumps({'pid': updater.os.getpid()}))
+        with self.assertRaisesRegex(ValueError, '上一次更新事务尚未完成'):
+            updater.reject_pending_transaction(self.target)
+
+    def test_stale_pending_transaction_is_removed(self):
+        transaction = self.root / '.cmb-update-stale'
+        transaction.mkdir()
+        updater.write_json(transaction/'plan.json', {'target': str(self.target)})
+        updater.os.utime(transaction, (0, 0))
+        updater.reject_pending_transaction(self.target)
+        self.assertFalse(transaction.exists())
+
+    def test_stale_live_pid_record_is_removed(self):
+        transaction = self.root / '.cmb-update-reused-pid'
+        transaction.mkdir()
+        updater.write_json(transaction/'plan.json', {'target': str(self.target)})
+        (transaction/'helper.json').write_text(json.dumps({'pid': updater.os.getpid()}))
+        updater.os.utime(transaction, (0, 0))
+        updater.reject_pending_transaction(self.target)
+        self.assertFalse(transaction.exists())
+
+    def test_recovered_transactions_are_cleaned_but_unresolved_failures_remain(self):
+        recovered = self.root / '.cmb-update-recovered'
+        unresolved = self.root / '.cmb-update-unresolved'
+        recovered.mkdir(); unresolved.mkdir()
+        for transaction in (recovered, unresolved):
+            updater.write_json(transaction/'plan.json', {'target': str(self.target)})
+        updater.write_json(recovered/'result.json', {'state': 'failed', 'recovered': True})
+        updater.write_json(unresolved/'result.json', {'state': 'failed', 'recovered': False})
+        updater.clean_transactions(self.target)
+        self.assertFalse(recovered.exists())
+        self.assertTrue(unresolved.exists())
+
+    def test_crashed_swap_preserves_backup_even_with_dead_or_stale_helper(self):
+        transaction = self.root / '.cmb-update-crashed'
+        (transaction/'previous').mkdir(parents=True)
+        backup = transaction/'previous/version'
+        backup.write_text('old')
+        updater.write_json(transaction/'plan.json', {'target': str(self.target)})
+        updater.write_json(transaction/'helper.json', {'pid': 999999})
+        for stale in (False, True):
+            if stale:
+                updater.os.utime(transaction, (0, 0))
+            with patch.object(updater, 'process_exists', return_value=False):
+                with self.assertRaisesRegex(ValueError, '已保留备份'):
+                    updater.reject_pending_transaction(self.target)
+            updater.clean_transactions(self.target)
+            self.assertEqual(backup.read_text(), 'old')
+
+    def test_started_helper_without_result_is_never_discarded_by_age(self):
+        transaction = self.root / '.cmb-update-started'
+        transaction.mkdir()
+        updater.write_json(transaction/'plan.json', {'target': str(self.target)})
+        updater.write_json(transaction/'ready.json', {'token': 'started'})
+        updater.write_json(transaction/'helper.json', {'pid': updater.os.getpid()})
+        updater.os.utime(transaction, (0, 0))
+        with self.assertRaisesRegex(ValueError, '已保留备份'):
+            updater.reject_pending_transaction(self.target)
+        self.assertTrue((transaction/'ready.json').exists())
+
+    def test_other_installations_and_unknown_ownership_are_untouched(self):
+        for name, plan in (('other', {'target': str(self.root/'other-app')}), ('unknown', {})):
+            transaction = self.root / ('.cmb-update-' + name)
+            transaction.mkdir()
+            updater.write_json(transaction/'plan.json', plan)
+            updater.write_json(transaction/'helper.json', {'pid': updater.os.getpid()})
+            updater.reject_pending_transaction(self.target)
+            updater.os.utime(transaction, (0, 0))
+            updater.reject_pending_transaction(self.target)
+            updater.write_json(transaction/'result.json', {'state': 'updated'})
+            updater.clean_transactions(self.target)
+            self.assertTrue(transaction.exists())
+
+    def test_unknown_result_state_keeps_backup(self):
+        transaction = self.root / '.cmb-update-unknown-result'
+        (transaction/'previous').mkdir(parents=True)
+        updater.write_json(transaction/'plan.json', {'target': str(self.target)})
+        updater.write_json(transaction/'result.json', {'state': 'unknown'})
+        updater.clean_transactions(self.target)
+        self.assertTrue((transaction/'previous').is_dir())
 
     def test_stopped_gateway_remains_stopped(self):
         self.state.update(running=False, instanceId=None)

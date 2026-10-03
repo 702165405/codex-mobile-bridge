@@ -152,7 +152,7 @@ document.addEventListener('bridge-message-error',event=>toast(event.detail));
 $('fork-source').onclick=()=>{const source=state?.forkedFrom;if(source){$('chat-details-dialog').close();openChat(source.id,source.host).catch(e=>toast(e.message));}};
 function saveDraft(){if(currentId)sessionStorage.setItem('draft:'+chatKey(),$('message').value);}
 $('message').oninput=saveDraft;
-async function openChat(id,host="local"){if(messageActions.pending&&messageActions.dialog.open)return;messageActions.dialog.close();saveDraft();chatTimeline?.dispose();currentId=id;currentHost=host;state=null;workModes.open(chatKey(id,host));attachments.open(chatKey(id,host));catalogData=null;modelRequest++;modelTarget=null;fastModeControl.reset();$('model-dialog').close();notificationState={available:false,watching:false,notifyOnCompletion:false};notificationRequest++;$('notify-dialog').close();$('notify-button').disabled=true;$('notify-button').textContent=t('提醒');try{selectedSkills=new Set(JSON.parse(sessionStorage.getItem('skills:'+chatKey(id,host))||'[]'));}catch{selectedSkills=new Set();}renderSkillPills();approvalStamp='';submittedRequestIds.clear();$('messages').replaceChildren();$('approvals').replaceChildren();$('queued').replaceChildren();$('message').value=sessionStorage.getItem('draft:'+chatKey(id,host))||'';$('send-error').textContent='';$('chat-title').textContent=t('正在连接…');$('chat-meta').textContent='';$('status').textContent=t('连接中');$('welcome').hidden=true;$('chat').hidden=false;$('app').classList.add('chat-open');$('send').disabled=true;history.replaceState(null,'','#'+id+'~'+encodeURIComponent(host));document.querySelectorAll('.session').forEach(n=>n.classList.toggle('selected',n.dataset.id===id&&n.dataset.host===host));const timeline=chatTimeline=new ChatTimeline({url:action=>sessionUrl(id,action,host),request:api,renderMeta:renderState,renderText:(node,text,files,fullText)=>renderMarkdown(node,text,files,file=>sessionUrl(id,'files/'+file.id,host),{fullText}),onAction:(action,row,timeline)=>{const pendingKey='fork-edit:'+host+'|'+id;let pending;try{pending=JSON.parse(sessionStorage.getItem(pendingKey));}catch{}if(pending&&pending.sourceTurnId===row.turnId&&action==='edit'){sessionStorage.setItem('message-edit:'+timeline.url('message-action')+':'+row.key,pending.text);sessionStorage.removeItem(pendingKey);}return messageActions.open(action,row,timeline);},status:text=>{$('status').textContent=t(text);}});
+async function openChat(id,host="local"){if(messageActions.pending&&messageActions.dialog.open)return;messageActions.dialog.close();saveDraft();chatTimeline?.dispose();currentId=id;currentHost=host;state=null;workModes.open(chatKey(id,host));attachments.open(chatKey(id,host));catalogData=null;modelRequest++;modelTarget=null;fastModeControl.reset();$('model-dialog').close();notificationState={available:false,watching:false,notifyOnCompletion:false};notificationRequest++;$('notify-dialog').close();$('rename-dialog').close();$('chat-details-dialog').close();$('notify-button').disabled=true;$('notify-button').textContent=t('提醒');try{selectedSkills=new Set(JSON.parse(sessionStorage.getItem('skills:'+chatKey(id,host))||'[]'));}catch{selectedSkills=new Set();}renderSkillPills();approvalStamp='';submittedRequestIds.clear();$('messages').replaceChildren();$('approvals').replaceChildren();$('queued').replaceChildren();$('message').value=sessionStorage.getItem('draft:'+chatKey(id,host))||'';$('send-error').textContent='';$('chat-title').textContent=t('正在连接…');$('chat-meta').textContent='';$('status').textContent=t('连接中');$('welcome').hidden=true;$('chat').hidden=false;$('app').classList.add('chat-open');$('send').disabled=true;history.replaceState(null,'','#'+id+'~'+encodeURIComponent(host));document.querySelectorAll('.session').forEach(n=>n.classList.toggle('selected',n.dataset.id===id&&n.dataset.host===host));const timeline=chatTimeline=new ChatTimeline({url:action=>sessionUrl(id,action,host),request:api,renderMeta:renderState,renderText:(node,text,files,fullText)=>renderMarkdown(node,text,files,file=>sessionUrl(id,'files/'+file.id,host),{fullText}),onAction:(action,row,timeline)=>{const pendingKey='fork-edit:'+host+'|'+id;let pending;try{pending=JSON.parse(sessionStorage.getItem(pendingKey));}catch{}if(pending&&pending.sourceTurnId===row.turnId&&action==='edit'){sessionStorage.setItem('message-edit:'+timeline.url('message-action')+':'+row.key,pending.text);sessionStorage.removeItem(pendingKey);}return messageActions.open(action,row,timeline);},status:text=>{$('status').textContent=t(text);}});
   window.BridgePresentation?.openChat();
   const reading=timeline.start();
   // Opening a chat activates its original owner while saved history paints.
@@ -170,7 +170,7 @@ async function loadNotificationState(id=currentId,host=currentHost){
   finally{if(request===notificationRequest&&id===currentId&&host===currentHost)$('notify-button').disabled=false;}
 }
 $('notify-button').onclick=()=>{
-  if(!notificationState.available){toast('请先在电脑启动器中配置并开启 Bark 或 ntfy 通知');return;}
+  if(!notificationState.available){$('pushplus-settings').onclick();return;}
   $('notify-enabled').checked=!!notificationState.watching;
   $('notify-completion').checked=!!notificationState.notifyOnCompletion;
   $('notify-enabled').disabled=false;$('notify-completion').disabled=!notificationState.watching;
@@ -269,7 +269,7 @@ $('phone-language').onchange=()=>{
   const replies=[...$('approvals').querySelectorAll('input,textarea,select')].map(node=>({value:node.value,checked:node.checked}));
   BridgeI18n.setLanguage($('phone-language').value);BridgeI18n.apply();accountPanel.render();renderList();
   if(!$('new-chat-title').dataset.edited)$('new-chat-title').value=t('新聊天');
-  for(const id of ['login-error','send-error','model-error','skills-error','new-chat-error','notify-error','toast'])$(id).textContent=t($(id).textContent);
+  for(const id of ['login-error','send-error','model-error','skills-error','new-chat-error','notify-error','rename-error','pushplus-error','toast'])$(id).textContent=t($(id).textContent);
   for(const option of $('new-chat-project').options){const project=newChatProjects.find(p=>p.key===option.value);if(project)option.textContent=project.name+' · '+(project.host==='local'?t('此电脑'):project.hostLabel);}
   if($('model-select').querySelector('[value=__custom__]'))$('model-select').querySelector('[value=__custom__]').textContent=t('自定义模型…');
   if(state){approvalStamp='';renderState(state);[...$('approvals').querySelectorAll('input,textarea,select')].forEach((node,i)=>{if(replies[i]){node.value=replies[i].value;node.checked=replies[i].checked;if(node.tagName==='SELECT')node.dispatchEvent(new Event('change'));}});}
@@ -279,3 +279,55 @@ $('phone-language').onchange=()=>{
   renderSkillPills();if(catalogData)renderSkills();
 };
 BridgeI18n.apply();
+
+let renameTarget=null,renameBusy=false;
+$('rename-chat').onclick=()=>{
+  if(!currentId||renameBusy)return;
+  renameTarget={id:currentId,host:currentHost};
+  $('rename-title').value=state?.title||$('chat-title').textContent;
+  $('rename-error').textContent='';$('chat-details-dialog').close();$('rename-dialog').showModal();
+};
+$('rename-form').onsubmit=async event=>{
+  event.preventDefault();if(renameBusy||!renameTarget)return;
+  const target=renameTarget,title=$('rename-title').value.trim();
+  if(!title)return;
+  renameBusy=true;$('rename-save').disabled=true;$('rename-error').textContent='';
+  try{
+    const result=await api(sessionUrl(target.id,'rename',target.host),{title});
+    if(currentId===target.id&&currentHost===target.host){
+      if(state)state.title=result.title;
+      $('chat-title').textContent=result.title;$('details-title').textContent=result.title;
+    }
+    $('rename-dialog').close();toast('聊天名称已修改');
+    await loadList(true);
+  }catch(error){$('rename-error').textContent=t(error.message);}
+  finally{renameBusy=false;$('rename-save').disabled=false;}
+};
+let pushplusBusy=false;
+function renderPushplus(config){
+  $('pushplus-enabled').checked=!!config.pushplusEnabled;
+  $('pushplus-token').value='';$('pushplus-clear').checked=false;
+  $('pushplus-token').placeholder=t(config.hasPushplusToken?'已保存，留空保留':'填写 PushPlus Token');
+}
+$('pushplus-settings').onclick=async()=>{
+  if(pushplusBusy)return;pushplusBusy=true;$('pushplus-settings').disabled=true;
+  try{renderPushplus(await api('/api/notifications/pushplus'));$('pushplus-error').textContent='';$('pushplus-dialog').showModal();}
+  catch(error){toast(error.message);}
+  finally{pushplusBusy=false;$('pushplus-settings').disabled=false;}
+};
+async function pushplusAction(test){
+  if(pushplusBusy)return;pushplusBusy=true;
+  for(const id of ['pushplus-save','pushplus-test','pushplus-enabled','pushplus-token','pushplus-clear'])$(id).disabled=true;
+  $('pushplus-error').textContent='';
+  try{
+    if(test){
+      await api('/api/notifications/pushplus/test',{});toast('PushPlus 已接受测试通知，请在手机确认是否收到');
+    }else{
+      renderPushplus(await api('/api/notifications/pushplus',{pushplusEnabled:$('pushplus-enabled').checked,pushplusToken:$('pushplus-token').value.trim(),clearPushplusToken:$('pushplus-clear').checked}));
+      toast('PushPlus 配置已保存');if(currentId)await loadNotificationState(currentId,currentHost);
+    }
+  }catch(error){$('pushplus-error').textContent=t(error.message);}
+  finally{pushplusBusy=false;for(const id of ['pushplus-save','pushplus-test','pushplus-enabled','pushplus-token','pushplus-clear'])$(id).disabled=false;}
+}
+$('pushplus-form').onsubmit=event=>{event.preventDefault();return pushplusAction(false);};
+$('pushplus-test').onclick=()=>pushplusAction(true);

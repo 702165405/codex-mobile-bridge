@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .auth import Auth, password_record, session_hours
 from .lifecycle import read_record, request_stop, request_pairing
-from .notifications import Notifications, read_json, write_json, settings, save_settings, publish, publish_bark
+from .notifications import Notifications, read_json, write_json, settings, save_settings, publish, publish_bark, publish_pushplus
 from .store import SessionStore, StoreUnavailable
 from .remote import AppHosts
 from . import access
@@ -82,7 +82,9 @@ class Desktop:
         if not runtime['running'] or quick.get('pid') != runtime.get('pid'):
             quick = {}
         public = self.data_dir/'外网地址.txt'
-        if runtime['running'] and preferences['tunnel'] and public.exists() and quick.get('state') != 'failed':
+        # Never offer a Quick Tunnel URL unless cloudflared says it is still ready.
+        # A lost tunnel keeps its old text for a moment but its DNS record is gone.
+        if runtime['running'] and preferences['tunnel'] and public.exists() and quick.get('state') == 'ready':
             value = public.read_text(encoding='utf-8').splitlines()[0]
             if value.startswith('https://'):
                 urls.insert(0, value)
@@ -96,7 +98,7 @@ class Desktop:
         cloudflared = {'path': executable, 'available': bool(executable and Path(executable).is_file() and os.access(executable, os.X_OK))}
         notifications = settings(self.data_dir)
         return {'preferences': preferences, 'auth': {'username': config['auth'].get('username', 'admin'), 'mode': config['auth']['mode'], 'sessionHours': config['auth'].get('sessionHours', 12)},
-                'origins': config.get('origins', []), 'notifications': {**notifications, 'token': '', 'hasToken': bool(notifications['token']), 'barkKey': '', 'hasBarkKey': bool(notifications['barkKey'])},
+                'origins': config.get('origins', []), 'notifications': {**notifications, 'token': '', 'hasToken': bool(notifications['token']), 'barkKey': '', 'hasBarkKey': bool(notifications['barkKey']), 'pushplusToken': '', 'hasPushplusToken': bool(notifications['pushplusToken'])},
                 'watches': self.notification_watches({'action': 'list'})['watches'],
                 'notificationStatus': read_json(self.data_dir/'notification-status.json', {}),
                 'dataDir': str(self.data_dir), 'credentialsAvailable': (self.data_dir/'首次登录.txt').exists(),
@@ -248,10 +250,10 @@ class Desktop:
 
     def test_notification(self, value=None):
         channel = (value or {}).get('channel', 'ntfy')
-        if channel not in ('ntfy', 'bark'):
+        if channel not in ('ntfy', 'bark', 'pushplus'):
             raise ValueError('未知通知通道')
-        name = 'Bark' if channel == 'bark' else 'ntfy'
-        sender = publish_bark if channel == 'bark' else publish
+        name = {'bark': 'Bark', 'ntfy': 'ntfy', 'pushplus': 'PushPlus'}[channel]
+        sender = {'bark': publish_bark, 'ntfy': publish, 'pushplus': publish_pushplus}[channel]
         try:
             sender(settings(self.data_dir), 'Codex 手机通知测试', f'收到这条消息表示 {name} 通道已连通。')
         except Exception:
@@ -316,7 +318,7 @@ class Desktop:
                     records[-1].append(line)
             sections.append({'name': label, 'text': '\n'.join('\n'.join(record) for record in reversed(records))})
         notifications = settings(self.data_dir)
-        for secret in (notifications.get('token'), notifications.get('barkKey')):
+        for secret in (notifications.get('token'), notifications.get('barkKey'), notifications.get('pushplusToken')):
             if secret:
                 for section in sections:
                     section['text'] = section['text'].replace(secret, '[REDACTED]')
