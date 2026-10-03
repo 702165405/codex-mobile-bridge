@@ -1,31 +1,34 @@
 'use strict';
 // Shared by the phone and desktop; only sanitized account data reaches this view.
 class AccountPanel {
-  constructor({root,button,status=null,read,consume,onHidden=()=>{}}){
-    Object.assign(this,{root,button,status,read,consume,onHidden});
+  constructor({root,button,status=null,read,consume,onHidden=()=>{},visible=()=>false}){
+    Object.assign(this,{root,button,status,read,consume,onHidden,visible});
     this.value=null;this.generation=0;this.busy=false;this.loading=false;this.checkedAt=0;
-    this.pending=null;this.message='';this.error='';this.retryCount=0;this.retryTimer=null;
+    this.timer=null;this.pending=null;this.message='';this.error='';
   }
   clear(){
-    clearTimeout(this.retryTimer);this.retryTimer=null;this.retryCount=0;this.loading=false;
+    clearTimeout(this.timer);
+    this.loading=false;
     this.generation++;this.value=null;this.pending=null;this.checkedAt=0;
     this.root.replaceChildren();this.button.hidden=true;this.onHidden();
     if(this.status)this.status.hidden=true;
   }
-  async refresh(){
+  schedule(){
+    clearTimeout(this.timer);
+    if(this.visible())this.timer=setTimeout(()=>{if(this.visible())this.refresh(false);},Math.max(0,300000-(Date.now()-this.checkedAt)));
+  }
+  async refresh(refresh=true){
     if(this.loading||this.busy)return;
-    clearTimeout(this.retryTimer);this.retryTimer=null;
     const generation=this.generation;this.loading=true;this.render();
     try{
-      const value=await this.read();
+      const value=await this.read(refresh);
       if(generation!==this.generation)return;
-      this.accept(value);this.checkedAt=Date.now();this.retryCount=0;
+      this.accept(value);this.checkedAt=Date.now();
     }catch(error){
       if(generation!==this.generation)return;
       // A failed login-type check cannot leave a previous account visible.
-      this.accept({visible:false,loginType:'unavailable'});
-      if(++this.retryCount<=2)this.retryTimer=setTimeout(()=>this.refresh(),2000*this.retryCount);
-    }finally{if(generation===this.generation){this.loading=false;this.render();}}
+      this.value=null;this.checkedAt=Date.now();this.error=error.message;this.root.replaceChildren(this.node('p',BridgeI18n.t('登录状态暂不可用'),'error'));
+    }finally{if(generation===this.generation){this.loading=false;this.render();this.schedule();}}
   }
   accept(value){
     if(!value?.visible){
@@ -59,7 +62,7 @@ class AccountPanel {
     }
     if(!value?.visible)return;
     const t=BridgeI18n.t,root=this.root;root.replaceChildren();
-    const heading=this.node('div',undefined,'account-heading'),refresh=this.node('button',t('刷新额度'));
+    const heading=this.node('div',undefined,'account-heading'),refresh=this.node('button',t('查看剩余额度'));
     refresh.type='button';refresh.disabled=this.loading||this.busy;
     refresh.onclick=()=>this.refresh();
     heading.append(this.node('strong',value.email||t('ChatGPT 账号')),refresh);root.append(heading);

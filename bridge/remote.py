@@ -69,20 +69,24 @@ class RemoteCatalog:
         self.cache = {}
         self.lock = threading.Lock()
 
-    def get(self, cwd, refresh=False):
+    def get(self, cwd, refresh=False, provider=None):
         with self.lock:
-            previous = self.cache.get(cwd)
+            key = (cwd, provider)
+            previous = self.cache.get(key)
             if previous and not refresh and time.monotonic() - previous[0] < 300:
                 return previous[1]
-            source = Path(__file__).with_name('catalog.py').read_text(encoding='utf-8')
+            # Execute the same read-only catalog helpers on the chat's own host.
+            source = Path(__file__).with_name('tls.py').read_text(encoding='utf-8')+'\n'
+            source += Path(__file__).with_name('account_models.py').read_text(encoding='utf-8').replace('from .tls import client_context', '')+'\n'
+            source += Path(__file__).with_name('catalog.py').read_text(encoding='utf-8').replace('from .account_models import model_ids', '')
             source += '\nimport shutil\nhome=Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex")))\n'
             source += 'runtime=shutil.which("codex") or str(Path.home()/".local/bin/codex")\n'
-            source += 'print(json.dumps(Catalog(home, runtime).get(' + payload(cwd) + '), ensure_ascii=False))\n'
+            source += 'print(json.dumps(Catalog(home, runtime).get(' + payload(cwd) + ', provider=' + payload(provider) + '), ensure_ascii=False))\n'
             try:
                 result = ssh_read(self.alias, source, timeout=60)
             except RemoteUnavailable as exc:
                 raise CatalogError(str(exc)) from exc
-            self.cache[cwd] = (time.monotonic(), result)
+            self.cache[key] = (time.monotonic(), result)
             return result
 
 

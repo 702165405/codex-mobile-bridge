@@ -35,6 +35,7 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/attachments.js": ("attachments.js", "text/javascript; charset=utf-8"),
           "/activity.js": ("activity.js", "text/javascript; charset=utf-8"),
           "/fast-mode.js": ("fast-mode.js", "text/javascript; charset=utf-8"),
+          "/accounts.js": ("accounts.js", "text/javascript; charset=utf-8"),
           "/account.js": ("account.js", "text/javascript; charset=utf-8"),
           "/account.css": ("account.css", "text/css; charset=utf-8"),
           "/presentation.js": ("presentation.js", "text/javascript; charset=utf-8"),
@@ -268,8 +269,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.read_json()
                 self.server.auth.logout(self.token())
                 return self.output(200, {"ok": True}, cookie=self.cookie("", clear=True))
+            if not write and path == '/api/accounts':
+                result = self.server.bridge.accounts.public()
+                result['canSwitch'] = self.server.auth.config.get('mode') != 'none'
+                return self.output(200, result)
+            if write and path == '/api/accounts/details':
+                body = self.read_json()
+                if set(body) - {'id', 'section', 'refresh'} or not {'id', 'section'} <= set(body):
+                    raise ValueError('账号详情请求包含不支持的字段')
+                return self.output(202, self.server.bridge.accounts.info.request(body))
+            if write and path == '/api/accounts/switch':
+                if self.server.auth.config.get('mode') == 'none':
+                    raise PermissionError('免密访问不能切换账号，请在桌面端操作')
+                body = self.read_json()
+                if set(body) != {'id', 'requestId', 'confirmed', 'tasksConfirmed'}:
+                    raise ValueError('账号切换请求包含不支持的字段')
+                return self.output(202, self.server.bridge.accounts.switch(body))
             if not write and path == '/api/account':
-                return self.output(200, self.server.bridge.account.read())
+                return self.output(200, self.server.bridge.account.read(refresh=query.get('cached', [''])[0] != '1'))
             if write and path == '/api/account/reset':
                 return self.output(200, self.server.bridge.account.consume(self.read_json()))
             if not write and path == "/api/sessions":

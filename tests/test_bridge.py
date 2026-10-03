@@ -322,6 +322,43 @@ class IntegrationTests(unittest.TestCase):
         self.assertTrue(self.bridge.view(THREAD)['connected'])
         self.assertEqual(session.revision, 1)
 
+    def test_computer_use_persistence_is_validated_and_forwarded(self):
+        params = {'serverName':'codex_apps','mode':'form','message':'Use fixture app',
+                  'requestedSchema':{'type':'object','properties':{}},
+                  '_meta':{'codex_approval_kind':'mcp_tool_call','connector_id':'computer-use',
+                           'tool_params':{'app':'Fixture App'},'persist':['session','always'], 'private':'omit'}}
+        self.fixture.state['requests'] = [{'id':'computer','method':'mcpServer/elicitation/request','params':params}]
+        view = self.bridge.view(THREAD)
+        self.assertEqual(view['requests'][0]['params']['computerUse'], {'app':'Fixture App','persistModes':['session','always']})
+        self.assertNotIn('private', json.dumps(view['requests']))
+        for mode in ('session','always'):
+            self.bridge.respond(THREAD,'computer',{'action':'accept','persist':mode})
+            reply = self.fixture.requests[-1]['params']['response']
+            self.assertEqual(reply, {'action':'accept','content':{},'_meta':{'persist':mode}})
+        self.bridge.respond(THREAD,'computer',{'action':'decline'})
+        self.assertEqual(self.fixture.requests[-1]['params']['response'], {'action':'decline','content':None})
+        for response in ({'action':'accept','persist':'forever'}, {'action':'decline','persist':'always'},
+                         {'action':'accept','_meta':{'persist':'always'}}):
+            with self.assertRaises(ValueError): self.bridge.respond(THREAD,'computer',response)
+
+    def test_computer_scope_cannot_be_added_to_other_or_session_only_requests(self):
+        params = {'mode':'form','requestedSchema':{'type':'object','properties':{}},
+                  '_meta':{'codex_approval_kind':'mcp_tool_call','connector_id':'computer-use',
+                           'tool_params':{'app':'Fixture'},'persist':['session']}}
+        self.fixture.state['requests']=[{'id':'computer','method':'mcpServer/elicitation/request','params':params}]
+        self.bridge.view(THREAD)
+        with self.assertRaises(ValueError):self.bridge.respond(THREAD,'computer',{'action':'accept','persist':'always'})
+        self.bridge.respond(THREAD,'computer',{'action':'accept','persist':'session'})
+        session=self.bridge.session(THREAD)
+        with session.condition:
+            session.state['requests'][0]['params']['_meta']['connector_id']='unrelated'
+        with self.assertRaises(ValueError):self.bridge.respond(THREAD,'computer',{'action':'accept','persist':'session'})
+        self.bridge.respond(THREAD,'computer',{'action':'accept','content':{}})
+        self.assertNotIn('_meta',self.fixture.requests[-1]['params']['response'])
+        with session.condition:session.state['requests']=[]
+        with self.assertRaisesRegex(ValueError,'已处理或已过期'):
+            self.bridge.respond(THREAD,'computer',{'action':'accept','persist':'always'})
+
     def test_stale_and_pending_approval_routing(self):
         self.fixture.state['requests'] = [{"id": 7, "method": "item/commandExecution/requestApproval", "params": {"command": "pwd", "availableDecisions": ['accept', 'decline']}}]
         self.bridge.session(THREAD)
@@ -377,6 +414,24 @@ class IntegrationTests(unittest.TestCase):
         self.assertFalse(any(r['method'] == 'thread-follower-start-turn' for r in self.fixture.requests))
         with self.assertRaises(ValueError):
             self.bridge.settings(THREAD, 'model-b', 'ultra')
+
+    def test_upstream_model_without_effort_metadata_uses_original_provider_and_owner(self):
+        reads = []
+        def catalog(cwd, **kwargs):
+            reads.append((cwd, kwargs))
+            return {'models': [{'id': 'gemini-fixture', 'efforts': []}], 'skills': [], 'modelSource': 'api'}
+        self.bridge.catalog_reader.get = catalog
+        before = self.bridge.view(THREAD)
+        result = self.bridge.settings(THREAD, 'gemini-fixture', 'high')
+        self.assertTrue(result['confirmed'])
+        self.assertEqual(reads, [(before['cwd'], {'refresh': False, 'provider': 'custom-api'})])
+        call = self.fixture.requests[-1]
+        self.assertEqual(call['method'], 'thread-follower-update-thread-settings')
+        self.assertEqual(call['params']['threadSettings'], {'model': 'gemini-fixture', 'effort': 'high'})
+        after = self.bridge.view(THREAD)
+        for key in ('provider', 'cwd', 'owner'):
+            self.assertEqual(after.get(key), before.get(key))
+        self.assertFalse(any(r['method'] == 'thread-follower-start-turn' for r in self.fixture.requests))
 
     def test_explicit_skill_input_and_dedup(self):
         path = self.root / 'SKILL.md'
@@ -735,7 +790,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             scripts = re.findall(r'<script src="([^"]+)"', response.read().decode())
             self.assertEqual(scripts, ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
-                                       '/vendor/texmath.js', '/message-actions.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/modes.js', '/attachments.js', '/activity.js', '/fast-mode.js', '/app.js', '/presentation.js'])
+                                       '/vendor/texmath.js', '/message-actions.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/modes.js', '/attachments.js', '/activity.js', '/fast-mode.js', '/accounts.js', '/app.js', '/presentation.js'])
             for script in scripts:
                 conn.request('GET', script)
                 response = conn.getresponse()

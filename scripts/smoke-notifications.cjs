@@ -5,7 +5,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=r
 const {runWorker}=require('../desktop/controller.cjs');
 const root=path.resolve(__dirname,'..');
 async function main(){
-  assert.ok(['darwin','win32'].includes(process.platform));
+  assert.ok(['darwin','win32','linux'].includes(process.platform));
+  if(process.platform==='linux')assert.ok(process.argv[2],'Pass the packaged Linux gateway path');
   const executable=process.argv[2]||path.join(root,'dist/desktop',process.platform==='darwin'?
     `${process.arch==='x64'?'mac':'mac-'+process.arch}/Codex Mobile Bridge.app/Contents/Resources/gateway/codex-mobile-gateway`:
     'win-unpacked/resources/gateway/codex-mobile-gateway.exe');

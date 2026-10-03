@@ -1,6 +1,7 @@
 """Normalize desktop state without changing the native thread or provider."""
 import copy
 import json
+import re
 
 
 def apply_patches(state, patches):
@@ -162,6 +163,26 @@ def pending_requests(state):
     return requests + async_requests(state)
 
 
+def computer_use_approval(params):
+    """Expose only the scope choices present in the live desktop approval."""
+    meta = params.get('_meta') or {}
+    if not isinstance(meta, dict) or meta.get('codex_approval_kind') != 'mcp_tool_call':
+        return None
+    connector = re.sub(r'[^a-z0-9]+', '-', str(meta.get('connector_id', '')).lower()).strip('-')
+    tool = meta.get('tool_params') or {}
+    app = tool.get('app') if isinstance(tool, dict) else None
+    schema = params.get('requestedSchema') or {}
+    if (params.get('mode', 'form') != 'form' or not (connector == 'computer-use' or connector.startswith('computer-use-'))
+            or not isinstance(app, str) or not app.strip() or schema.get('properties') or schema.get('required')):
+        return None
+    modes = meta.get('persist', [])
+    if isinstance(modes, str):
+        modes = [modes]
+    if not isinstance(modes, list):
+        modes = []
+    return {'app': app, 'persistModes': [mode for mode in ('session', 'always') if mode in modes]}
+
+
 def normalize_request(request):
     result = {"id": request.get("id"), "method": request.get("method"), "params": {}}
     params = request.get("params", {})
@@ -182,6 +203,10 @@ def normalize_request(request):
         result["supported"] = False
     if result["supported"]:
         result["params"] = {k: copy.deepcopy(params[k]) for k in fields[method] if k in params}
+        if method == 'mcpServer/elicitation/request':
+            computer = computer_use_approval(params)
+            if computer:
+                result['params']['computerUse'] = computer
     else:
         result["params"] = {"message": "请在桌面 App 处理此请求"}
     return result

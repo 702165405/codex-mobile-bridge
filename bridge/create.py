@@ -150,6 +150,12 @@ def open_in_desktop(thread_id, host):
     if sys.platform == 'darwin':
         subprocess.run(['open', url], check=True, timeout=10,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif sys.platform == 'linux':
+        try:
+            subprocess.run(['xdg-open', url], check=True, timeout=10,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise CreationError('无法打开桌面聊天，请在桌面登录会话中运行网关，并检查 xdg-open 和 codex:// 协议关联') from exc
     elif os.name == 'nt':
         os.startfile(url)
     else:

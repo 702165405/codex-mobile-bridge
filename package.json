@@ -1,6 +1,6 @@
 {
   "name": "codex-mobile-bridge-desktop",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "description": "Codex App 手机网关桌面启动器",
   "author": "try2love",
   "license": "MIT",
@@ -8,12 +8,14 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "desktop": "electron .",
-    "test:desktop": "node --test tests/network.test.cjs tests/desktop.test.cjs tests/notifications-ui.test.cjs tests/account-ui.test.cjs tests/account-startup.test.cjs tests/presentation.test.cjs tests/modes-ui.test.cjs tests/watches-ui.test.cjs tests/attachments-activity.test.cjs tests/fast-mode-ui.test.cjs tests/message-actions-ui.test.cjs",
+    "test:desktop": "node --test tests/accounts-ui.test.cjs tests/network.test.cjs tests/desktop.test.cjs tests/notifications-ui.test.cjs tests/account-ui.test.cjs tests/account-startup.test.cjs tests/presentation.test.cjs tests/modes-ui.test.cjs tests/watches-ui.test.cjs tests/attachments-activity.test.cjs tests/fast-mode-ui.test.cjs tests/message-actions-ui.test.cjs",
     "test:windows-app": "node scripts/smoke-windows.cjs",
     "icons:desktop": "electron scripts/build-icons.cjs",
     "pack:desktop": "electron-builder --dir --publish never",
     "build:mac": "electron-builder --mac dmg zip --publish never",
     "build:windows": "electron-builder --win nsis zip --x64 --publish never",
+    "build:linux": "electron-builder --linux AppImage deb --publish never",
+    "test:linux-app": "node scripts/smoke-linux.cjs",
     "test:pairing": "electron scripts/smoke-pairing.cjs",
     "test:updater": "node --test tests/updater.test.cjs tests/update-handoff.test.cjs"
   },
@@ -26,6 +28,7 @@
   "build": {
     "appId": "io.github.try2love.codexmobilebridge",
     "productName": "Codex Mobile Bridge",
+    "beforePack": "./scripts/verify-build.cjs",
     "directories": {
       "output": "dist/desktop"
     },
@@ -33,6 +36,7 @@
       "desktop/**",
       "web/i18n.js",
       "web/account.js",
+      "web/accounts.js",
       "web/account.css",
       "package.json",
       "LICENSE"
@@ -64,6 +68,33 @@
         "zip"
       ],
       "artifactName": "Codex-Mobile-Bridge-${version}-Windows-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "desktop/assets/icon.png",
+      "category": "Development",
+      "executableName": "codex-mobile-bridge",
+      "artifactName": "Codex-Mobile-Bridge-${version}-Linux-${arch}.${ext}",
+      "maintainer": "try2love <try2love@users.noreply.github.com>"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libgbm1",
+        "libasound2",
+        "iproute2"
+      ]
     },
     "nsis": {
       "artifactName": "Codex-Mobile-Bridge-${version}-Windows-${arch}-Setup.${ext}",

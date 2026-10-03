@@ -213,8 +213,19 @@ class Desktop:
         return {'started': True, 'pid': process.pid, 'message': '正在启动网关'}
 
     def stop(self):
+        record = read_record(self.data_dir/'gateway-control.json') or {}
+        if record.get('accountsManagement'):
+            state = request_pairing(self.data_dir, {'action': 'accounts', 'value': {'action': 'list'}}, timeout=5)
+            if state.get('switch', {}).get('phase') in ('preparing', 'stopping', 'applying', 'starting', 'verifying', 'restoring'):
+                raise ValueError('请等待账号切换完成后再停止网关')
         request_stop(self.data_dir)
         return {'message': '网关已停止'}
+
+    def accounts(self, value):
+        record = read_record(self.data_dir/'gateway-control.json') or {}
+        if not self.status()['running'] or not record.get('accountsManagement'):
+            raise ValueError('请先启动支持账号管理的新版网关')
+        return request_pairing(self.data_dir, {'action': 'accounts', 'value': value}, timeout=100)
 
     def account(self, value):
         record = read_record(self.data_dir/'gateway-control.json') or {}

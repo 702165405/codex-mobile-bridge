@@ -58,6 +58,23 @@ class AccountTests(unittest.TestCase):
 
     def consumes(self): return [p for method, p in self.rpc.calls if method.endswith('/consume')]
 
+    def test_automatic_reads_share_five_minute_cache_manual_reads_and_resets_bypass_it(self):
+        self.account.read(refresh=False);self.account.read(refresh=False)
+        count=lambda:len([m for m,_ in self.rpc.calls if m=='account/rateLimits/read'])
+        self.assertEqual(count(),1)
+        self.account.read();self.assertEqual(count(),2)
+        for cached in self.account.usage_cache.values():cached['checkedAt']-=301
+        self.account.read(refresh=False);self.assertEqual(count(),3)
+        request=self.rpc.request
+        def consume(method,params=None):
+            value=request(method,params)
+            if method=='account/rateLimitResetCredit/consume':
+                self.rpc.limits['rateLimitResetCredits']['availableCount']=2
+            return value
+        with patch.object(self.rpc,'request',side_effect=consume):
+            result=self.account.consume(self.attempt())
+        self.assertEqual(result['account']['resetCredits']['availableCount'],2)
+
     def test_native_login_reads_only_sanitized_data(self):
         self.rpc.limits['secret'] = 'must not leave runtime'
         result = self.account.read()

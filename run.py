@@ -2,6 +2,7 @@
 """Run the desktop bridge with Python 3.9+; no package installation required."""
 import argparse
 import getpass
+import ipaddress
 import json
 import logging
 import os
@@ -29,6 +30,24 @@ ROOT = Path(__file__).resolve().parent
 
 def addresses():
     result = {"127.0.0.1", "localhost"}
+    if sys.platform == 'linux':
+        executable = shutil.which('ip')
+        if executable:
+            try:
+                output = subprocess.run([executable, '-j', '-4', 'address', 'show', 'up'],
+                                        capture_output=True, text=True, check=True, timeout=5)
+                interfaces = json.loads(output.stdout)
+                if not isinstance(interfaces, list):
+                    raise ValueError('Invalid interface list')
+                for interface in interfaces:
+                    for address in interface.get('addr_info', []):
+                        if address.get('family') == 'inet':
+                            ip = ipaddress.IPv4Address(address['local'])
+                            if not ip.is_unspecified and not ip.is_multicast:
+                                result.add(str(ip))
+                return sorted(result)
+            except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, AttributeError):
+                pass
     if os.name == "posix" and Path("/sbin/ifconfig").exists():
         # Enumerate local interfaces without waiting for hostname DNS.
         output = subprocess.run(["/sbin/ifconfig"], capture_output=True, text=True, check=False).stdout
@@ -187,7 +206,7 @@ def main(connections=None):
             tunnel_thread = threading.Thread(target=connect_tunnel, daemon=True)
             tunnel_thread.start()
         notifications.start()
-        control.start(server.shutdown, server.pairing.control, server.instance_id, server.auth, bridge.account.control, server.notifications.control)
+        control.start(server.shutdown, server.pairing.control, server.instance_id, server.auth, bridge.account.control, server.notifications.control, bridge.accounts.control)
         for listener in servers[1:]:
             thread = threading.Thread(target=listener.serve_forever, kwargs={'poll_interval': 0.5}, daemon=True)
             thread.start()
