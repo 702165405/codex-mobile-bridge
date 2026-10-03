@@ -1,109 +1,42 @@
 WEBVTT
 
 1
-00:00:00.000 --> 00:00:05.957 line:88% align:center
-Keep Codex App open, then select Start gateway in Mobile Bridge.
+00:00:00.000 --> 00:00:06.309 line:88% align:center
+Start the gateway on your computer, then open it on your phone.
 
 2
-00:00:05.957 --> 00:00:11.425 line:88% align:center
-Expand QR sign-in and scan with your phone. Another computer can
-open the address directly.
+00:00:06.309 --> 00:00:10.245 line:88% align:center
+Manage accounts and APIs on desktop. The active connection stays
+first.
 
 3
-00:00:11.425 --> 00:00:15.505 line:88% align:center
-The gateway has its own login; model authentication stays in Codex
-App. This demo code cannot sign you in.
+00:00:10.245 --> 00:00:14.347 line:88% align:center
+See official quota and reset credits beside each account. Add
+accounts only on desktop.
 
 4
-00:00:15.505 --> 00:00:22.382 line:88% align:center
-Find local and SSH chats in one browser. Select a chat to continue
-your work.
+00:00:14.347 --> 00:00:20.234 line:88% align:center
+Add a custom API and query its upstream model list.
 
 5
-00:00:22.382 --> 00:00:30.020 line:88% align:center
-Send a follow-up in the same chat. This example keeps its custom
-model and reasoning effort.
+00:00:20.234 --> 00:00:26.823 line:88% align:center
+Browse local and SSH chats, then continue the same conversation.
 
 6
-00:00:30.020 --> 00:00:36.720 line:88% align:center
-Use Reminders to follow the chat and optionally enable completion
-notifications.
+00:00:26.823 --> 00:00:34.152 line:88% align:center
+The active connection stays on top, with quota and reset cards
+beside each account.
 
 7
-00:00:36.720 --> 00:00:42.828 line:88% align:center
-v1.2.0: attach multiple files or images using the paperclip control.
+00:00:34.152 --> 00:00:40.318 line:88% align:center
+API connections load upstream models. Apply your selection to the
+current chat.
 
 8
-00:00:42.828 --> 00:00:49.916 line:88% align:center
-Review the attachments and message, then send. You can remove files
-or queue them with a task.
+00:00:40.318 --> 00:00:46.453 line:88% align:center
+Computer-use requests reach your phone, with conversation,
+persistent or deny options as supported.
 
 9
-00:00:49.916 --> 00:00:57.226 line:88% align:center
-v1.2.0: Plan mode leaves a plan in the chat for you to review.
-
-10
-00:00:57.226 --> 00:01:03.084 line:88% align:center
-Request changes if needed, or select Implement plan to continue with
-the agreed work.
-
-11
-00:01:03.084 --> 00:01:08.016 line:88% align:center
-v1.2.0: expand an active goal to see its objective and token usage.
-
-12
-00:01:08.016 --> 00:01:11.165 line:88% align:center
-Hide the goal panel to give the conversation more room. The goal
-keeps running.
-
-13
-00:01:11.165 --> 00:01:14.769 line:88% align:center
-Select Goal progress beside Send to bring the panel back.
-
-14
-00:01:14.769 --> 00:01:17.984 line:88% align:center
-Collapse the composer while reading. Display settings control
-process details, theme and text size.
-
-15
-00:01:17.984 --> 00:01:21.830 line:88% align:center
-Open the model panel to view the full name and reasoning effort.
-This example uses official login.
-
-16
-00:01:21.830 --> 00:01:26.403 line:88% align:center
-v1.2.0: Fast appears when the account, model and workspace allow it.
-
-17
-00:01:26.403 --> 00:01:31.751 line:88% align:center
-Saved settings apply from the next turn. Fast uses more allowance;
-turning it off restores standard speed.
-
-18
-00:01:31.751 --> 00:01:34.761 line:88% align:center
-v1.2.0: green dots show running work across multiple chats.
-
-19
-00:01:34.761 --> 00:01:41.627 line:88% align:center
-A blue unread indicator remains after completion and clears when you
-open the chat.
-
-20
-00:01:41.627 --> 00:01:46.755 line:88% align:center
-The same web interface adapts to a computer display, showing the
-chat list and conversation side by side.
-
-21
-00:01:46.755 --> 00:01:58.125 line:88% align:center
-Choose your theme, language, text size and process details.
-Preferences stay in this browser.
-
-22
-00:01:58.125 --> 00:02:01.627 line:88% align:center
-v1.2.0: review watched chats and their execution hosts on the
-desktop.
-
-23
-00:02:01.627 --> 00:02:08.666 line:88% align:center
-Toggle completion notifications or remove a watch you no longer
-need. The chat itself is retained.
+00:00:46.453 --> 00:00:51.574 line:88% align:center
+Read and respond to implementation plans from your phone.
