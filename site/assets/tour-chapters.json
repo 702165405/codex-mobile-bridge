@@ -1,47 +1,42 @@
 [
   {
     "start": 0,
-    "zh": "启动与连接",
-    "en": "Start & connect"
+    "zh": "启动网关，继续原来的工作",
+    "en": "Start the gateway, keep your work"
   },
   {
-    "start": 15.505,
-    "zh": "打开会话与发送",
-    "en": "Chats & messages"
+    "start": 6.309,
+    "zh": "账号、额度，放在一起",
+    "en": "Accounts and quota in one place"
   },
   {
-    "start": 36.72,
-    "zh": "多文件与图片",
-    "en": "Files & images"
+    "start": 14.347,
+    "zh": "填入 API，读取上游模型",
+    "en": "Connect an API and discover models"
   },
   {
-    "start": 49.916,
-    "zh": "阅读与确认计划",
-    "en": "Review a plan"
+    "start": 20.234,
+    "zh": "手机接着聊，不用重开",
+    "en": "Continue the same chat on your phone"
   },
   {
-    "start": 63.084,
-    "zh": "目标进度与阅读",
-    "en": "Goal progress & reading"
+    "start": 26.823,
+    "zh": "当前接入与额度，一眼看清",
+    "en": "Your active account and quota at a glance"
   },
   {
-    "start": 77.984,
-    "zh": "模型与 Fast",
-    "en": "Models & Fast"
+    "start": 34.152,
+    "zh": "模型列表，来自当前上游",
+    "en": "Models from your current upstream"
   },
   {
-    "start": 91.751,
-    "zh": "多会话状态",
-    "en": "Chat activity"
+    "start": 40.318,
+    "zh": "授权范围，说清再继续",
+    "en": "Choose the right approval scope"
   },
   {
-    "start": 101.627,
-    "zh": "电脑浏览器与显示设置",
-    "en": "Desktop browser & appearance"
-  },
-  {
-    "start": 118.125,
-    "zh": "桌面管理通知监控",
-    "en": "Manage desktop watches"
+    "start": 46.453,
+    "zh": "计划先确认，再继续执行",
+    "en": "Review the plan before continuing"
   }
 ]
