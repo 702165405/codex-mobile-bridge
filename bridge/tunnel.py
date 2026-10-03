@@ -90,7 +90,7 @@ class QuickTunnel:
         for _ in range(self.CONNECT_TIMEOUT):
             if self.ready.is_set():
                 return True
-            if self.finished.is_set() or self.closed.is_set():
+            if self.broken.is_set() or self.finished.is_set() or self.closed.is_set():
                 return False
             self.ready.wait(1)
         return False

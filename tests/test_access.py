@@ -26,7 +26,7 @@ class LineStream:
 
     def __iter__(self):
         yield from self.lines
-        self.gate.wait(2)
+        self.gate.wait()
 
 
 class AccessTests(unittest.TestCase):
@@ -317,18 +317,29 @@ class ConcurrentRuntimeTests(unittest.TestCase):
             tunnel = QuickTunnel(executable, 8787, data, MagicMock())
             tunnel.RESTART_DELAY = 0
 
-            with patch('bridge.tunnel.subprocess.Popen', side_effect=[old_process, new_process]):
+            replaced = threading.Event()
+            tunnel.on_origin.side_effect = lambda url: replaced.set() if url == 'https://new.trycloudflare.com' else None
+            real_is_set = tunnel.ready.is_set
+            def ready_after_loss():
+                # Force the reader to report loss before the supervisor checks
+                # readiness, as can happen on a busy Windows runner.
+                if tunnel.process is old_process:
+                    tunnel.broken.wait(3)
+                return real_is_set()
+
+            with patch('bridge.tunnel.subprocess.Popen', side_effect=[old_process, new_process]), \
+                 patch.object(tunnel.ready, 'is_set', side_effect=ready_after_loss):
                 starter = threading.Thread(target=tunnel.start)
-                starter.start()
-                self.assertEqual(starter.join(3), None)
-                self.assertEqual(tunnel.url, 'https://old.trycloudflare.com')
-                deadline = 3
-                while deadline > 0 and tunnel.url != 'https://new.trycloudflare.com':
-                    deadline -= .05
-                    threading.Event().wait(.05)
-                self.assertEqual(tunnel.url, 'https://new.trycloudflare.com')
-                self.assertEqual(tunnel.on_origin.call_args_list[0].args, ('https://old.trycloudflare.com',))
-                self.assertEqual(tunnel.on_origin.call_args_list[-1].args, ('https://new.trycloudflare.com',))
-                tunnel.close()
+                try:
+                    starter.start()
+                    self.assertTrue(replaced.wait(5), 'Lost tunnel was not replaced promptly')
+                    starter.join(3)
+                    self.assertFalse(starter.is_alive())
+                    self.assertEqual(tunnel.url, 'https://new.trycloudflare.com')
+                    self.assertEqual(tunnel.on_origin.call_args_list[0].args, ('https://old.trycloudflare.com',))
+                    self.assertEqual(tunnel.on_origin.call_args_list[-1].args, ('https://new.trycloudflare.com',))
+                finally:
+                    tunnel.close()
+                    starter.join(3)
                 old_process.terminate.assert_called_once()
                 new_process.terminate.assert_called_once()
