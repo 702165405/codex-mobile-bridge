@@ -576,6 +576,39 @@ class HttpTests(unittest.TestCase):
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         return {'Cookie': headers['Set-Cookie'].split(';')[0], 'X-CSRF-Token': body['csrf']}
 
+    def test_pushplus_configuration_requires_login_and_csrf_and_hides_token(self):
+        from bridge.notifications import Notifications, settings
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as directory:
+            self.server.notifications = Notifications(None, directory)
+            path = '/api/notifications/pushplus'
+            self.assertEqual(self.request('GET', path)[0], 401)
+            headers = self.login()
+            body = {'pushplusEnabled': True, 'pushplusToken': 'private-pushplus'}
+            self.assertEqual(self.request('POST', path, body, {'Cookie': headers['Cookie']})[0], 403)
+            status, _, result = self.request('POST', path, body, headers)
+            self.assertEqual(status, 200)
+            self.assertEqual(result, {'pushplusEnabled': True, 'hasPushplusToken': True})
+            self.assertNotIn('private-pushplus', json.dumps(self.request('GET', path, headers=headers)))
+            self.assertEqual(settings(directory)['pushplusToken'], 'private-pushplus')
+            with patch('bridge.httpd.publish_pushplus') as send:
+                self.assertEqual(self.request('POST', path+'/test', {}, headers)[0], 200)
+                send.assert_called_once()
+            self.assertEqual(self.request('POST', path, {'server':'https://other.example'}, headers)[0], 400)
+
+    def test_rename_route_requires_csrf_and_routes_to_selected_host(self):
+        from unittest.mock import Mock
+        headers = self.login()
+        remote = Mock()
+        remote.rename.return_value = {'id': THREAD, 'host':'remote', 'title':'New'}
+        self.server.bridge.for_host = Mock(return_value=remote)
+        path = '/api/sessions/'+THREAD+'/rename?host=remote'
+        self.assertEqual(self.request('POST', path, {'title':'New'}, {'Cookie':headers['Cookie']})[0], 403)
+        remote.rename.assert_not_called()
+        self.assertEqual(self.request('POST', path, {'title':'New'}, headers)[0], 200)
+        self.server.bridge.for_host.assert_called_once_with('remote')
+        remote.rename.assert_called_once_with(THREAD, 'New')
+
     def test_web_appearance_assets_are_served_with_correct_types(self):
         for name, content_type in [('presentation.js', 'text/javascript'), ('presentation.css', 'text/css')]:
             conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)

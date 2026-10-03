@@ -17,7 +17,7 @@ from .store import SessionStore, StoreUnavailable
 from .files import artifact_paths
 from .catalog import Catalog
 from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh_read, payload
-from .create import create_empty, fork_copy, open_in_desktop, CreationError, ForkUnavailable
+from .create import rename_thread, create_empty, fork_copy, open_in_desktop, CreationError, ForkUnavailable
 from .timeline import Timeline
 from .account import Account
 from .uploads import Uploads
@@ -706,6 +706,32 @@ class Bridge:
                 raise ValueError("Skill 不可用，请刷新列表")
             selected.append({"id": key, "name": skill["name"], "path": skill["path"]})
         return selected
+
+    def rename(self, thread_id, title):
+        uuid.UUID(thread_id)
+        if not isinstance(title, str) or not title.strip() or len(title) > 120 or any(ord(c) < 32 for c in title):
+            raise ValueError('聊天名称需为 1–120 个字符，不能包含换行或控制字符')
+        title = title.strip()
+        self.store.get(thread_id)  # Only existing desktop chats may be renamed.
+        session = self.session(thread_id, attach=False, background=True)
+        with session.action_lock:
+            if isinstance(self.store, RemoteStore):
+                source = Path(__file__).with_name('create.py').read_text(encoding='utf-8')
+                source += '\nimport shutil\nhome=Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex")))\n'
+                source += 'runtime=shutil.which("codex") or str(Path.home()/".local/bin/codex")\n'
+                source += 'rename_thread(runtime, home, **' + payload({'thread_id': thread_id, 'title': title}) + ')\nprint(json.dumps({"ok":True}))\n'
+                ssh_read(self.store.alias, source, timeout=90)
+                with self.store.lock:
+                    self.store.cache.clear()
+            else:
+                rename_thread(self.catalog_reader.executable, self.codex_home, thread_id, title)
+            with session.condition:
+                if session.state is not None:
+                    session.state['title'] = title
+                if session.saved_view is not None:
+                    session.saved_view['title'] = title
+                session.changed()
+        return {'id': thread_id, 'host': self.host, 'title': title}
 
     def settings(self, thread_id, model, effort, *, fast_mode=None):
         if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,199}", model):

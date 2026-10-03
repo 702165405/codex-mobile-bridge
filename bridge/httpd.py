@@ -14,6 +14,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from .uploads import MAX_FILE
+from .notifications import settings as notification_settings, save_settings as save_notification_settings, publish_pushplus
 from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit, quote
 
@@ -48,7 +49,7 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/icon.png": ("icon.png", "image/png")}
-THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications|uploads|message-action))?$")
+THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications|uploads|message-action|rename))?$")
 FONT_ROUTE = re.compile(r"^/vendor/katex/fonts/(KaTeX_[A-Za-z0-9_-]+\.(woff2|woff|ttf))$")
 
 
@@ -268,6 +269,28 @@ class Handler(BaseHTTPRequestHandler):
             if write and path == '/api/sessions':
                 body = self.read_json()
                 return self.output(200, self.server.bridge.create_chat(body.get('project'), body.get('title'), body.get('id')))
+            if path in ('/api/notifications/pushplus', '/api/notifications/pushplus/test'):
+                manager = self.server.notifications
+                if manager is None:
+                    raise ValueError('当前网关未启用通知服务')
+                with manager.lock:
+                    config = notification_settings(manager.data_dir)
+                    if path.endswith('/test'):
+                        if not write:
+                            return self.output(405, {'error': '需要 POST 请求'})
+                        self.read_json()
+                        try:
+                            publish_pushplus(config, 'Codex 手机通知测试', '收到这条消息表示 PushPlus 通道已连通。')
+                        except Exception:
+                            raise ValueError('PushPlus 测试失败，请检查 Token 和网络') from None
+                        return self.output(200, {'ok': True})
+                    if write:
+                        body = self.read_json()
+                        if set(body) - {'pushplusEnabled', 'pushplusToken', 'clearPushplusToken'}:
+                            raise ValueError('PushPlus 配置格式不正确')
+                        config = save_notification_settings(manager.data_dir, body)
+                    return self.output(200, {'pushplusEnabled': config['pushplusEnabled'],
+                                             'hasPushplusToken': bool(config['pushplusToken'])})
             bridge = self.server.bridge.for_host(query.get("host", ["local"])[0])
             file_match = re.fullmatch(r"/api/sessions/([0-9a-f-]{36})/files/([a-f0-9]{64})", path)
             if not write and file_match:
@@ -313,6 +336,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = bridge.message_action(thread_id, body)
             elif action == "send":
                 result = bridge.send(thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"), body.get("skills", []), work_mode=body.get("workMode"), attachments=body.get('attachments'))
+            elif action == "rename":
+                result = bridge.rename(thread_id, body.get("title"))
             elif action == "settings":
                 if 'fastMode' in body and not isinstance(body['fastMode'], bool):
                     raise ValueError('Fast 模式开关无效')

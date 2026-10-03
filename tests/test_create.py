@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from bridge.create import create_empty, open_in_desktop, CreationError
+from bridge.create import create_empty, rename_thread, open_in_desktop, CreationError
 from bridge.remote import AppHosts
 from bridge.service import Bridge
 
@@ -23,6 +23,37 @@ class CreationTests(unittest.TestCase):
         self.bridge.hosts.state = lambda: {'local-projects': {'p': {'id': 'p', 'name': 'Test', 'rootPaths': [str(self.root)]}}}
         self.bridge.ipc.connect = lambda: None
         self.tid = str(uuid.uuid4())
+
+    def test_rename_persists_name_updates_live_view_and_validates_input(self):
+        from bridge.service import LiveSession
+        session = LiveSession(self.tid)
+        session.state = {'id': self.tid, 'title': 'Old'}
+        self.bridge.live[self.tid] = session
+        with patch.object(self.bridge.store, 'get', return_value={'id': self.tid}), patch('bridge.service.rename_thread') as rename:
+            result = self.bridge.rename(self.tid, '  New title  ')
+            self.assertEqual(result['title'], 'New title')
+            self.assertEqual(session.view()['title'], 'New title')
+            self.assertEqual(rename.call_args.args[2:], (self.tid, 'New title'))
+            for value in ('', ' ', 'x'*121, 'x\ny', None):
+                with self.assertRaises(ValueError):
+                    self.bridge.rename(self.tid, value)
+            self.assertEqual(rename.call_count, 1)
+            rename.side_effect = CreationError('failed')
+            with self.assertRaises(CreationError):
+                self.bridge.rename(self.tid, 'Rejected')
+            self.assertEqual(session.view()['title'], 'New title')
+
+    def test_remote_rename_uses_remote_runtime_and_clears_list_cache(self):
+        from bridge.remote import RemoteStore
+        self.bridge.store = RemoteStore('test-host')
+        self.bridge.store.cache['old'] = 'cached'
+        title = 'quoted " title $()'
+        with patch.object(self.bridge.store, 'get', return_value={'id': self.tid}), patch('bridge.service.ssh_read', return_value={'ok': True}) as remote:
+            self.bridge.rename(self.tid, title)
+            self.assertEqual(remote.call_args.args[0], 'test-host')
+            self.assertIn('rename_thread(runtime, home', remote.call_args.args[1])
+            self.assertNotIn(title, remote.call_args.args[1])
+            self.assertFalse(self.bridge.store.cache)
 
     def tearDown(self):
         self.bridge.close()
@@ -100,6 +131,11 @@ Path(''' + repr(str(log)) + ''').write_text(json.dumps(calls))
         self.assertEqual([c['method'] for c in calls],['initialize','initialized','thread/start','thread/name/set','thread/read'])
         self.assertEqual(calls[-1]['params'],{'threadId':self.tid,'includeTurns':True})
         self.assertEqual(calls[2]['params'],{'cwd':str(self.root),'ephemeral':False})
+        with patch('bridge.create.subprocess.Popen',side_effect=spawn):
+            rename_thread('runtime', self.root, self.tid, 'Renamed')
+        calls=json.loads(log.read_text())
+        self.assertEqual([c['method'] for c in calls], ['initialize','initialized','thread/name/set'])
+        self.assertEqual(calls[-1]['params'], {'threadId': self.tid, 'name': 'Renamed'})
 
     def test_deep_link_encodes_host_and_never_invokes_shell(self):
         with patch('bridge.create.sys.platform','darwin'),patch('bridge.create.subprocess.run') as run:

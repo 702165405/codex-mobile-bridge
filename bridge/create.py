@@ -154,3 +154,9 @@ def open_in_desktop(thread_id, host):
         os.startfile(url)
     else:
         raise CreationError('请在支持 Codex App 的 Mac 或 Windows 电脑运行网关')
+
+
+def rename_thread(executable, codex_home, thread_id, title):
+    uuid.UUID(thread_id)
+    return _runtime_operation(executable, codex_home, str(codex_home),
+                              lambda request: request('thread/name/set', {'threadId': thread_id, 'name': title}))
