@@ -68,26 +68,38 @@ def process_exists(pid):
         kernel.CloseHandle(handle)
 
 
-def clean_transactions(target):
-    """Remove finished transaction directories; preserve unresolved failures."""
+def transactions_for(target):
+    """Only inspect transactions belonging to this installation."""
+    target = Path(target).resolve()
     for transaction in Path(target).parent.glob('.cmb-update-*'):
         if not transaction.is_dir() or transaction.is_symlink():
             continue
+        plan = read_record(transaction / 'plan.json')
+        if not plan or not isinstance(plan.get('target'), str):
+            continue
+        if Path(plan['target']).resolve() == target:
+            yield transaction
+
+
+def clean_transactions(target):
+    """Remove confirmed finished transactions; preserve unknown recovery state."""
+    for transaction in transactions_for(target):
         result = read_record(transaction / 'result.json')
         if not result:
             continue
-        if result.get('state') == 'failed' and not result.get('recovered'):
-            continue  # Keep the copied helper and backup for manual diagnosis.
-        shutil.rmtree(transaction, ignore_errors=True)
+        if result.get('state') == 'updated' or (result.get('state') == 'failed' and result.get('recovered') is True):
+            shutil.rmtree(transaction, ignore_errors=True)
 
 
 def reject_pending_transaction(target):
     """Two helpers must never swap the same installation concurrently."""
-    for transaction in Path(target).parent.glob('.cmb-update-*'):
-        if not transaction.is_dir() or transaction.is_symlink():
-            continue
+    for transaction in transactions_for(target):
         if read_record(transaction / 'result.json'):
             continue
+        # A dead helper or an old timestamp does not prove a swap was recovered.
+        # Keep the backup and copied helper after crashes or interrupted writes.
+        if any((transaction / name).exists() for name in ('ready.json', 'previous', 'failed')):
+            raise ValueError('上一次更新的恢复状态尚未确认，已保留备份；请检查更新日志并恢复后再试。')
         try:
             age = time.time() - transaction.stat().st_mtime
         except OSError:
@@ -200,6 +212,8 @@ def prepare(data_dir, payload):
     transaction = Path(tempfile.mkdtemp(prefix='.cmb-update-', dir=target.parent))
     os.chmod(transaction, 0o700)
     try:
+        # Record ownership before preparation, including for interrupted builds.
+        write_json(transaction / 'plan.json', {'target': str(target)})
         stage = transaction / 'unpacked'
         stage.mkdir()
         extract(Path(payload['archive']), stage)

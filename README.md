@@ -205,7 +205,7 @@ npm run pack:desktop
 
 Windows 可再执行 `npm run build:windows` 生成安装包与 ZIP；文件位于 `dist/desktop/`。随后执行 `npm run test:windows-app` 验证实际打包窗口、内置运行时、托盘恢复与启停。此检查使用临时端口和合成数据，不发送模型请求或真实通知，需要可显示窗口的 Windows 会话和 Node.js 24。开发测试可用 `CMB_DATA_DIR` 指定独立数据目录，`CMB_PYTHON` 指定开发用 Python；打包后的 App 使用内置运行时。运行 `python -B -m unittest discover -s tests -v` 和 `npm run test:desktop` 进行自动检查。产品图标源为 `assets/icon.png`，可用 `npm run icons:desktop` 更新桌面 PNG/ICO、手机网页和介绍页图标。macOS 打包时会从桌面 PNG 生成系统图标。
 
-App 设置界面通过本机进程通信管理网关，管理接口不对局域网或隧道开放。配置、ntfy Token、Bark Device Key、凭据和投递记录位于网关数据目录，两个推送通道默认关闭；打包与提交不包含 `.local`、`.tmp` 或个人配置。
+App 设置界面通过本机进程通信管理网关；网关启停、更新及网络配置管理不对局域网或隧道开放。网页登录用户可以修改全局 PushPlus 通知配置，沿用 Host、Origin、登录与 CSRF 校验。配置、通知密钥、凭据和投递记录位于网关数据目录，三个推送通道默认关闭；打包与提交不包含 `.local`、`.tmp` 或个人配置。
 
 ## 功能
 
@@ -739,6 +739,7 @@ python3 -B -m unittest discover -s tests -v
 ### PushPlus 通知与聊天重命名
 
 - 网页聊天列表底部点击 **PushPlus 通知**，填写在 [PushPlus 官网](https://www.pushplus.plus/) 获取的 Token，勾选启用并保存，然后点击 **测试已保存的配置**。桌面启动器的「手机通知」中也可以配置和测试。
+- PushPlus 配置由整个网关共享，更换 Token 会改变所有已关注聊天的 PushPlus 接收目标。所有已登录设备均可修改；开启免密访问时，能够访问网关的设备也拥有此权限。
 - 在需要通知的聊天中点击 **提醒**，开启聊天提醒；可另外勾选 **运行完成后通知**。网关持续运行时，关闭网页仍会发送通知。PushPlus 可与 Bark、ntfy 同时使用。
 - Token 保存到本机通知配置文件，页面不回显；留空保留原 Token，关闭通道后可勾选清除。
 - 点击聊天顶部标题，在聊天详情中选择 **修改聊天名称**，输入新名称并保存（最多 120 个字符）。名称写入该聊天所在主机的 Codex；支持本机和 SSH 聊天，网页列表与标题同步更新。

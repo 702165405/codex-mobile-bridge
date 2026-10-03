@@ -34,7 +34,7 @@ class CreationTests(unittest.TestCase):
             self.assertEqual(result['title'], 'New title')
             self.assertEqual(session.view()['title'], 'New title')
             self.assertEqual(rename.call_args.args[2:], (self.tid, 'New title'))
-            for value in ('', ' ', 'x'*121, 'x\ny', None):
+            for value in ('', ' ', 'x'*121, 'x\ny', 'x\x7fy', 'x\x85y', 'x\u2028y', 'x\u2029y', None):
                 with self.assertRaises(ValueError):
                     self.bridge.rename(self.tid, value)
             self.assertEqual(rename.call_count, 1)

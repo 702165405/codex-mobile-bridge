@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import uuid
+import unicodedata
 from pathlib import Path
 
 from .ipc import DesktopIPC, IPCError
@@ -709,7 +710,7 @@ class Bridge:
 
     def rename(self, thread_id, title):
         uuid.UUID(thread_id)
-        if not isinstance(title, str) or not title.strip() or len(title) > 120 or any(ord(c) < 32 for c in title):
+        if not isinstance(title, str) or not title.strip() or len(title) > 120 or any(unicodedata.category(c) in ('Cc', 'Zl', 'Zp') for c in title):
             raise ValueError('聊天名称需为 1–120 个字符，不能包含换行或控制字符')
         title = title.strip()
         self.store.get(thread_id)  # Only existing desktop chats may be renamed.
