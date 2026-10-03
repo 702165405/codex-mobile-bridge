@@ -444,3 +444,11 @@ Thanks to the [LINUX DO](https://linux.do/) community and its members for their 
 - [Docker Compose documentation](https://docs.docker.com/compose/)
 - [Caddy documentation](https://caddyserver.com/docs/)
 - [Nginx proxy module](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)
+
+
+### PushPlus notifications and chat names
+
+- Click **PushPlus notifications** below the web chat list, enter the token from [PushPlus](https://www.pushplus.plus/), enable the channel, save, and test the saved settings. The desktop notification panel also supports PushPlus.
+- Enable reminders in each chat you want to follow, optionally including successful run completion. Notifications continue after closing the page while the gateway remains running.
+- Saved tokens are never returned to the page. Leave the token blank to keep it, or disable the channel and select the clear option to remove it.
+- Click a chat title, choose **Rename chat**, and save a name of up to 120 characters. The name is saved to Codex on the chat's execution host, including SSH hosts, and the web list and heading update.

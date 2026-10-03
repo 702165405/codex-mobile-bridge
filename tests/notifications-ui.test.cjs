@@ -20,6 +20,17 @@ async function fixture(){
     fetch:async(url,options={})=>{
       if(url==='/api/auth')return response({authenticated:false});
       if(url.includes('/reconnect'))return response({ok:true});
+      if(url==='/api/sessions?q=&offset=0&archived=false')return response({sessions:[],unavailableHosts:[]});
+      if(url.startsWith('/api/notifications/pushplus')||url.includes('/rename?')){
+        if(options.method==='POST'){
+          const body=JSON.parse(options.body);writes.push({url,body});
+          if(nextPost){const handle=nextPost;nextPost=null;return handle(body);}
+          if(url.includes('/rename?'))return response({title:body.title});
+          if(url.endsWith('/test'))return response({ok:true});
+          saved.set(url,{pushplusEnabled:body.pushplusEnabled,hasPushplusToken:!!body.pushplusToken||!body.clearPushplusToken&&!!saved.get(url)?.hasPushplusToken});
+        }
+        return response(saved.get(url)||{pushplusEnabled:false,hasPushplusToken:false});
+      }
       assert.match(url,/\/notifications\?/);
       if(options.method==='POST'){
         const body=JSON.parse(options.body);writes.push({url,body});
@@ -104,4 +115,54 @@ test('notification controls have English translations and language changes prese
   }
   assert.equal(ui.nodes.get('notify-completion').checked,true);
   assert.equal(ui.writes.length,0);
+});
+
+
+test('PushPlus saves and tests settings without redisplaying its token',async()=>{
+  const ui=await fixture();await ui.open();
+  await ui.nodes.get('pushplus-settings').onclick();
+  assert.equal(ui.nodes.get('pushplus-dialog').open,true);
+  ui.nodes.get('pushplus-enabled').checked=true;ui.nodes.get('pushplus-token').value='secret';
+  await ui.nodes.get('pushplus-form').onsubmit({preventDefault(){}});
+  assert.deepEqual(ui.writes[0].body,{pushplusEnabled:true,pushplusToken:'secret',clearPushplusToken:false});
+  assert.equal(ui.nodes.get('pushplus-token').value,'');
+  assert.equal(ui.nodes.get('pushplus-token').placeholder,'已保存，留空保留');
+  await ui.nodes.get('pushplus-test').onclick();assert.equal(ui.writes[1].url,'/api/notifications/pushplus/test');
+  ui.nodes.get('pushplus-token').value='retry-token';
+  ui.setPost(()=>ui.response({error:'Network failure'},400));
+  await ui.nodes.get('pushplus-form').onsubmit({preventDefault(){}});
+  assert.equal(ui.nodes.get('pushplus-token').value,'retry-token');
+  assert.equal(ui.nodes.get('pushplus-error').textContent,'Network failure');
+});
+
+test('rename stays scoped to its original host and cannot overwrite a newly opened chat',async()=>{
+  const ui=await fixture();await ui.open(undefined,'remote:test');
+  ui.nodes.get('chat-title').textContent='Old';ui.nodes.get('rename-chat').onclick();
+  assert.equal(ui.nodes.get('rename-title').value,'Old');
+  ui.nodes.get('rename-title').value='New';
+  let resolve;ui.setPost(()=>new Promise(r=>resolve=r));
+  const pending=ui.nodes.get('rename-form').onsubmit({preventDefault(){}});
+  await new Promise(setImmediate);
+  await ui.open('22222222-2222-4222-8222-222222222222');
+  ui.nodes.get('chat-title').textContent='Other chat';
+  resolve(ui.response({title:'New'}));await pending;
+  assert.match(ui.writes[0].url,/rename\?host=remote%3Atest/);
+  assert.deepEqual(ui.writes[0].body,{title:'New'});
+  assert.equal(ui.nodes.get('chat-title').textContent,'Other chat');
+  assert.equal(ui.nodes.get('rename-dialog').open,false);
+});
+
+test('rename success updates header and detail; failed save retains draft',async()=>{
+  const ui=await fixture();await ui.open();ui.nodes.get('rename-chat').onclick();
+  ui.nodes.get('rename-title').value='A new title';
+  await ui.nodes.get('rename-form').onsubmit({preventDefault(){}});
+  assert.equal(ui.nodes.get('chat-title').textContent,'A new title');
+  assert.equal(ui.nodes.get('details-title').textContent,'A new title');
+  ui.nodes.get('rename-chat').onclick();ui.nodes.get('rename-title').value='Retry title';
+  ui.setPost(()=>ui.response({error:'Rename failed'},409));
+  await ui.nodes.get('rename-form').onsubmit({preventDefault(){}});
+  assert.equal(ui.nodes.get('rename-dialog').open,true);
+  assert.equal(ui.nodes.get('rename-title').value,'Retry title');
+  assert.equal(ui.nodes.get('rename-error').textContent,'Rename failed');
+  assert.equal(ui.nodes.get('chat-title').textContent,'A new title');
 });

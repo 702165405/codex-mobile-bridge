@@ -2,6 +2,27 @@
 // UI messages only. Never translate chat content, commands, model IDs or user input.
 const BridgeI18n=(()=>{
 const en={
+  "PushPlus 通知": "PushPlus notifications",
+  "启用 PushPlus": "Enable PushPlus",
+  "发送 PushPlus 测试通知": "Send PushPlus test notification",
+  "修改聊天名称": "Rename chat",
+  "聊天名称已修改": "Chat renamed",
+  "已保存，留空保留": "Saved; leave blank to keep",
+  "填写 PushPlus Token": "Enter your PushPlus token",
+  "测试已保存的配置": "Test saved settings",
+  "PushPlus 配置已保存": "PushPlus settings saved",
+  "PushPlus 已接受测试通知，请在手机确认是否收到": "PushPlus accepted the test notification. Check your phone.",
+  "在 PushPlus 官网获取 Token。保存后，在需要提醒的聊天中开启提醒。": "Get a token from the PushPlus website. After saving, enable reminders in each chat you want to follow.",
+  "请先配置并开启 PushPlus、Bark 或 ntfy 通知": "Configure and enable PushPlus, Bark, or ntfy first.",
+  "PushPlus Token 格式不正确": "Invalid PushPlus token",
+  "开启 PushPlus 前请填写 Token": "Enter a token before enabling PushPlus",
+  "请先配置 PushPlus Token": "Configure your PushPlus token first",
+  "PushPlus 未接受通知，请检查 Token 和网络": "PushPlus rejected the notification. Check your token and network.",
+  "PushPlus 测试失败，请检查 Token 和网络": "PushPlus test failed. Check your token and network.",
+  "当前网关未启用通知服务": "Notifications are not enabled on this gateway",
+  "PushPlus 配置格式不正确": "Invalid PushPlus settings",
+  "聊天名称需为 1–120 个字符，不能包含换行或控制字符": "Chat names must contain 1\u2013120 characters without line breaks or control characters.",
+
   "复制": "Copy",
   "复制代码": "Copy code",
   "已复制": "Copied",

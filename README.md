@@ -734,3 +734,11 @@ python3 -B -m unittest discover -s tests -v
 - [OpenAI Codex App Server 文档](https://learn.chatgpt.com/docs/app-server)
 - [Cloudflare Quick Tunnel 文档](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
 - [cloudflared 官方源码](https://github.com/cloudflare/cloudflared)
+
+
+### PushPlus 通知与聊天重命名
+
+- 网页聊天列表底部点击 **PushPlus 通知**，填写在 [PushPlus 官网](https://www.pushplus.plus/) 获取的 Token，勾选启用并保存，然后点击 **测试已保存的配置**。桌面启动器的「手机通知」中也可以配置和测试。
+- 在需要通知的聊天中点击 **提醒**，开启聊天提醒；可另外勾选 **运行完成后通知**。网关持续运行时，关闭网页仍会发送通知。PushPlus 可与 Bark、ntfy 同时使用。
+- Token 保存到本机通知配置文件，页面不回显；留空保留原 Token，关闭通道后可勾选清除。
+- 点击聊天顶部标题，在聊天详情中选择 **修改聊天名称**，输入新名称并保存（最多 120 个字符）。名称写入该聊天所在主机的 Codex；支持本机和 SSH 聊天，网页列表与标题同步更新。
