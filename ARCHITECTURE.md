@@ -112,7 +112,7 @@ Windows `desktop/tray.cjs` 管理托盘状态、手机地址和两种退出动�
 
 ## 固定 HTTPS 入口
 
-桌面 `connections` 保存可独立启用的 Quick Tunnel、自有服务器 SSH 和 NAS 配置，局域网监听由 `lan` 控制。旧单入口配置在读取时转换，保存前不改写文件。`bridge/access.py` 验证地址，生成不含凭据的 Caddy/Nginx Compose 部署包；所有启用的固定 URL 自动加入允许源，第一个启用的固定 URL 优先用于通知链接（显式 clickBase 仍优先）。停用或删除配置时移除对应托管固定源，保留其他手动 HTTPS 源。
+桌面 `connections` 保存可独立启用的 Quick Tunnel、自有服务器 SSH 和 NAS 配置，局域网监听由 `lan` 控制，`lanAddresses: null` 保持所有 IPv4 网卡监听，数组仅绑定选中地址，空数组只保留回环。各监听器共享同一个认证、配对、通知和会话状态。`localAccess: false` 关闭本机网页入口，回环仅允许无会话信息的私有 `/api/health` 检查和保留 Host 的已授权 HTTPS 隧道；停机关闭全部监听器。桌面用系统网卡名称和 IPv4 地址呈现选择，地址不可绑定时失败，不回退至全网卡。旧单入口配置在读取时转换，保存前不改写文件。`bridge/access.py` 验证地址，生成不含凭据的 Caddy/Nginx Compose 部署包；所有启用的固定 URL 自动加入允许源，第一个启用的固定 URL 优先用于通知链接（显式 clickBase 仍优先）。停用或删除配置时移除对应托管固定源，保留其他手动 HTTPS 源。
 
 `bridge/ssh_tunnel.py` 管理独立 OpenSSH 子进程，复用已有 SSH 目标和身份，以 `-R 127.0.0.1:服务器端口:127.0.0.1:电脑端口` 回程。启用 BatchMode、StrictHostKeyChecking、ExitOnForwardFailure 与保活，不复用 ControlMaster。失败后台退避重连，不阻塞 LAN 服务。各 SSH 配置独立保存状态与日志，状态关联当前网关 PID；服务器 GatewayPorts 应使用 no/clientspecified，不能强制公网绑定。
 

@@ -1,47 +1,41 @@
-## v1.2.1 · 消息编辑、会话分支与完整复制
+## v1.2.2 · 网卡访问选择、PushPlus 与连接恢复
 
 ### 本次更新
 
-- **编辑最近消息**：用户消息下方选择“编辑并重新发送”，确认后由原 Codex 会话重新生成回答；任务运行中需要先停止。
-- **编辑历史消息**：选择“编辑并新建分支”，保留原会话，在新会话中修改并重新生成选定轮次。
-- **从这里分支**：在已完成的回答下创建新会话，只保留截至该轮的上下文，等待你继续输入。聊天详情可返回来源会话。
-- **复制完整回复与代码**：复制 Markdown 原文或单独代码块，长回复自动取齐正文。浏览器限制剪贴板时提供选中文本的手动复制方式。
-- **可靠的操作恢复**：过期消息会被拒绝，重复请求不重复执行；分支已创建但连接失败时保留修改草稿。中英文与手机窄屏同步适配。
-- 修复停止网关时双方竞争清理控制文件的问题，避免已成功停止却被报告为升级失败。
+- **按网卡选择局域网访问**：桌面 App → 网络与登录 → 仅选中的 IPv4 地址。选择需要的地址，排除 WSL、VMware 等虚拟网卡。未选地址不监听网关端口；先停止网关，保存后重新启动。IP 变化后需重新选择，不会自动开放其他网卡。
+- **独立控制本机网页入口**：可关闭 127.0.0.1 / localhost 的网页访问，同时保留桌面控制与 HTTPS 隧道所需的内部回环连接。
+- **项目入口**：桌面侧栏可直接打开 GitHub 项目主页、Issue 和 PR 页面。
+- **PushPlus 通知**：桌面和网页都可保存 Token、发送测试通知，并为聊天开启提醒。接入需付费实名认证，最低 3.9 元；实名普通用户微信渠道每天 200 次请求、每分钟 5 次，相同内容每小时最多 3 条，失败请求也计入额度。详见[官方认证费用](https://www.pushplus.plus/center/real-auth?source=push)和[额度说明](https://www.pushplus.plus/doc/guide/use.html)。配置由网关共享。
+- **聊天重命名**：点击聊天标题 → 修改聊天名称，支持本机和 SSH 聊天。
+- **临时隧道自动恢复**：锁屏、休眠或网络变化后，失效的 Quick Tunnel 会重建；新地址会替换旧地址。修复连接成功后立即失效时延迟重连的问题。
+- **更新恢复加固**：避免并发更新冲突，按安装路径隔离恢复事务，保留未确认恢复的旧版备份。
 
-编辑和分支不会自动撤销已经执行的文件修改或命令；新旧会话共享工作目录。分支沿用原主机、模型提供商与认证，创建分支本身不发送模型请求。分支需要 Codex 运行时支持指定轮次及目标续跑延迟，旧版会提示更新电脑 Codex App。
+感谢 [@qybgh](https://github.com/qybgh) 的 [PR #1](https://github.com/try2love/codex-mobile-bridge/pull/1)，以及 [@702165405](https://github.com/702165405) 的 [PR #2](https://github.com/try2love/codex-mobile-bridge/pull/2)。
 
 ### 安装与升级
 
 提供 Apple Silicon Mac arm64 DMG、Intel Mac x64 DMG、Windows x64 Setup.exe，以及三个 ZIP 更新包。
 
-**v1.1.0 / v1.2.0 用户**：桌面 App → 应用更新 → 更新并重启，然后刷新网页。保留原数据目录即可保留登录、网络、通知和关注聊天配置；临时 HTTPS 地址可能随重启变化。
+v1.1.0–v1.2.1 用户可在「应用更新」选择「更新并重启」，然后刷新手机网页。保留数据目录即可保留登录、网络、通知和关注聊天配置。默认保持原有全部网卡访问；按需改成地址选择。临时 HTTPS 地址可能随重启变化。
 
-**Windows beta.7 / 1.0.0 用户**：在托盘选择“停止网关并退出”，再用 1.2.1 Setup.exe 安装到原位置，无需卸载或删除数据。beta.5 / beta.6 用户也需要手动安装一次新版。
-
-若旧版 Windows 客户端升级时提示 `gateway.stop` 访问被拒绝，退出 App 后用 1.2.1 Setup.exe 覆盖安装，保留原数据目录。
+Windows beta.7 / 1.0.0 用户请在托盘选择「停止网关并退出」，用 1.2.2 Setup.exe 安装到原位置；beta.5 / beta.6 也需手动升级。若旧更新器提示 `gateway.stop` 访问被拒绝，请退出后覆盖安装，无需删除数据。
 
 Mac 包使用 ad-hoc 完整性签名，尚无 Apple Developer ID 签名与公证；Windows 包未做证书签名。使用 `SHA256SUMS.txt` 校验下载，应用内更新使用签名清单 `bridge-update.json`。
 
 ### English
 
-**v1.2.1 adds message editing, conversation branches and complete copying.**
+**v1.2.2 adds adapter selection, PushPlus notifications, chat renaming, and connection recovery.**
 
-- **Edit and resend** the latest user message through the original desktop chat. Stop the active turn first.
-- **Edit in new branch** for an older user message. Keep the original conversation and regenerate the selected turn in a new chat.
-- **Branch from here** under a completed answer. Keep history through that turn, wait for the next message and return to the source through chat details.
-- Copy complete Markdown replies or individual code blocks, including long content. When clipboard access is restricted, select the text and use the system Copy action.
-- Stale messages are rejected, repeated requests do not replay operations, and an edit draft is retained if a new branch cannot connect. Chinese, English and narrow mobile layouts are supported.
-- Fix competing shutdown-file cleanup so a successful gateway stop does not get reported as an update failure.
+- Choose individual IPv4 addresses under Network & login. Exclude WSL/VMware adapters; unselected addresses do not listen on the gateway port. Stop, save and restart to apply. Reselect after IP changes; there is no fallback to all adapters.
+- Turn local browser access at 127.0.0.1 / localhost off independently. Desktop control and HTTPS tunnels retain an internal loopback connection.
+- Open the project home, issues and pull requests from the desktop sidebar.
+- Configure and test PushPlus on desktop or web, then enable per-chat reminders. Real-name verification starts at CNY 3.90. Ordinary verified users receive 200 WeChat requests/day and 5/minute, with 3 identical messages/hour; failed requests count. See the official links above. Settings are shared across the gateway.
+- Rename local and SSH chats from chat details.
+- Recreate expired Quick Tunnels after sleep or network loss, including loss immediately after registration. Use the replacement URL.
+- Isolate updater recovery by installation and preserve backups when recovery is unresolved.
 
-Editing and branching do not undo previous file changes or commands. Both chats share the working directory. Branches retain the original execution host, model provider and authentication; creating a branch does not send a model request. Branching requires a Codex runtime with turn-specific forks and deferred goal continuation. Update Codex App if prompted.
+Thanks to @qybgh (#1) and @702165405 (#2).
 
-**Installers:** Apple Silicon arm64 DMG, Intel x64 DMG and Windows x64 Setup.exe, plus ZIPs for all three targets.
+**Installers:** Mac arm64/x64 DMGs, Windows x64 Setup.exe, and ZIPs for all three targets. From v1.1.0–v1.2.1, use App updates → Update and restart, then refresh the browser. Existing settings and data are retained; all-adapter access remains the default. Older Windows clients should stop and quit, then install 1.2.2 over the existing location. Keep the data directory.
 
-**From v1.1.0 / v1.2.0:** App updates → Update and restart, then refresh the browser. Keep the data directory; temporary HTTPS addresses may change after restart.
-
-**Older Windows versions:** beta.7 / 1.0.0 users should stop the gateway and quit, then install 1.2.1 at the same location. Beta.5 / beta.6 users also need one manual update. Do not uninstall or delete data.
-
-If an older Windows client reports access denied for `gateway.stop` while updating, quit the App and install the 1.2.1 Setup.exe over the existing installation. Keep the data directory.
-
-Mac packages are ad-hoc signed but not Apple-notarized; Windows packages have no certificate signature. Verify downloads with `SHA256SUMS.txt`; in-app updates use the signed `bridge-update.json` manifest.
+Mac packages are ad-hoc signed, not Apple-notarized; Windows packages have no certificate signature. Verify downloads with `SHA256SUMS.txt`; in-app updates use the signed `bridge-update.json` manifest.

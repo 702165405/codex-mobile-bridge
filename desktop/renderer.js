@@ -1,18 +1,18 @@
 'use strict';
 const $=id=>document.getElementById(id),api=window.bridgeDesktop,t=BridgeI18n.t;
-let connectionDraft=[],savedConnections='[]';
+let connectionDraft=[],savedConnections='[]',lanDraft=[],savedLan='[]';
 let snapshot,dirty=false,loading=false,startingUntil=0,activeTab='overview',savedFields={},feedbackKind='',lastFeedback;
 const busyActions=new Set();
 let startPending=false,cloudflaredBusy=false,cloudflaredResult=null,cloudflaredProgress=null;
 const titles={overview:t('连接与状态'),network:t('网络与登录'),devices:t('登录设备'),notifications:t('手机通知'),advanced:t('运行配置'),account:t('账户与额度'),updates:t('应用更新'),logs:t('运行日志')};
 const accountPanel=new AccountPanel({root:$('account-content'),button:$('account-button'),read:()=>api.account({action:'read'}),consume:value=>api.account({action:'consume',...value}),onHidden:()=>{if(activeTab==='account')tab('overview');}});
 const watchPanel=new WatchPanel({root:$('watches'),change:value=>api.notificationWatches(value)});
-function fields(){return [...$('settings').querySelectorAll('input,textarea,select')].filter(node=>!node.closest('#watches')&&!node.closest('#connections')&&node.id!=='connection-kind');}
+function fields(){return [...$('settings').querySelectorAll('input,textarea,select')].filter(node=>!node.closest('#watches')&&!node.closest('#connections')&&!node.closest('#lan-addresses')&&node.id!=='connection-kind');}
 function fieldValues(){return Object.fromEntries(fields().map(node=>[node.id,node.type==='checkbox'?node.checked:node.value]));}
 function updateDirty(){
   const changed=new Set();
   for(const node of fields())if((node.type==='checkbox'?node.checked:node.value)!==savedFields[node.id])changed.add(node.closest('[data-panel]').dataset.panel);
-  if(JSON.stringify(connectionDraft)!==savedConnections)changed.add('network');
+  if(JSON.stringify(connectionDraft)!==savedConnections||JSON.stringify(lanDraft)!==savedLan)changed.add('network');
   dirty=changed.size>0;
   for(const button of document.querySelectorAll('[data-tab]')){
     const unsaved=changed.has(button.dataset.tab);
@@ -29,6 +29,25 @@ function tab(name){activeTab=name;if(name==='account')accountPanel.refresh();doc
 document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>tab(button.dataset.tab));
 document.querySelectorAll('[data-jump]').forEach(button=>button.onclick=()=>tab(button.dataset.jump));
 $('settings').oninput=$('settings').onchange=()=>{if(snapshot){updateDirty();}};
+function renderLan(){
+  const rows=[...(snapshot?.networkInterfaces||[])];
+  for(const address of lanDraft)if(!rows.some(row=>row.address===address))rows.push({address,name:t('当前不可用')});
+  $('lan-addresses').replaceChildren();
+  const selected=$('lan-scope').value==='selected';
+  for(const row of rows){
+    const label=document.createElement('label'),box=document.createElement('input'),text=document.createElement('span');
+    label.className='check lan-address';box.type='checkbox';box.dataset.lanAddress=row.address;
+    box.checked=!selected||lanDraft.includes(row.address);
+    box.disabled=!!snapshot?.runtime.running||!$('lan').checked||!selected;
+    text.textContent=row.name+' · '+row.address;
+    box.onchange=()=>{lanDraft=box.checked?[...lanDraft,row.address]:lanDraft.filter(address=>address!==row.address);updateDirty();};
+    label.append(box,text);$('lan-addresses').append(label);
+  }
+  if(!rows.length){const note=document.createElement('p');note.className='hint';note.textContent=t('未发现可用的局域网 IPv4 地址');$('lan-addresses').append(note);}
+  $('lan-scope').disabled=!!snapshot?.runtime.running||!$('lan').checked;
+}
+$('lan').onchange=()=>{renderLan();updateDirty();};
+$('lan-scope').onchange=()=>{renderLan();updateDirty();};
 function input(id,value){$(id).value=value??'';}
 function render(value,watchRevision=watchPanel.revision){
   if(snapshot&&(snapshot.runtime.instanceId!==value.runtime.instanceId||snapshot.dataDir!==value.dataDir))resetPairing();
@@ -66,6 +85,8 @@ function render(value,watchRevision=watchPanel.revision){
     const p=value.preferences,n=value.notifications;
     for(const [id,key] of [['port','port'],['cloudflared','cloudflared'],['codex-home','codexHome'],['ipc-path','ipcPath'],['codex-bin','codexBin']])input(id,p[key]);
     $('auto-start').checked=p.autoStart;$('lan').checked=p.lan;
+    $('local-access').checked=p.localAccess!==false;input('lan-scope',p.lanAddresses==null?'all':'selected');
+    lanDraft=p.lanAddresses==null?(value.networkInterfaces||[]).map(row=>row.address):[...p.lanAddresses];savedLan=JSON.stringify(lanDraft);
     connectionDraft=JSON.parse(JSON.stringify(p.connections||[]));savedConnections=JSON.stringify(connectionDraft);renderConnections();
     const fixed=connectionDraft.filter(c=>c.enabled).map(c=>c.publicUrl);
     input('origins',value.origins.filter(o=>!fixed.includes(o)).join('\n'));input('auth-mode',value.auth.mode);input('session-hours',value.auth.sessionHours??12);input('username',value.auth.username);
@@ -79,19 +100,20 @@ function render(value,watchRevision=watchPanel.revision){
   $('pushplus-token').placeholder=value.notifications.hasPushplusToken?t('已保存，留空保留'):t('填写 PushPlus Token');
   updateDirty();
   $('network-lock').hidden=!running;
-  for(const id of ['lan','port','connection-kind','add-connection','origins','cloudflared','codex-home','ipc-path','codex-bin'])$(id).disabled=running;
+  for(const id of ['lan','local-access','port','connection-kind','add-connection','origins','cloudflared','codex-home','ipc-path','codex-bin'])$(id).disabled=running;
   document.querySelectorAll('[data-connection-field],[data-remove-connection]').forEach(node=>node.disabled=running);
   for(const node of document.querySelectorAll('[data-connection-status]'))node.textContent=t(value.externalStatus?.[node.dataset.connectionStatus]?.message||(!running?t('网关未启动。可先保存配置并导出部署包。'):t('网关正在运行；固定入口是否可用，请点击检测。')));
   document.querySelectorAll('[data-pick]').forEach(button=>button.disabled=running);
+  renderLan();
   renderCloudflared();
   renderUpdate();
 }
 async function refresh(){if(loading)return;loading=true;try{const revision=watchPanel.revision;render(await api.snapshot(),revision);}catch(e){feedback(e.message,true);}finally{loading=false;}}
-function collect(){return {preferences:{autoStart:$('auto-start').checked,port:Number($('port').value),lan:$('lan').checked,connections:connectionDraft,cloudflared:$('cloudflared').value.trim(),codexHome:$('codex-home').value.trim(),ipcPath:$('ipc-path').value.trim(),codexBin:$('codex-bin').value.trim()},auth:{sessionHours:Number($('session-hours').value),mode:$('auth-mode').value,username:$('username').value.trim(),password:$('password').value},origins:$('origins').value.split('\n').map(s=>s.trim()).filter(Boolean),notifications:{pushplusEnabled:$('pushplus-enabled').checked,pushplusToken:$('pushplus-token').value,clearPushplusToken:$('clear-pushplus-token').checked,enabled:$('ntfy-enabled').checked,server:$('ntfy-server').value.trim(),topic:$('ntfy-topic').value.trim(),token:$('ntfy-token').value,clearToken:$('clear-token').checked,barkEnabled:$('bark-enabled').checked,barkServer:$('bark-server').value.trim(),barkKey:$('bark-key').value,clearBarkKey:$('clear-bark-key').checked,clickBase:$('click-base').value.trim(),includeTitle:$('include-title').checked}};}
+function collect(){return {preferences:{autoStart:$('auto-start').checked,port:Number($('port').value),lan:$('lan').checked,lanAddresses:$('lan-scope').value==='all'?null:[...lanDraft],localAccess:$('local-access').checked,connections:connectionDraft,cloudflared:$('cloudflared').value.trim(),codexHome:$('codex-home').value.trim(),ipcPath:$('ipc-path').value.trim(),codexBin:$('codex-bin').value.trim()},auth:{sessionHours:Number($('session-hours').value),mode:$('auth-mode').value,username:$('username').value.trim(),password:$('password').value},origins:$('origins').value.split('\n').map(s=>s.trim()).filter(Boolean),notifications:{pushplusEnabled:$('pushplus-enabled').checked,pushplusToken:$('pushplus-token').value,clearPushplusToken:$('clear-pushplus-token').checked,enabled:$('ntfy-enabled').checked,server:$('ntfy-server').value.trim(),topic:$('ntfy-topic').value.trim(),token:$('ntfy-token').value,clearToken:$('clear-token').checked,barkEnabled:$('bark-enabled').checked,barkServer:$('bark-server').value.trim(),barkKey:$('bark-key').value,clearBarkKey:$('clear-bark-key').checked,clickBase:$('click-base').value.trim(),includeTitle:$('include-title').checked}};}
 $('settings').onsubmit=async event=>{
-  event.preventDefault();$('save').disabled=true;const submitted=fieldValues(),submittedConnections=JSON.stringify(connectionDraft);
+  event.preventDefault();$('save').disabled=true;const submitted=fieldValues(),submittedConnections=JSON.stringify(connectionDraft),submittedLan=JSON.stringify(lanDraft);
   try{
-    const value=await api.save(collect());savedFields={...submitted};savedConnections=submittedConnections;
+    const value=await api.save(collect());savedFields={...submitted};savedConnections=submittedConnections;savedLan=submittedLan;
     // Edits made while saving must remain visibly unsaved.
     for(const id of ['password','ntfy-token','bark-key','pushplus-token']){if($(id).value===submitted[id])input(id,'');savedFields[id]='';}
     for(const id of ['clear-token','clear-bark-key','clear-pushplus-token']){if($(id).checked===submitted[id])$(id).checked=false;savedFields[id]=false;}
@@ -104,6 +126,7 @@ $('stop').onclick=async()=>{$('stop').disabled=true;try{feedback((await api.stop
 for(const [id,channel] of [['test-notification','ntfy'],['test-bark','bark'],['test-pushplus','pushplus']])$(id).onclick=async()=>{if(dirty){feedback(t('请先保存通知配置，再发送测试通知。'),true);return;}$(id).disabled=true;try{feedback((await api.testNotification({channel})).message);}catch(e){feedback(e.message,true);}finally{$(id).disabled=false;}};
 $('ntfy-help').onclick=()=>api.open('ntfy-help').catch(e=>feedback(e.message,true));
 $('bark-help').onclick=()=>api.open('bark-help').catch(e=>feedback(e.message,true));
+for(const id of ['project-home','project-issues','project-pulls'])$(id).onclick=()=>api.open(id).catch(e=>feedback(e.message,true));
 for(const id of ['pushplus-home','pushplus-verify','pushplus-limits'])$(id).onclick=()=>api.open(id).catch(e=>feedback(e.message,true));
 $('generate-topic').onclick=()=>{input('ntfy-topic','codex-'+crypto.randomUUID().replaceAll('-',''));updateDirty();};
 $('credentials').onclick=()=>api.open('credentials').catch(e=>feedback(e.message,true));

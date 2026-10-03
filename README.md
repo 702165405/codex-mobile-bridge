@@ -29,16 +29,16 @@
 
 ## 下载与快速开始（推荐）
 
-日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.2.1 正式版**。
+日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.2.2 正式版**。
 
 | 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/Codex-Mobile-Bridge-1.2.1-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
-| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/Codex-Mobile-Bridge-1.2.1-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
-| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/Codex-Mobile-Bridge-1.2.1-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
-| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/Codex-Mobile-Bridge-1.2.1-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
+| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
+| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
 
-[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
 
 1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
 2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
@@ -55,7 +55,7 @@
 
 从 `v0.2.0-beta.5` 起，可在桌面 App 的「应用更新」中检查新版、查看说明并点击「更新并重启」。下载与校验完成后短暂重启网关，保留登录、网络、通知和关注聊天配置；失败时尝试恢复原版本。此前版本需要先手动安装一次支持更新的版本。使用临时 HTTPS 时，重启后请打开最新地址。发布与恢复说明见 [桌面更新文档](docs/desktop-updates.md)。
 
-**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.2.1 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
+**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.2.2 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
 
 ### 手机阅读与显示设置
 
@@ -83,10 +83,10 @@
 
 当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v1.1.0` 或后续版本。
 
-1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.2.1 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
+1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.2.2 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.2.1-macOS-arm64.dmg"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.2.2-macOS-arm64.dmg"
    ```
 
 2. 打开 DMG，将 `Codex Mobile Bridge.app` 拖入“应用程序”，再推出磁盘映像；ZIP 则先解压并移动 App。尝试从“应用程序”打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。
@@ -735,6 +735,14 @@ python3 -B -m unittest discover -s tests -v
 - [Cloudflare Quick Tunnel 文档](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
 - [cloudflared 官方源码](https://github.com/cloudflare/cloudflared)
 
+
+### 按网卡选择访问地址
+
+桌面 App → **网络与登录**，在「局域网访问范围」选择 **仅选中的 IPv4 地址**，勾选需要使用的网卡地址，取消 WSL、VMware 等不需要的虚拟网卡。先停止网关，保存后重新启动；未选地址不监听端口。选择绑定到当前 IP，DHCP 地址变化后需重新选择，不会自动退回开放所有网卡。保留「所有 IPv4 地址」可继续原来的访问方式。
+
+「允许本机网页访问」单独控制 `127.0.0.1 / localhost`。关闭后隐藏本机入口并拒绝网页/API 访问，但保留仅供桌面状态检查及 HTTPS 隧道使用的内部回环连接。关闭局域网总开关不会关闭已配置的外网入口。
+
+桌面侧栏底部提供本项目 GitHub 主页、Issue 和 PR 入口，可直接查看源码、反馈问题及贡献代码。
 
 ### PushPlus 通知与聊天重命名
 

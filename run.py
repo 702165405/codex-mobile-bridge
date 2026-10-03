@@ -22,6 +22,7 @@ from bridge.service import Bridge
 from bridge.tunnel import QuickTunnel
 from bridge.ssh_tunnel import SSHTunnel
 from bridge.notifications import Notifications
+from bridge import network
 
 ROOT = Path(__file__).resolve().parent
 
@@ -103,7 +104,7 @@ def main(connections=None):
         config["auth"]["mode"] = "none"
     from bridge.access import validate_connections, public_urls, public_url
     preferences = {'connections': config.get('connections', []) if connections is None else connections,
-                   'lan': args.lan, 'port': args.port}
+                   'lan': args.lan, 'port': args.port, 'lanAddresses': network.selected_addresses(config.get('lanAddresses'))}
     entries = validate_connections(preferences)
     args.tunnel = args.tunnel or any(c['enabled'] and c['accessMode'] == 'quick' for c in entries)
     if entries:
@@ -113,11 +114,23 @@ def main(connections=None):
         parsed = urlsplit(origin)
         if parsed.scheme != "https" or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password:
             parser.error("额外 origin 必须是完整 HTTPS 源且不能有路径")
-    hosts = addresses() if args.lan else ["127.0.0.1", "localhost"]
+    selected = preferences['lanAddresses']
+    hosts = (addresses() if selected is None else ['127.0.0.1', 'localhost'] + selected) if args.lan else ['127.0.0.1', 'localhost']
     config["origins"] = sorted(set(origins + [f"http://{host}:{args.port}" for host in hosts]))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     bridge = Bridge(args.codex_home, args.config.parent, ipc_path=args.ipc_path, codex_bin=args.codex_bin)
-    server = GatewayServer(("0.0.0.0" if args.lan else "127.0.0.1", args.port), bridge, config, ROOT / "web", args.config.parent)
+    servers = []
+    try:
+        for address in network.bindings(preferences):
+            servers.append(GatewayServer((address, args.port), bridge, config, ROOT / 'web', args.config.parent,
+                                         **({'shared': servers[0]} if servers else {})))
+    except OSError:
+        for listener in servers:
+            listener.server_close()
+        bridge.close()
+        raise
+    server = servers[0]
+    listener_threads = []
     pid_file = args.config.parent / "gateway.pid"
     pid_file.write_text(str(os.getpid()), encoding='utf-8')
     control = GatewayControl(args.config.parent)
@@ -125,12 +138,15 @@ def main(connections=None):
     tunnel_thread = None
     ssh_tunnels = []
     notifications = Notifications(bridge, args.config.parent, lambda: server.origins, lambda: config.get('publicUrl', ''))
-    server.notifications = notifications
+    for listener in servers:
+        listener.notifications = notifications
     def stop_signal(signum, frame):
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, stop_signal)
     print("Codex App 手机网关已启动", flush=True)
     for origin in config["origins"]:
+        if not config.get("localAccess", True) and urlsplit(origin).hostname in ("127.0.0.1", "localhost"):
+            continue
         print("  " + origin, flush=True)
     print("登录方式：" + ("免密（已显式启用）" if config["auth"]["mode"] == "none" else "账号密码"), flush=True)
     if first_login.exists():
@@ -172,10 +188,17 @@ def main(connections=None):
             tunnel_thread.start()
         notifications.start()
         control.start(server.shutdown, server.pairing.control, server.instance_id, server.auth, bridge.account.control, server.notifications.control)
+        for listener in servers[1:]:
+            thread = threading.Thread(target=listener.serve_forever, kwargs={'poll_interval': 0.5}, daemon=True)
+            thread.start()
+            listener_threads.append((listener, thread))
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass
     finally:
+        for listener, thread in listener_threads:
+            listener.shutdown()
+            thread.join()
         notifications.close()
         if tunnel:
             tunnel.close()
@@ -184,7 +207,8 @@ def main(connections=None):
         for ssh_tunnel in ssh_tunnels:
             ssh_tunnel.close()
         bridge.close()
-        server.server_close()
+        for listener in servers:
+            listener.server_close()
         if pid_file.exists() and pid_file.read_text(encoding='utf-8').strip() == str(os.getpid()):
             pid_file.unlink()
         control.close()
