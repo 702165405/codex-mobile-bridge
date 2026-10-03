@@ -34,8 +34,17 @@ async function main(){
     assert.equal(devices.sessions[0].ip,'127.0.0.1');assert.equal(devices.sessions[0].userAgent,'Synthetic iPhone');
     assert.equal(devices.sessions[0].expires,0);assert.equal(devices.sessions[0].csrf,undefined);
     const raw=await fs.readFile(path.join(dataDir,'auth-sessions.json'),'utf8');assert.equal(raw.includes(cookie.split('=')[1]),false);
+    const accounts=await worker('accounts',{action:'addApi',name:'Synthetic API',baseUrl:'https://fixture.invalid/v1',apiKey:'synthetic-account-key',model:'gemini-fixture'});
+    assert.equal(accounts.accounts.length,1);assert.equal(JSON.stringify(accounts).includes('synthetic-account-key'),false);
+    const accountId=accounts.accounts[0].id;
     await worker('stop');await start();
     assert.equal((await request('/api/auth',{cookie})).body.authenticated,true);
+    const savedAccounts=await request('/api/accounts',{cookie});
+    assert.equal(savedAccounts.status,200);assert.equal(savedAccounts.body.accounts[0].id,accountId);
+    assert.equal(JSON.stringify(savedAccounts.body).includes('synthetic-account-key'),false);
+    assert.equal((await request('/api/accounts')).status,401);
+    await worker('accounts',{action:'delete',id:accountId});
+    assert.equal((await worker('accounts',{action:'list'})).accounts.length,0);
     await worker('devices',{action:'revoke',id:devices.sessions[0].id});
     assert.equal((await request('/api/auth',{cookie})).body.authenticated,false);
     signed=await login();assert.equal(signed.status,200);cookie=signed.cookie.split(';')[0];

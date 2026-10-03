@@ -1,16 +1,15 @@
 # Linux Desktop Support (Experimental)
 
-This branch adds Linux integration and native x64/ARM64 packaging. It does not
-retroactively add Linux downloads to the published v1.2.2 release. Linux packages
-must pass the new CI jobs and real desktop IPC checks before being advertised as
-verified releases.
+v1.3.0 adds experimental Linux integration and native x64/ARM64 packages.
+Native CI validates package installation, GUI startup and isolated gateway behavior.
+Compatibility with a particular Codex desktop version still requires real-device IPC testing.
 
 ## Scope
 
 | Target | Build baseline | Packages | Current validation |
 | --- | --- | --- | --- |
-| Linux x64 / amd64 | Ubuntu 22.04 x64 | amd64.deb, x86_64.AppImage | Native packages built; installation validation pending |
-| Linux ARM64 / aarch64 | Ubuntu 22.04 ARM64 | .deb, AppImage | Asset/architecture unit tests; native CI and hardware execution pending |
+| Linux x64 / amd64 | Ubuntu 22.04 x64 | amd64.deb, x86_64.AppImage | Native CI installation and isolated GUI checks |
+| Linux ARM64 / aarch64 | Ubuntu 22.04 ARM64 | .deb, AppImage | Native CI installation and isolated GUI checks; hardware IPC testing pending |
 
 ARM means ARM64 here, not 32-bit ARM. Windows ARM64 is outside this change.
 Other Linux distributions may run the AppImage, but are not yet validated.
@@ -146,7 +145,7 @@ session bus and Xvfb, and exercise authentication, notifications, QR login,
 TLS, language persistence, and closing/reopening the controller. The AppImage
 payload is extracted and launched separately; this does not verify a real
 desktop's FUSE mounting or Wayland behavior. Screenshots are retained as CI
-artifacts. These jobs have been configured, not yet run for this branch.
+artifacts. These jobs passed on the Ubuntu integration branch; each release reruns the same gates.
 
 For a local installed package, use Node.js 24 in the source checkout:
 

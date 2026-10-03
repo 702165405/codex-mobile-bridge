@@ -18,7 +18,7 @@
 
 > 社区项目，与 OpenAI 无隶属关系。支持 macOS 和 Windows，依赖 Codex App 的内部 IPC；各平台的实测范围见 [验证记录](VERIFICATION.md)。App 更新后可能需要适配。
 
-Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明见 [Linux 文档](docs/linux.md)。已配置 `.deb` 和 AppImage 构建；尚未完成原生安装包与真实桌面 IPC 验收，现有 v1.2.2 Release 不包含这些新包。
+Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明见 [Linux 文档](docs/linux.md)。提供 `.deb` 和 AppImage；原生 CI 验证安装、启动与网关功能，具体 Codex 桌面版本的 IPC 兼容性仍以实机测试为准。
 
 ## 消息编辑、分支与复制
 
@@ -31,16 +31,18 @@ Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明�
 
 ## 下载与快速开始（推荐）
 
-日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.2.2 正式版**。
+日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.3.0 正式版**。
 
 | 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
-| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
-| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
-| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
+| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
+| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| Ubuntu x64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Linux-amd64.deb) | Ubuntu 22.04；安装后以普通用户启动 |
+| Ubuntu ARM64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Linux-arm64.deb) | Ubuntu 22.04 ARM64；不含 32 位 ARM |
 
-[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
 
 1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
 2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
@@ -57,7 +59,7 @@ Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明�
 
 从 `v0.2.0-beta.5` 起，可在桌面 App 的「应用更新」中检查新版、查看说明并点击「更新并重启」。下载与校验完成后短暂重启网关，保留登录、网络、通知和关注聊天配置；失败时尝试恢复原版本。此前版本需要先手动安装一次支持更新的版本。使用临时 HTTPS 时，重启后请打开最新地址。发布与恢复说明见 [桌面更新文档](docs/desktop-updates.md)。
 
-**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.2.2 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
+**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.3.0 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
 
 ### 手机阅读与显示设置
 
@@ -65,6 +67,12 @@ Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明�
 - 点击模型、提醒、Skill 右侧的箭头，可收起或展开下方输入框与发送/停止栏。收起保留草稿，发送成功不会自动收起；失败时展开错误提示。
 - 在右上角 **“··· → 显示设置”** 独立开关 **思考摘要**、**执行过程**。执行过程包含命令、工具调用、文件变更与中途进度说明；关闭两项可专注阅读回复。用户消息、错误和待确认卡片仍保留；缺少阶段标记的旧回复也会显示。
 - 可选浅色、深色或跟随系统，自定义强调色、正文字号、代码字号和阅读间距。设置即时生效并保存在当前浏览器；电脑网页同样可用。
+
+### 多账号与 API 切换
+
+v1.3.0 支持在 Bridge 桌面端添加官方账号、自定义 API 或扫描导入本机配置，在桌面端与 Web 切换已保存接入。切换会重启官方 Codex 桌面应用，Bridge 网关保持运行。当前接入置顶；官方账号旁显示额度与重置卡数量，API 聊天按上游提供模型列表。参见[使用与恢复说明](docs/account-switching.md)。
+
+桌面端可扫描当前或指定 Codex 数据目录，选择导入已有官方凭据、API 提供商和 profiles；API 表单支持从上游获取模型列表并选择默认模型，也可手动填写。
 
 ### 官方账号额度与重置卡
 
@@ -85,10 +93,10 @@ Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明�
 
 当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v1.1.0` 或后续版本。
 
-1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.2.2 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
+1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.3.0 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.2.2-macOS-arm64.dmg"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.3.0-macOS-arm64.dmg"
    ```
 
 2. 打开 DMG，将 `Codex Mobile Bridge.app` 拖入“应用程序”，再推出磁盘映像；ZIP 则先解压并移动 App。尝试从“应用程序”打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。
@@ -488,7 +496,7 @@ flowchart TD
 - **执行与授权**：消息、模型设置、停止与审批回应都路由到原 owner，保留会话 ID、工作目录、provider 和权限上下文。
 - **模型/Skill 目录**：使用短时 `app-server` 元数据辅助进程，仅调用初始化、`model/list` 和 `skills/list`；它不恢复会话或执行任务。
 
-实现不修改桌面 App、不写原始聊天数据库、不直接读取或转发模型 API key。Codex 运行时仍使用自己的既有认证配置。
+实现不修改桌面 App 程序、不写原始聊天数据库。聊天操作使用 Codex 原生认证；显式使用“账号与接入”时，凭据只在电脑本地保存和切换，不发送给手机。
 
 更多协议与模块说明见 [实现说明](ARCHITECTURE.md)，验证范围见 [验证记录](VERIFICATION.md)。
 
@@ -517,7 +525,7 @@ flowchart TD
 
 ## 已知限制
 
-- macOS 与 Windows 的真实验证范围分别记录在 [验证记录](VERIFICATION.md)；Linux 桌面尚未验证。
+- macOS 与 Windows 的真实验证范围分别记录在 [验证记录](VERIFICATION.md)；Linux 原生安装与网关检查由 CI 覆盖，实际桌面 IPC、Wayland/FUSE 和不同发行版仍需实机验证。
 - 内部 IPC 不是稳定的公开 API；Codex App 更新后可能出现不兼容。
 - 尚未加载的聊天可查看保存历史，发送前可能需要在 App 中打开一次。
 - SSH 连接需已有可非交互使用的认证；网关不提供 SSH 密码、主机指纹或 MFA 交互。

@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('bridgeDesktop',{
   installCloudflared:()=>ipcRenderer.invoke('bridge:install-cloudflared'),
   checkCloudflared:value=>ipcRenderer.invoke('bridge:check-cloudflared',value),
   snapshot:()=>ipcRenderer.invoke('bridge:snapshot'),
+  accounts:value=>ipcRenderer.invoke('bridge:accounts',value),
   account:value=>ipcRenderer.invoke('bridge:account',value),
   save:value=>ipcRenderer.invoke('bridge:save',value),
   start:()=>ipcRenderer.invoke('bridge:start'),

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .ipc import DesktopIPC, IPCError
 from .transport import ipc_endpoint
-from .model import apply_patches, normalize_state, normalize_request, ordered_turns, async_requests
+from .model import apply_patches, normalize_state, normalize_request, computer_use_approval, ordered_turns, async_requests
 from .store import SessionStore, StoreUnavailable
 from .files import artifact_paths
 from .catalog import Catalog
@@ -21,6 +21,7 @@ from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh
 from .create import rename_thread, create_empty, fork_copy, open_in_desktop, CreationError, ForkUnavailable
 from .timeline import Timeline
 from .account import Account
+from .accounts import Accounts, operation
 from .uploads import Uploads
 from .remote import upload_file
 
@@ -94,6 +95,7 @@ class Bridge:
         self.catalog_reader = RemoteCatalog(alias) if alias else Catalog(codex_home, codex_bin)
         self.uploads = Uploads(data_dir, (lambda *args: upload_file(alias, *args)) if alias else None)
         self.account = Account(codex_home, data_dir, codex_bin) if host == 'local' else None
+        self.accounts = Accounts(self) if host == "local" else None
         self.live = {}
         self.lock = threading.RLock()
         self.ipc = DesktopIPC(ipc_path or ipc_endpoint(codex_home), self._event, self._disconnected)
@@ -119,6 +121,7 @@ class Bridge:
         target.chmod(0o600)
         target.replace(self.creations_path)
 
+    @operation
     def create_chat(self, project_key, title, request_id):
         if not isinstance(request_id, str):
             raise ValueError('创建请求标识无效')
@@ -196,6 +199,7 @@ class Bridge:
                 result[key] = permissions[key]
         return result
 
+    @operation
     def message_action(self, thread_id, body):
         action, identifier = body.get('action'), body.get('id')
         if action not in ('edit', 'fork', 'edit-fork') or not isinstance(identifier, str):
@@ -304,6 +308,7 @@ class Bridge:
             if host not in self.remote_bridges:
                 folder = self.data_dir / 'hosts' / hashlib.sha256(host.encode()).hexdigest()[:16]
                 self.remote_bridges[host] = Bridge(self.codex_home, folder, host, available[host]['alias'], ipc_path=self.ipc.path)
+                self.remote_bridges[host].accounts = self.accounts
             return self.remote_bridges[host]
 
     def list(self, query="", limit=100, offset=0, archived=False):
@@ -453,6 +458,7 @@ class Bridge:
                     session.error = str(exc)
                     session.changed()
 
+    @operation
     def activate(self, thread_id):
         """Explicit phone operation only; reads and notification watches never navigate."""
         session = self.session(thread_id, background=True)
@@ -560,6 +566,11 @@ class Bridge:
     def _maintain(self):
         delay = 3
         while not self.closed.wait(delay):
+            if self.accounts is not None:
+                try:
+                    self.accounts.check_ready()
+                except ValueError:
+                    continue
             with self.lock:
                 sessions = list(self.live.values())
             for session in sessions:
@@ -592,7 +603,13 @@ class Bridge:
                 raise IPCError(session.error or "请先在桌面 App 打开此聊天")
         return session
 
+    @operation
     def _call(self, session, method, params, timeout=30):
+        if self.host == 'local' and self.accounts and self.accounts.index.get('activeId'):
+            row = self.accounts.row(self.accounts.index['activeId'])
+            expected = ('openai',) if row['kind'] == 'chatgpt' else ('openai', 'bridge_api')
+            if session.view().get('provider') not in expected:
+                raise ValueError('此聊天保留了原提供商，请切回对应接入或新建聊天')
         return self.ipc.request(method, {"conversationId": session.id, **params}, target=session.owner, host=self.host, timeout=timeout)["result"]
 
     def _save_ledger(self):
@@ -680,13 +697,15 @@ class Bridge:
             result['meta']['forkedFrom'] = self._fork_origin(thread_id)
         return result
 
+    @operation
     def catalog(self, thread_id, refresh=False):
         session = self.session(thread_id)
         with session.condition:
             cwd = session.state.get("cwd")
             model = session.state.get("latestModel")
             effort = session.state.get("latestReasoningEffort") or (session.state.get("latestThreadSettings") or {}).get("effort")
-        catalog = self.catalog_reader.get(cwd, refresh=refresh)
+            provider = session.view().get('provider')
+        catalog = self.catalog_reader.get(cwd, refresh=refresh, provider=provider)
         with session.condition:
             view = session.view()
         return {**catalog, "currentModel": model, "currentEffort": effort,
@@ -708,6 +727,7 @@ class Bridge:
             selected.append({"id": key, "name": skill["name"], "path": skill["path"]})
         return selected
 
+    @operation
     def rename(self, thread_id, title):
         uuid.UUID(thread_id)
         if not isinstance(title, str) or not title.strip() or len(title) > 120 or any(unicodedata.category(c) in ('Cc', 'Zl', 'Zp') for c in title):
@@ -734,6 +754,7 @@ class Bridge:
                 session.changed()
         return {'id': thread_id, 'host': self.host, 'title': title}
 
+    @operation
     def settings(self, thread_id, model, effort, *, fast_mode=None):
         if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,199}", model):
             raise ValueError("模型 ID 格式不正确")
@@ -746,7 +767,7 @@ class Bridge:
             # Recheck login/model/policy on the execution host before a speed change.
             catalog = self.catalog(thread_id, refresh=fast_mode is not None)
             known = next((m for m in catalog["models"] if m["id"] == model), None)
-            if known and effort not in known["efforts"]:
+            if known and known["efforts"] and effort not in known["efforts"]:
                 raise ValueError("这个模型不支持所选推理强度")
             settings = {'model': model, 'effort': effort}
             if fast_mode is not None:
@@ -778,6 +799,7 @@ class Bridge:
                 session.changed()
         return {"status": "cancelled"}
 
+    @operation
     def send(self, thread_id, text, submission_id, mode="send", skills=None, *, work_mode=None, plan_response=None, attachments=None):
         uuid.UUID(submission_id)
         identifiers = [] if attachments is None else attachments
@@ -848,6 +870,7 @@ class Bridge:
                 return {"status": "queued", "id": submission_id}
             return self._dispatch(session, key, entry)
 
+    @operation
     def _send_queued(self, session, key, entry):
         with session.action_lock:
             with session.condition:
@@ -993,14 +1016,27 @@ class Bridge:
             action = response.get("action")
             if action not in ("accept", "decline", "cancel"):
                 raise ValueError("未知确认操作")
-            content = response.get("content")
-            if action == "accept":
-                validate_form(content, params.get("requestedSchema", {}))
-            payload["response"] = {"action": action, "content": content if action == "accept" else None}
+            computer = computer_use_approval(params)
+            if computer:
+                if set(response) - {'action', 'persist'} or ('persist' in response and
+                        (action != 'accept' or response['persist'] not in computer['persistModes'])):
+                    raise ValueError('此请求不支持所选授权范围')
+                payload['response'] = {'action': action, 'content': {} if action == 'accept' else None}
+                if 'persist' in response:
+                    payload['response']['_meta'] = {'persist': response['persist']}
+            else:
+                if set(response) - {'action', 'content'}:
+                    raise ValueError('此请求不支持所选授权范围')
+                content = response.get("content")
+                if action == "accept":
+                    validate_form(content, params.get("requestedSchema", {}))
+                payload["response"] = {"action": action, "content": content if action == "accept" else None}
         return self._call(session, mapping[method], payload)
 
     def close(self):
         self.closed.set()
+        if self.host == "local" and self.accounts:
+            self.accounts.login_cancel.set()
         for bridge in list(self.remote_bridges.values()):
             bridge.close()
         with self.lock:

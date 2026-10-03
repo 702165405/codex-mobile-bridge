@@ -45,7 +45,7 @@ class FastCapabilityTests(unittest.TestCase):
 
     def test_catalog_keeps_model_tier_ids_defaults_and_filters_unknown_capabilities(self):
         reader = Catalog('/unused', 'unused')
-        reader._fetch = lambda cwd: {'models': [
+        reader._fetch = lambda cwd, provider=None: {'models': [
             {'model': 'one', 'serviceTiers': [{'id': 'priority', 'name': 'Fast'}, {'id': 'ultrafast', 'name': 'Ultrafast'}], 'defaultServiceTier': 'priority'},
             {'model': 'two', 'serviceTiers': [{'id': 'fast', 'name': 'Fast'}]},
             {'model': 'other', 'serviceTiers': []}], 'skillEntries': [], 'fastMode': {'allowed': True}}
@@ -71,7 +71,7 @@ class FastSettingsTests(unittest.TestCase):
         self.fixture.state.update(modelProvider='openai', latestModel='official-model', latestThreadSettings={'serviceTier': tier})
         self.catalog = {'models': [copy.deepcopy(MODEL)], 'skills': [], 'fastMode': {'allowed': True, 'defaultServiceTier': 'priority'}}
         self.reads = []
-        def get(cwd, refresh=False):
+        def get(cwd, refresh=False, provider=None):
             self.reads.append(refresh);return copy.deepcopy(self.catalog)
         self.bridge.catalog_reader.get = get
 

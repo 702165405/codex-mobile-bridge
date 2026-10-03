@@ -109,7 +109,18 @@ function register(){
     fs.writeFileSync(path.join(directory,'language.json'),JSON.stringify({language:value}));
     language=value;window.setTitle(t('Codex 手机网关'));tray?.relabel();return language;
   });
-  for(const action of ['snapshot','save','start','stop','logs','test-notification','check-entry','devices','account','notification-watches'])ipcMain.handle('bridge:'+action,(event,payload)=>{authorize(event);return worker(action,payload);});
+  for(const action of ['snapshot','save','start','stop','logs','test-notification','check-entry','devices','account', 'accounts','notification-watches'])ipcMain.handle('bridge:'+action,async(event,payload)=>{
+    authorize(event);
+    if(action==='accounts'){
+      if(updater?.busy&&payload?.action!=='list')throw Error('正在更新应用，请稍候。');
+      if(payload?.action==='openLogin'){
+        const value=await worker('accounts',{action:'list'}),url=new URL(value.enrollment?.authUrl||'');
+        if(value.enrollment?.phase!=='waiting'||url.protocol!=='https:'||!['auth.openai.com','chatgpt.com','auth0.openai.com'].includes(url.hostname))throw Error('登录已过期，请重新登录');
+        await shell.openExternal(url.href);return value;
+      }
+    }
+    return worker(action,payload);
+  });
   ipcMain.handle('bridge:install-cloudflared',async event=>{
     authorize(event);if(updater.busy)throw Error('正在更新应用，请稍候。');if(installPending)return installPending;
     installPending=(async()=>{

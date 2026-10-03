@@ -447,6 +447,7 @@ test('LAN selection drafts survive polling and are saved with local browser acce
 
 test('project navigation uses fixed project destinations',async()=>{
   const ui=await renderer(),opened=[];ui.api.open=async target=>opened.push(target);
-  for(const name of ['project-home','project-issues','project-pulls'])await ui.nodes.get(name).onclick();
-  assert.deepEqual(opened,['project-home','project-issues','project-pulls']);
+  await ui.nodes.get('project-home').onclick();
+  assert.deepEqual(opened,['project-home']);
+  assert.equal(ui.nodes.has('project-issues'),false);assert.equal(ui.nodes.has('project-pulls'),false);
 });
