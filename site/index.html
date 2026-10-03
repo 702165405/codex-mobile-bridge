@@ -60,7 +60,7 @@
 <a data-en="Open video ↗" href="./assets/product-tour.mp4?v=1.2.0" class="">单独打开视频 ↗</a>
 </div>
 <p data-en="New in v1.2.0: attachments, Plan and Goal modes, chat indicators, Fast and desktop watch management. Update the desktop App and refresh your browser to use them." class="release-note">v1.2.0 新增附件、计划与目标、会话标识、Fast 和桌面通知监控管理。升级桌面 App 并刷新网页，即可使用。</p>
-<p class="release-note" data-en="v1.2.2 adds adapter selection, PushPlus notifications and chat renaming, with tunnel and update recovery fixes. The video shows the v1.2.0 workflow.">v1.2.2 新增网卡访问选择、PushPlus 通知和聊天重命名，并修复隧道重连与更新恢复。视频展示 v1.2.0 的使用流程。</p>
+<p class="release-note" data-en="v1.3.0 adds multiple accounts, upstream API models and experimental Ubuntu x64/ARM64 packages, with clearer quota and computer-use approvals. The video shows the v1.2.0 workflow.">v1.3.0 新增多账号切换、API 上游模型与 Ubuntu x64/ARM64 实验性安装包，并优化额度展示和 computer use 授权。视频展示 v1.2.0 的使用流程。</p>
 <div class="chapters" id="chapters" aria-label="演示章节" data-en-aria-label="Walkthrough chapters"></div></section>
 <section id="use">
 <div class="section-head"><div><p data-en="02 / GET STARTED" class="eyebrow">02 / GET STARTED</p><h2 data-en="Four steps to pick up your work." >四步，接上已有工作。</h2></div><p data-en="Start on your local network. Add an external connection when you need one." >先从局域网开始，再按需要配置外网入口。</p></div>
@@ -232,7 +232,7 @@
 
 </li>
 <li>
-<span data-en="View official-account usage and reset times" >查看官方账号额度与恢复时间</span>
+<span data-en="Add accounts on desktop; switch on desktop or Web and view quota beside each account" >桌面添加账号，两端切换；账号旁查看额度与重置卡</span>
 
 </li>
 <li>
@@ -373,27 +373,35 @@
 <p data-en="QR sign-in does not establish network reachability. Fixed HTTPS and NAS require initial setup. Keep the host awake and the original Codex App and gateway running." class="mini-note">扫码登录不会自动打通网络。固定 HTTPS 和 NAS 需要完成首次网络配置；使用期间保持电脑唤醒、原 Codex App 与网关运行。</p>
 </section>
 <section id="download">
-<div class="section-head"><div><p data-en="06 / DOWNLOAD" class="eyebrow">06 / DOWNLOAD</p><h2 data-en="Bring your work to the device at hand." >让手边的设备，接上工作。</h2></div><p data-en="v1.2.2 · Current stable release" >v1.2.2 · 当前正式版</p></div>
+<div class="section-head"><div><p data-en="06 / DOWNLOAD" class="eyebrow">06 / DOWNLOAD</p><h2 data-en="Bring your work to the device at hand." >让手边的设备，接上工作。</h2></div><p data-en="v1.3.0 · Current stable release" >v1.3.0 · 当前正式版</p></div>
 <div class="download-panel">
 <p data-en="Packages include the gateway runtime. Choose your host operating system and chip." >安装包内置网关运行时。按电脑的系统与芯片下载。</p>
 <div class="downloads">
-<a class="download" href="https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-macOS-arm64.dmg"><strong>macOS · Apple Silicon</strong>
+<a class="download" href="https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-macOS-arm64.dmg"><strong>macOS · Apple Silicon</strong>
 <span data-en="M-series Macs" >M 系列 Mac</span>
 <b data-en="Download DMG ↗" >下载 DMG ↗</b>
 </a>
-<a class="download" href="https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-Windows-x64-Setup.exe"><strong>Windows · x64</strong>
+<a class="download" href="https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Windows-x64-Setup.exe"><strong>Windows · x64</strong>
 <span data-en="Installer with app shortcuts" >安装向导与启动快捷方式</span>
 <b data-en="Download installer ↗" >下载安装包 ↗</b>
 </a>
-<a class="download" href="https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.2/Codex-Mobile-Bridge-1.2.2-macOS-x64.dmg"><strong>macOS · Intel</strong>
+<a class="download" href="https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-macOS-x64.dmg"><strong>macOS · Intel</strong>
 <span data-en="Intel Macs" >英特尔 Mac</span>
 <b data-en="Download DMG ↗" >下载 DMG ↗</b>
 </a>
+<a class="download" href="https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Linux-amd64.deb"><strong>Ubuntu · x64</strong>
+<span data-en="22.04 · Experimental" >22.04 · 实验性支持</span>
+<b data-en="Download DEB ↗" >下载 DEB ↗</b>
+</a>
+<a class="download" href="https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Linux-arm64.deb"><strong>Ubuntu · ARM64</strong>
+<span data-en="22.04 · Experimental" >22.04 · 实验性支持</span>
+<b data-en="Download DEB ↗" >下载 DEB ↗</b>
+</a>
 </div>
-<p data-en="The Mac App is not notarized and may require manual approval on first launch. Windows builds are not certificate-signed. ZIP packages are also available; there is no dedicated Windows ARM build." class="fineprint">Mac 版未公证，首次打开可能需要手动允许；Windows 版未做证书签名。另提供完整 ZIP，Windows ARM 暂无专用安装包。</p>
+<p data-en="The Mac App is not notarized and may require manual approval on first launch. Windows builds are not certificate-signed. ZIP packages and Linux AppImages are also available. Linux requires manual upgrades; there is no dedicated Windows ARM build." class="fineprint">Mac 版未公证，首次打开可能需要手动允许；Windows 版未做证书签名。另提供完整 ZIP 与 Linux AppImage；Linux 需手动升级，Windows ARM 暂无专用安装包。</p>
 <a data-en="All releases and SHA-256 checksums ↗" href="https://github.com/try2love/codex-mobile-bridge/releases" class="">所有版本与 SHA-256 校验文件 ↗</a>
 </div>
-<p data-en="Upgrading from v1.1.0 or v1.2.0? Use App updates on the desktop, then refresh your browser. Your existing settings are retained." class="release-note">已安装 v1.1.0 或 v1.2.0？可在桌面 App 的“应用更新”中升级，然后刷新网页。原有设置会保留。</p>
+<p data-en="Upgrading from v1.1.0–v1.2.2 on Mac or Windows? Use App updates on the desktop, then refresh your browser. Your existing settings are retained." class="release-note">Mac / Windows 已安装 v1.1.0–v1.2.2？可在桌面 App 的“应用更新”中升级，然后刷新网页。原有设置会保留。</p>
 <div class="faq">
 <details>
 <summary data-en="Does the viewing device need the same OpenAI account?" >访问端需要登录同一个 OpenAI 账号吗？</summary>
@@ -401,7 +409,7 @@
 </details>
 <details>
 <summary data-en="Can I use a phone, tablet or another computer?" >手机、平板和另一台电脑都能用吗？</summary>
-<p data-en="Use a modern browser to reach your gateway. Host App packages are available for macOS and Windows; the viewing device does not need to use the same operating system." >可以使用主流现代浏览器访问可达的网关地址。执行端 App 当前提供 macOS 与 Windows 安装包；访问端不必使用相同系统。</p>
+<p data-en="Use a modern browser to reach your gateway. Host App packages are available for macOS, Windows and experimental Ubuntu x64/ARM64; the viewing device does not need to use the same operating system." >可以使用主流现代浏览器访问可达的网关地址。执行端 App 提供 macOS、Windows 和实验性 Ubuntu x64/ARM64 安装包；访问端不必使用相同系统。</p>
 </details>
 <details>
 <summary data-en="Will it work after I turn off the host?" >关闭电脑后还能继续吗？</summary>
@@ -412,8 +420,8 @@
 <p data-en="Configure and test Bark or ntfy in the desktop App, then enable Reminders in a browser chat. Completion notifications are optional. The online gateway keeps watching followed chats even when the page is closed." >在电脑 App 配置并测试 Bark 或 ntfy，再到网页聊天中开启“提醒”。可单独开启完成通知；即使关闭网页，在线网关仍会监听已关注聊天。</p>
 </details>
 <details>
-<summary data-en="How do I use the new v1.2.1 features?" >如何使用 v1.2.1 的新增功能？</summary>
-<p data-en="Update Mobile Bridge to v1.2.1 and refresh the browser. Message actions appear beneath messages. Branching may also require updating Codex App; new branches share the original working directory." >将 Mobile Bridge 升级至 v1.2.1 并刷新网页，在消息下方使用操作入口。分支功能可能还需更新 Codex App；新分支与原会话共享工作目录。</p>
+<summary data-en="How do I switch accounts or API connections?" >怎样切换账号或 API 接入？</summary>
+<p data-en="Update to v1.3.0 and refresh the browser. Add or import connections under Accounts in the Bridge desktop app, then switch saved connections on desktop or Web. Finish active tasks first: switching restarts Codex, while the Bridge gateway stays online." >升级至 v1.3.0 并刷新网页，在 Bridge 桌面端“账号与接入”添加或导入配置，然后在桌面端或网页切换。先结束运行中的任务；切换会重启 Codex，Bridge 网关保持在线。</p>
 </details>
 <details>
 <summary data-en="What if macOS cannot verify the developer or says the App is damaged?" >Mac 提示无法验证开发者或“已损坏”怎么办？</summary>
@@ -442,7 +450,7 @@
 <p class="footer-meta">
 <span data-en="Community open source · MIT license · Not affiliated with OpenAI" >社区开源项目 · MIT 许可证 · 与 OpenAI 无隶属关系</span>
 <br>
-<span data-en="Download v1.2.2 · Updated October 3, 2026" >当前下载 v1.2.2 · 更新于 2026-10-03</span>
+<span data-en="Download v1.3.0 · Updated October 3, 2026" >当前下载 v1.3.0 · 更新于 2026-10-03</span>
 </p></div><div class="footer-links">
 <a data-en="Thanks to the LINUX DO community and everyone supporting this project." href="https://linux.do/">感谢 LINUX DO 社区及各位佬友的支持。</a>
 <a data-en="English documentation ↗" href="https://github.com/try2love/codex-mobile-bridge" data-doc-link>中文使用说明 ↗</a>

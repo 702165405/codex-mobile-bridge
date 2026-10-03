@@ -1,5 +1,13 @@
 # 验证记录
 
+## v1.3.0 正式发布（2026-10-03）
+
+- 用户验收后，标签 `v1.3.0` 指向 `9d798f12c8f9001e2a6c39638c8ed5e0bd3b78e4`，Ubuntu 集成和账号功能一并进入正式版本。[预检五架构构建](https://github.com/try2love/codex-mobile-bridge/actions/runs/37123464691)、[正式签名发布](https://github.com/try2love/codex-mobile-bridge/actions/runs/37124047542)与[正式标签测试矩阵](https://github.com/try2love/codex-mobile-bridge/actions/runs/37124047365)全部成功。
+- Apple Silicon、Intel Mac 与 Windows x64 原生 runner 验证安装包、GUI/网关启动、登录设备管理、通知、二维码登录和升级/失败回滚。Ubuntu 22.04 x64 与 ARM64 原生 runner 验证 DEB 安装、AppImage 解包启动、TLS、登录、通知和语言持久化；已查看 Linux GUI 截图。五架构均通过包内 API 账号添加、网关重启后读取、密钥不外露与删除检查，未使用真实账号或模型推理。
+- [v1.3.0 Release](https://github.com/try2love/codex-mobile-bridge/releases/tag/v1.3.0)已公开且为最新正式版，12 个附件齐全。10 个安装/更新包的 GitHub SHA-256 元数据与校验文件一致；用原客户端公钥验证六个旧版本到三个目标的更新选择，共 18 组通过。未在本机重复下载全部大包；原生包内运行验证来自上述 CI。
+- 双语官网增加多账号、上游模型与 Ubuntu 下载入口，保留 v1.2.0 视频的版本标注。真实浏览器在 320/390/768/1280 宽度下检查中英文布局，五个下载入口均指向 1.3.0，没有横向溢出，已查看桌面英文与手机中文截图。
+- Linux 保持实验性标注，应用内更新仍仅支持 Mac/Windows。真实 Codex 桌面版本的 IPC、Windows/Ubuntu 账号切换、Wayland/FUSE 和用户真实上游不能仅由隔离 CI 推断为全部通过。Mac 仍为 ad-hoc 签名且未公证，Windows 无证书签名。
+
 ## v1.3.0 发布准备（2026-10-03）
 
 - 用户已完成本地体验并明确批准发布 v1.3.0。包含多账号/API 管理、上游模型目录、额度展示与计时、computer use 授权修复，以及 Ubuntu x64/ARM64 集成。
