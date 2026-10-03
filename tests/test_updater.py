@@ -172,6 +172,15 @@ class TransactionTests(unittest.TestCase):
         updater.reject_pending_transaction(self.target)
         self.assertFalse(transaction.exists())
 
+    def test_stale_live_pid_record_is_removed(self):
+        transaction = self.root / '.cmb-update-reused-pid'
+        transaction.mkdir()
+        (transaction/'plan.json').write_text('{}')
+        (transaction/'helper.json').write_text(json.dumps({'pid': updater.os.getpid()}))
+        updater.os.utime(transaction, (0, 0))
+        updater.reject_pending_transaction(self.target)
+        self.assertFalse(transaction.exists())
+
     def test_recovered_transactions_are_cleaned_but_unresolved_failures_remain(self):
         recovered = self.root / '.cmb-update-recovered'
         unresolved = self.root / '.cmb-update-unresolved'

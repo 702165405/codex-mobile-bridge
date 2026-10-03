@@ -177,4 +177,4 @@ class CloudflareSetupTests(unittest.TestCase):
             write_json(data/'cloudflare-status.json', {'pid': 100, 'state': 'ready', 'message': ''})
             self.assertIn('https://old.trycloudflare.com', desktop.snapshot()['urls'])
             write_json(data/'cloudflare-status.json', {'pid': 100, 'state': 'reconnecting', 'message': ''})
-            self.assertNotIn('https://old.trycloudflare.com/', desktop.snapshot()['urls'])
+            self.assertNotIn('https://old.trycloudflare.com', desktop.snapshot()['urls'])

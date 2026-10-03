@@ -32,11 +32,12 @@ def write_json(path, value):
     os.replace(temporary, path)
 
 
-def read_json(path):
+def read_record(path):
     try:
-        return json.loads(Path(path).read_text(encoding='utf-8'))
+        value = json.loads(Path(path).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return None
+    return value if isinstance(value, dict) else None
 
 
 def process_exists(pid):
@@ -72,7 +73,7 @@ def clean_transactions(target):
     for transaction in Path(target).parent.glob('.cmb-update-*'):
         if not transaction.is_dir() or transaction.is_symlink():
             continue
-        result = read_json(transaction / 'result.json')
+        result = read_record(transaction / 'result.json')
         if not result:
             continue
         if result.get('state') == 'failed' and not result.get('recovered'):
@@ -85,19 +86,19 @@ def reject_pending_transaction(target):
     for transaction in Path(target).parent.glob('.cmb-update-*'):
         if not transaction.is_dir() or transaction.is_symlink():
             continue
-        if read_json(transaction / 'result.json'):
-            continue
-        helper = read_json(transaction / 'helper.json')
-        if isinstance(helper, dict) and isinstance(helper.get('pid'), int):
-            if process_exists(helper['pid']):
-                raise ValueError('上一次更新事务尚未完成；请等待几分钟后再试。')
-            shutil.rmtree(transaction, ignore_errors=True)
+        if read_record(transaction / 'result.json'):
             continue
         try:
             age = time.time() - transaction.stat().st_mtime
         except OSError:
             continue
         if age > PENDING_TRANSACTION_TIMEOUT:
+            shutil.rmtree(transaction, ignore_errors=True)
+            continue
+        helper = read_record(transaction / 'helper.json')
+        if helper and isinstance(helper.get('pid'), int):
+            if process_exists(helper['pid']):
+                raise ValueError('上一次更新事务尚未完成；请等待几分钟后再试。')
             shutil.rmtree(transaction, ignore_errors=True)
             continue
         raise ValueError('上一次更新事务尚未完成；请等待几分钟或重启电脑后再试。')
@@ -194,17 +195,8 @@ def prepare(data_dir, payload):
             digest.update(chunk)
     if digest.hexdigest() != payload['sha256']:
         raise ValueError('更新包校验失败，已取消安装。')
-    clean_transactions(target)
     reject_pending_transaction(target)
-    try:
-        previous = json.loads((data / RESULT).read_text(encoding='utf-8'))
-        backup = Path(previous.get('backup', ''))
-        if (previous.get('state') == 'updated' and backup.name == 'previous'
-                and backup.parent.name.startswith('.cmb-update-')
-                and backup.parent.parent == target.parent and not backup.parent.is_symlink()):
-            shutil.rmtree(backup.parent)
-    except (OSError, ValueError):
-        pass
+    clean_transactions(target)
     transaction = Path(tempfile.mkdtemp(prefix='.cmb-update-', dir=target.parent))
     os.chmod(transaction, 0o700)
     try:

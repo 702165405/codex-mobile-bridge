@@ -19,6 +19,7 @@ if(process.env.CMB_DATA_DIR)app.setPath('userData',path.join(path.resolve(proces
 let window,dataDir,tray,quitting=false,snapshotPending,lastSnapshot,updateQuitting=false;
 let installPending,installStatus={},updater,workerWrites=0;
 const entry=pathToFileURL(path.join(__dirname,'index.html')).href;
+function releaseTray(){quitting=true;tray?.dispose();tray=null;}
 function loadDataDir(){
   if(process.env.CMB_UPDATE_DATA_DIR)return path.resolve(process.env.CMB_UPDATE_DATA_DIR);
   if(process.env.CMB_DATA_DIR)return path.resolve(process.env.CMB_DATA_DIR);
@@ -73,7 +74,7 @@ async function installUpdate(candidate){
       // Some macOS window/extension states can keep a graceful quit alive.
       // The helper owns the gateway and waits for this PID, so force exit well
       // before its 45 second parent timeout instead of cancelling the swap.
-      setTimeout(()=>{try{if(typeof app.exit==='function')app.exit(0);}catch{}},10000);
+      setTimeout(()=>{releaseTray();try{if(typeof app.exit==='function')app.exit(0);}catch{}},10000);
       return;
     }}catch{}
     await new Promise(resolve=>setTimeout(resolve,100));
@@ -208,7 +209,7 @@ else{
     }
     createWindow();
   });
-  app.on('before-quit',()=>{quitting=true;tray?.dispose();tray=null;});
+  app.on('before-quit',releaseTray);
   app.on('activate',showWindow);
   // Closing the controller leaves the gateway running for the phone.
   app.on('window-all-closed',()=>app.quit());
