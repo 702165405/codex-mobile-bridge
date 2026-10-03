@@ -61,12 +61,21 @@ async function installUpdate(candidate){
   const child=spawn(prepared.helper,['update-apply','--data-dir',dataDir,'--plan',prepared.plan],{
     cwd:path.dirname(target),detached:true,windowsHide:true,stdio:['ignore',log,log],env:{...process.env,PYINSTALLER_RESET_ENVIRONMENT:'1'}});
   fs.closeSync(log);
+  try{fs.writeFileSync(path.join(path.dirname(prepared.plan),'helper.json'),JSON.stringify({pid:child.pid}),{mode:0o600});}catch{}
   let spawnError;child.on('error',error=>{spawnError=error;});child.unref();
   const ready=path.join(path.dirname(prepared.plan),'ready.json'),end=Date.now()+15000;
   while(Date.now()<end){
     if(spawnError)throw spawnError;
     if(child.exitCode!==null)throw Error('无法启动应用更新进程。');
-    try{if(JSON.parse(fs.readFileSync(ready,'utf8')).token===token){updateQuitting=true;if(snapshotPending)await snapshotPending;setTimeout(()=>app.quit(),300);return;}}catch{}
+    try{if(JSON.parse(fs.readFileSync(ready,'utf8')).token===token){
+      updateQuitting=true;if(snapshotPending)await snapshotPending;
+      setTimeout(()=>app.quit(),300);
+      // Some macOS window/extension states can keep a graceful quit alive.
+      // The helper owns the gateway and waits for this PID, so force exit well
+      // before its 45 second parent timeout instead of cancelling the swap.
+      setTimeout(()=>{try{if(typeof app.exit==='function')app.exit(0);}catch{}},10000);
+      return;
+    }}catch{}
     await new Promise(resolve=>setTimeout(resolve,100));
   }
   throw Error('无法启动应用更新进程。');

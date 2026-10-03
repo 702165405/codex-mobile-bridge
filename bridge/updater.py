@@ -21,6 +21,7 @@ import zipfile
 APP = 'Codex Mobile Bridge'
 APP_ID = 'io.github.try2love.codexmobilebridge'
 RESULT = 'desktop-update-result.json'
+PENDING_TRANSACTION_TIMEOUT = 15*60
 
 
 def write_json(path, value):
@@ -29,6 +30,77 @@ def write_json(path, value):
         json.dump(value, stream, ensure_ascii=False)
     os.chmod(temporary, 0o600)
     os.replace(temporary, path)
+
+
+def read_json(path):
+    try:
+        return json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+
+
+def process_exists(pid):
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name != 'nt':
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if not handle:
+        return False
+    try:
+        return kernel.WaitForSingleObject(handle, 0) == 0x00000102  # WAIT_TIMEOUT
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def clean_transactions(target):
+    """Remove finished transaction directories; preserve unresolved failures."""
+    for transaction in Path(target).parent.glob('.cmb-update-*'):
+        if not transaction.is_dir() or transaction.is_symlink():
+            continue
+        result = read_json(transaction / 'result.json')
+        if not result:
+            continue
+        if result.get('state') == 'failed' and not result.get('recovered'):
+            continue  # Keep the copied helper and backup for manual diagnosis.
+        shutil.rmtree(transaction, ignore_errors=True)
+
+
+def reject_pending_transaction(target):
+    """Two helpers must never swap the same installation concurrently."""
+    for transaction in Path(target).parent.glob('.cmb-update-*'):
+        if not transaction.is_dir() or transaction.is_symlink():
+            continue
+        if read_json(transaction / 'result.json'):
+            continue
+        helper = read_json(transaction / 'helper.json')
+        if isinstance(helper, dict) and isinstance(helper.get('pid'), int):
+            if process_exists(helper['pid']):
+                raise ValueError('上一次更新事务尚未完成；请等待几分钟后再试。')
+            shutil.rmtree(transaction, ignore_errors=True)
+            continue
+        try:
+            age = time.time() - transaction.stat().st_mtime
+        except OSError:
+            continue
+        if age > PENDING_TRANSACTION_TIMEOUT:
+            shutil.rmtree(transaction, ignore_errors=True)
+            continue
+        raise ValueError('上一次更新事务尚未完成；请等待几分钟或重启电脑后再试。')
 
 
 def extract(archive, destination):
@@ -122,6 +194,8 @@ def prepare(data_dir, payload):
             digest.update(chunk)
     if digest.hexdigest() != payload['sha256']:
         raise ValueError('更新包校验失败，已取消安装。')
+    clean_transactions(target)
+    reject_pending_transaction(target)
     try:
         previous = json.loads((data / RESULT).read_text(encoding='utf-8'))
         backup = Path(previous.get('backup', ''))
@@ -293,9 +367,24 @@ def apply(plan_file, *, desktop=None, wait=wait_parent, launch=launch_app, healt
     write_json(transaction / 'ready.json', {'token': plan['token']})
     try:
         wait(plan['parentPid'])
-        state = desktop.status()
-        if state['portOccupied'] or state.get('instanceId') != plan['runtime'].get('instanceId'):
-            raise RuntimeError('网关状态发生变化，更新已取消。')
+        # A one-second local health probe can miss just after wake or during a
+        # brief event-loop stall. Retry only ambiguous shutdown states; foreign
+        # gateway instances still fail immediately.
+        deadline = time.monotonic() + 5
+        while True:
+            state = desktop.status()
+            if state.get('portOccupied'):
+                raise RuntimeError('网关状态发生变化，更新已取消。')
+            expected_id = plan['runtime'].get('instanceId')
+            actual_id = state.get('instanceId')
+            if expected_id and actual_id and actual_id != expected_id:
+                raise RuntimeError('网关状态发生变化，更新已取消。')
+            if state.get('running') == plan['runtime'].get('running'):
+                if not plan['runtime']['running'] or actual_id == expected_id:
+                    break
+            if time.monotonic() >= deadline:
+                raise RuntimeError('网关状态发生变化，更新已取消。')
+            time.sleep(.2)
         if plan['runtime']['running']:
             desktop.stop()
             if desktop.status()['running']:
