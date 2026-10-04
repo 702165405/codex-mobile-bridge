@@ -98,7 +98,7 @@ class RecentHistoryTests(unittest.TestCase):
                 {'type': 'response_item', 'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'text', 'text': '问题'+str(index)}]}},
                 {'type': 'response_item', 'payload': {'type': 'message', 'role': 'assistant', 'content': [{'text': '答'*24000}]}},
                 {'type': 'event_msg', 'payload': {'type': 'task_complete'}}])
-        self.path.write_text(''.join(json.dumps(r, ensure_ascii=False)+'\n' for r in self.records))
+        self.path.write_text(''.join(json.dumps(r, ensure_ascii=False)+'\n' for r in self.records), encoding='utf-8')
         self.store = SessionStore(self.home)
         self.get = patch.object(self.store, 'get', return_value={'rollout_path': str(self.path), 'cwd': '/fixture'})
         self.get.start()
@@ -119,7 +119,7 @@ class RecentHistoryTests(unittest.TestCase):
         tail['turns'].clear()
         with patch.object(self.store, '_recent_lines', side_effect=AssertionError('reread')):
             self.assertEqual(len(self.store.history('fixture', 20)['turns']), 20)
-        with self.path.open('a') as stream:
+        with self.path.open('a', encoding='utf-8') as stream:
             stream.write(json.dumps({'type':'event_msg','payload':{'type':'task_started','turn_id':'new'}})+'\n')
         self.assertEqual(self.store.history('fixture', 20)['turns'][-1]['turnId'], 'new')
 
