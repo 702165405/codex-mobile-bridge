@@ -22,6 +22,7 @@ class Timeline:
         self.epoch = uuid.uuid4().hex
         self.sequence = -1
         self.rows = []
+        self.order_origin = 0
         self.details = {}
         self.positions = {}
         self.versions = OrderedDict()
@@ -30,11 +31,14 @@ class Timeline:
     def update(self, view):
         if self.sequence == view['sequence']:
             return
+        activation_ids = set(view.get('goalActivationIds') or ())
         rows, details = [], {}
         for turn in view['turns']:
             occurrences = {}
             first_user = next((m for m in turn['messages'] if m['role'] == 'user'), None)
             for message in turn['messages']:
+                if message.get('requestId') and message['requestId'] in activation_ids:
+                    continue
                 identity = [turn['id'], message.get('id'), message.get('kind')]
                 base = hashlib.sha256(encoded(identity)).hexdigest()[:24]
                 ordinal = occurrences.get(base, 0)
@@ -45,7 +49,7 @@ class Timeline:
                     text += '\n\n' + message['output']
                 activity = message['role'] == 'activity'
                 version = hashlib.sha256(text.encode()).hexdigest()[:24]
-                row = {k: message[k] for k in ('role', 'kind', 'status', 'title', 'phase') if k in message}
+                row = {k: message[k] for k in ('role', 'kind', 'status', 'title', 'phase', 'requestId') if k in message}
                 row.update(key=key, turnId=turn['id'], order=len(rows), version=version,
                            text=text[:180 if activity else TEXT_PREVIEW],
                            truncated=activity or len(text) > TEXT_PREVIEW, turnStatus=turn.get('status'),
@@ -63,14 +67,25 @@ class Timeline:
                                  truncated=len(text) > TEXT_PREVIEW, version=hashlib.sha256(text.encode()).hexdigest()[:24]))
                 details[key] = text
         old_keys = [row['key'] for row in self.rows]
-        if old_keys != [row['key'] for row in rows[:len(old_keys)]]:
+        new_keys = [row['key'] for row in rows]
+        # Prepending saved turns preserves existing row keys and cursors.
+        first = new_keys.index(old_keys[0]) if old_keys and old_keys[0] in new_keys else 0
+        if old_keys != new_keys[first:first + len(old_keys)]:
             self.epoch = uuid.uuid4().hex
             self.versions.clear()
+            self.order_origin = 0
+        elif old_keys:
+            self.order_origin -= first
+        for index, row in enumerate(rows):
+            row['order'] = self.order_origin + index
         self.sequence = view['sequence']
         self.rows, self.details = rows, details
         self.positions = {row['key']: i for i, row in enumerate(rows)}
         self.meta = {k: v for k, v in view.items() if k != 'turns'}
-        self.meta['latestUserTurnId'] = next((t['id'] for t in reversed(view['turns']) if any(m['role'] == 'user' for m in t['messages'])), None)
+        self.meta['latestUserTurnId'] = next((t['id'] for t in reversed(view['turns'])
+                                              if any(m['role'] == 'user'
+                                                     and (not m.get('requestId') or m['requestId'] not in activation_ids)
+                                                     for m in t['messages'])), None)
         self.versions[self.sequence] = {row['key']: hashlib.sha256(encoded(row)).digest() for row in rows}
         while len(self.versions) > 16:
             self.versions.popitem(last=False)
@@ -100,7 +115,7 @@ class Timeline:
         start = end - len(selected)
         return {'epoch': self.epoch, 'sequence': self.sequence, 'rows': selected,
                 'before': self.cursor(selected[0]['key']) if selected else None,
-                'hasMore': start > 0, 'meta': self.meta}
+                'hasMore': start > 0 or self.meta.get('savedHistoryMore', False), 'meta': self.meta}
 
     def changes(self, after, epoch, start):
         first = self.position(start) if start else None

@@ -31,18 +31,18 @@ Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明�
 
 ## 下载与快速开始（推荐）
 
-日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.3.0 正式版**。
+日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.3.1 正式版**。
 
 | 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
-| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
-| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
-| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
-| Ubuntu x64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Linux-amd64.deb) | Ubuntu 22.04；安装后以普通用户启动 |
-| Ubuntu ARM64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Linux-arm64.deb) | Ubuntu 22.04 ARM64；不含 32 位 ARM |
+| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
+| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
+| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| Ubuntu x64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-Linux-amd64.deb) | Ubuntu 22.04；安装后以普通用户启动 |
+| Ubuntu ARM64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-Linux-arm64.deb) | Ubuntu 22.04 ARM64；不含 32 位 ARM |
 
-[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
 
 1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
 2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
@@ -59,7 +59,7 @@ Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明�
 
 从 `v0.2.0-beta.5` 起，可在桌面 App 的「应用更新」中检查新版、查看说明并点击「更新并重启」。下载与校验完成后短暂重启网关，保留登录、网络、通知和关注聊天配置；失败时尝试恢复原版本。此前版本需要先手动安装一次支持更新的版本。使用临时 HTTPS 时，重启后请打开最新地址。发布与恢复说明见 [桌面更新文档](docs/desktop-updates.md)。
 
-**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.3.0 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
+**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.3.1 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
 
 ### 手机阅读与显示设置
 
@@ -93,10 +93,10 @@ v1.3.0 支持在 Bridge 桌面端添加官方账号、自定义 API 或扫描导
 
 当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v1.1.0` 或后续版本。
 
-1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.3.0 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
+1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.3.1 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.3.0-macOS-arm64.dmg"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.3.1-macOS-arm64.dmg"
    ```
 
 2. 打开 DMG，将 `Codex Mobile Bridge.app` 拖入“应用程序”，再推出磁盘映像；ZIP 则先解压并移动 App。尝试从“应用程序”打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。
@@ -184,10 +184,10 @@ NAS 方案：Docker 只部署 HTTP 入口，原电脑仍需保持唤醒并运行
 1. **iPhone 推荐 Bark**：安装 Bark 并允许通知，在电脑 App 的“手机通知 → Bark 推送”填写服务地址和 Device Key。例如手机展示 `https://api.day.app/你的密钥`，服务地址填 `https://api.day.app`，Device Key 只填密钥。也支持自建服务；手机须在对应服务器注册。密钥保存后不回显，留空保留，更换服务器须重新填写。参阅 [Bark 官方说明](https://bark.day.app/#/tutorial)。
 2. **Android 使用 ntfy**：安装 ntfy 并允许系统通知、锁屏显示和后台运行。首次测试可用 `https://ntfy.sh`：点击“生成随机主题”，在手机 ntfy 订阅相同的服务和完整主题名，公共匿名主题的 Token 留空。主题自动创建，无需单独注册。匿名主题没有访问控制，知道名字的人可读写；使用随机长名称并保持聊天标题关闭。正式使用可选择受访问控制保护的主题，按服务要求填写 Token。
 3. 启用需要的通道，保存配置，再分别点击“发送 Bark 测试通知”或“发送 ntfy 测试通知”，以手机实际收到为验收标准。两个通道可单独启用或同时开启，接收相同的会话提醒。此步骤无需启动网关；服务器接受请求不等于手机已经收到。
-4. 启动支持通知的新版网关，刷新手机网页，在聊天页面点击 **“提醒”**，勾选 **“开启聊天提醒”** 并保存。本机与 SSH 聊天分别关注。
+4. 启动网关，在网页 **设置 → 全会话通知** 分别选择请求处理通知和运行完毕通知。新配置默认开启请求处理通知、关闭运行完毕通知；必须先配置并开启至少一个推送通道。
 5. 新出现的命令、文件、权限请求或提问会触发通知；点击通知回到该聊天，沿用网页登录与确认卡片。
-6. 每个会话可单独勾选 **“运行完成后通知”**，默认关闭。开启后，当前正在运行及之后正常完成的运行会触发通知；失败、手动停止和开启前已结束的历史不触发。只关闭完成通知时，待确认提醒继续保留。
-7. 电脑 App 的 **“手机通知 → 已关注聊天”** 显示会话名称、所在设备、目录与会话 ID，可直接切换完成通知或 **“删除监控”**，操作即时保存。删除监控停止该会话的提醒，不删除会话；新增监控仍在手机端完成。网关停止或通知通道关闭时，也可管理已保存的监控。远程会话显示最近获取的名称，尚未获取时保留设备和会话 ID。
+6. 每个聊天的 **提醒** 中，两类通知均可选择 **跟随全局设置、开启、关闭**，彼此独立；升级时保留已有关注聊天的明确选择。完成通知从首次实时连接建立边界，失败、手动停止和开启前已结束的历史不触发。
+7. 电脑 App 的 **“手机通知 → 已关注聊天”** 显示会话名称、所在设备、目录与会话 ID，可直接切换完成通知或 **“删除监控”**，操作即时保存。删除监控停止该会话的提醒，不删除会话；全局默认与单会话覆盖在网页设置或聊天提醒中管理。网关停止或通知通道关闭时，也可管理已保存的监控。远程会话显示最近获取的名称，尚未获取时保留设备和会话 ID。
 
 被关注聊天在手机网页关闭后继续监听，前提是电脑、网关、原 Codex App 及相关 SSH 连接仍可用。每个通道、接收目标、聊天和事件分别记录投递状态，网关重连或重启后去重；一个通道失败不影响另一个。更换接收目标或新增通道不补发已完成历史；首次实时连接时仍在运行的任务及之后的新完成事件可触发通知。旧 ntfy 配置和已投递记录会保留。发送失败会退避重试，并在重试前重新核对请求是否仍待处理；完成通知在该会话仍开启此选项时重试，关闭后取消重试。首次实时连接建立前的已完成历史不会补发。网络中断时不承诺严格恰好投递一次。
 
@@ -424,14 +424,14 @@ Fast 会增加额度消耗，具体以[官方速度说明](https://learn.chatgpt
 在底部发送栏中间选择 **工作模式**，再输入任务并发送：
 
 - **普通模式**：直接处理任务。
-- **计划模式**：先讨论并制定计划。计划完成后，可在网页展开全文、点击 **执行计划**，或填写修改意见后点击 **继续修改**。执行计划会切回普通模式，继续修改保留计划模式。
-- **目标模式**：输入要完成的目标。网关会在原聊天中请求调用原生 `create_goal`；桌面返回目标状态后，网页显示目标内容、状态和 Token 用量。请求已提交时先显示等待确认，若工具不可用或未成功创建目标，提示查看 Codex 的回复。
+- **计划模式**：先讨论并制定计划。计划完成后，可在网页展开全文、点击 **按照当前规划结果执行计划**，或填写修改意见后点击 **按照修改意见继续规划**。有修改意见时强调继续规划，并禁用直接执行，避免忽略意见。执行计划会切回普通模式，继续规划保留计划模式。
+- **目标模式**：输入要完成的目标。通过本机 Codex 原生 Goal 接口设置目标，再由原聊天的桌面 owner 开始执行。网页显示目标内容、状态和 Token 用量；操作结果未确认时保留请求标识，不自动重发。
 
 目标栏右侧的 **×** 可隐藏该栏，目标继续运行。隐藏后，点击发送键旁的 **目标进度** 恢复显示；窄屏下显示为目标图标。同一目标在当前浏览器标签页刷新后保持隐藏，新目标默认显示。
 
 模式选择跟随当前聊天，并保留手动选择。补充正在运行的任务会沿用该任务的模式；普通和计划消息可排队，目标需等当前任务结束后直接发送，最多 4000 字。已有未完成目标或尚未确认的目标请求时，不能重复开启。
 
-模式操作使用聊天原有的主机、模型、provider 和权限设置。目标提交成功后，后续消息恢复普通输入；这不会取消已经创建的目标。当前网页提供目标开启和状态显示，目标的暂停、恢复及预算管理仍使用 Codex 原有操作。相关能力依赖桌面运行时支持，实测范围见[验证记录](VERIFICATION.md)。
+模式操作使用聊天原有的主机、模型、provider 和权限设置。目标提交成功后，后续消息恢复普通输入；这不会取消已经创建的目标。本机聊天的目标栏提供暂停、恢复、修改和关闭；SSH 聊天暂不支持这些操作。修改内容前须先暂停，修改会替换原目标并重置用量统计，保存后保持暂停、保留原 Token 预算，点击恢复后继续。暂停和关闭目标不等于中断当前回复；需要立即中断时使用“停止”。预算调整仍使用 Codex 原有操作。相关能力依赖桌面运行时支持，实测范围见[验证记录](VERIFICATION.md)。
 
 ### 文件与图片附件
 
@@ -443,7 +443,7 @@ Fast 会增加额度消耗，具体以[官方速度说明](https://learn.chatgpt
 
 聊天列表默认显示 **绿点（运行中）**、**蓝点（正常完成、未查看）**，失败或停止为橙色。进入聊天清除完成标识，运行中的绿点保留。已知运行中的会话暂时断开时显示灰点，重新连接后更新。
 
-在 **显示设置 → 聊天列表** 可关闭标识；显示偏好和已查看状态保存在当前浏览器。首次使用不把已完成历史全部标为未读；网页可见时约每 5 秒刷新已加载列表中的状态。关闭网页不会取消任务，后台手机推送仍由单独的聊天通知配置管理。
+在 **设置 → 聊天列表** 可关闭标识；显示偏好和已查看状态保存在当前浏览器。首次使用不把已完成历史全部标为未读；网页可见时约每 5 秒刷新已加载列表中的状态。关闭网页不会取消任务，后台手机推送仍由单独的聊天通知配置管理。
 
 ### 发送与回应
 
@@ -519,7 +519,7 @@ flowchart TD
 
 服务前台日志输出到启动终端。`.local/`、`.tmp/`、环境文件与本地开发记录均已加入 `.gitignore`，不要把它们上传到 issue 或公开仓库。
 
-上传文件保留在网关数据目录；远端副本位于该主机 `$CODEX_HOME/mobile-bridge/uploads/`（默认 `~/.codex/mobile-bridge/uploads/`）。移除草稿附件不会删除已上传文件，当前没有自动清理；手动删除会使依赖该文件的历史或待发送消息无法再读取附件。
+上传文件保留在网关数据目录；远端副本位于该主机 `$CODEX_HOME/mobile-bridge/uploads/`（默认 `~/.codex/mobile-bridge/uploads/`）。移除草稿附件不会立即删除已上传文件；网关会清理超过七天且未被发送记录引用的本地上传，保留已发送、排队和结果未知消息引用的附件。远端副本不会自动清理。手动删除仍会使依赖该文件的历史或待发送消息无法再读取附件。
 
 如果发送的确认响应丢失，页面会显示“发送结果待确认”，网关不会自动重发。删除发送记录会丢失去重信息与队列。
 
@@ -737,6 +737,8 @@ python3 -B -m unittest discover -s tests -v
 
 感谢 [LINUX DO](https://linux.do/) 社区及各位佬友的支持。
 
+感谢 [@qybgh（Luoran Yau）](https://github.com/qybgh) 在 [PR #8](https://github.com/try2love/codex-mobile-bridge/pull/8) 中对移动端计划、目标模式、附件预览和界面体验的贡献。v1.3.1 在该贡献基础上完成目标控制、通知和交互优化。
+
 ## 许可证与参考
 
 项目源码使用 [MIT License](LICENSE)。Codex App 和 cloudflared 为独立软件，未随本仓库分发，遵循各自许可。
@@ -760,12 +762,13 @@ PushPlus 通过微信接收通知，**接入前需要付费实名认证，最低
 
 1. 在 [PushPlus 官网](https://www.pushplus.plus/)使用微信登录，关注其服务号，在「个人中心 → 个人资料 → 实名认证」完成认证。
 2. 在[个人资料](https://www.pushplus.plus/uc-profile.html)复制用户 Token；如果修改过默认渠道，在「功能设置 → 默认推送配置」确认使用微信渠道。
-3. 按下方说明保存 Token、发送测试通知，并在每个需要接收通知的聊天中开启提醒。接口接受请求不等于最终送达，请在微信确认实际收到了测试通知。
+3. 按下方说明保存 Token、发送测试通知，并在网页设置中选择全会话通知，或在聊天提醒中单独调整。接口接受请求不等于最终送达，请在微信确认实际收到了测试通知。
 
 **额度限制：**微信渠道普通实名用户每天 200 次请求、每分钟 5 次；会员每天 2,000 次、每 10 秒 5 次。两者均限制相同内容每小时最多 3 条。失败请求也计入额度，超限可能暂停推送；多个聊天及其他共用此账户的应用共同消耗额度。详见[官方额度说明](https://www.pushplus.plus/doc/guide/use.html)与[推送限制](https://www.pushplus.plus/doc/help/limit.html)。
 
-- 网页聊天列表底部点击 **PushPlus 通知**，填写在 [PushPlus 官网](https://www.pushplus.plus/) 获取的 Token，勾选启用并保存，然后点击 **测试已保存的配置**。桌面启动器的「手机通知」中也可以配置和测试。
+- 在网页 **设置** 或聊天列表底部点击 **PushPlus 通知**，填写在 [PushPlus 官网](https://www.pushplus.plus/) 获取的 Token，勾选启用并保存，然后点击 **测试已保存的配置**。桌面启动器的「手机通知」中也可以配置和测试。
 - PushPlus 配置由整个网关共享，更换 Token 会改变所有已关注聊天的 PushPlus 接收目标。所有已登录设备均可修改；开启免密访问时，能够访问网关的设备也拥有此权限。
-- 在需要通知的聊天中点击 **提醒**，开启聊天提醒；可另外勾选 **运行完成后通知**。网关持续运行时，关闭网页仍会发送通知。PushPlus 可与 Bark、ntfy 同时使用。
+- **设置 → 全会话通知** 控制所有聊天的请求处理与运行完毕通知；每个聊天的 **提醒** 可独立覆盖。网关持续运行时，关闭网页仍会发送通知。PushPlus 可与 Bark、ntfy 同时使用。
+- **设置 → 主页快捷入口** 可分别隐藏 PushPlus 和账户管理入口；功能仍可从设置打开，显示偏好仅保存在当前浏览器。通知策略保存在网关，各设备共享。
 - Token 保存到本机通知配置文件，页面不回显；留空保留原 Token，关闭通道后可勾选清除。
 - 点击聊天顶部标题，在聊天详情中选择 **修改聊天名称**，输入新名称并保存（最多 120 个字符）。名称写入该聊天所在主机的 Codex；支持本机和 SSH 聊天，网页列表与标题同步更新。

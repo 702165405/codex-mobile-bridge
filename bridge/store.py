@@ -1,4 +1,7 @@
 """Read-only discovery and history for existing desktop chats."""
+import copy
+import threading
+from collections import OrderedDict
 import json
 import logging
 import shutil
@@ -15,6 +18,8 @@ class StoreUnavailable(RuntimeError):
 class SessionStore:
     def __init__(self, codex_home):
         self.home = Path(codex_home).resolve()
+        self.history_cache = OrderedDict()
+        self.history_lock = threading.Lock()
 
     @contextmanager
     def _connect(self):
@@ -76,6 +81,15 @@ class SessionStore:
             rows = conn.execute("SELECT " + ",".join(fields) + " FROM threads WHERE " + " AND ".join(where) + " ORDER BY " + recency + " DESC, id DESC LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
             return [dict(row) for row in rows]
 
+    def recencies(self, identifiers):
+        if not identifiers:
+            return {}
+        with self._connect() as conn:
+            columns = {r[1] for r in conn.execute('PRAGMA table_info(threads)')}
+            fields = [name for name in ('recency_at_ms', 'recency_at', 'updated_at_ms', 'updated_at') if name in columns]
+            rows = conn.execute('SELECT id,' + ','.join(fields) + ' FROM threads WHERE id IN (' + ','.join('?' for _ in identifiers) + ')', identifiers)
+            return {r['id']: next((r[k] * (1 if k.endswith('_ms') else 1000) for k in fields if r[k]), 0) for r in rows}
+
     def get(self, thread_id):
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM threads WHERE id = ?", (thread_id,)).fetchone()
@@ -87,43 +101,88 @@ class SessionStore:
                 raise KeyError("不是桌面 App 会话")
             return result
 
-    def history(self, thread_id):
+    @staticmethod
+    def _recent_lines(path, turn_limit):
+        """Read complete turns backwards without parsing the older rollout prefix."""
+        if turn_limit is None:
+            return path.read_bytes(), True
+        with path.open('rb') as stream:
+            stream.seek(0, 2)
+            position = stream.tell()
+            parts, pending, starts = [], b'', 0
+            while position:
+                size = min(position, 65536)
+                position -= size
+                stream.seek(position)
+                chunk = stream.read(size) + pending
+                lines = chunk.splitlines(keepends=True)
+                pending = lines.pop(0) if position else b''
+                for line in reversed(lines):
+                    parts.append(line)
+                    if b'"task_started"' not in line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    if record.get('type') == 'event_msg' and record.get('payload', {}).get('type') == 'task_started':
+                        starts += 1
+                        if starts >= turn_limit:
+                            return b''.join(reversed(parts)), position == 0 and len(parts) == len(lines)
+            return b''.join(reversed(parts)), True
+
+    def history(self, thread_id, turn_limit=None):
         meta = self.get(thread_id)
         path = Path(meta["rollout_path"])
         # The file path must be an actual rollout in this user's Codex home.
         resolved = path.resolve()
         if not any(root.resolve() in resolved.parents for root in (self.home / "sessions", self.home / "archived_sessions")):
             raise ValueError("会话记录路径不在 Codex 数据目录中")
+        stat = resolved.stat()
+        cache_key = (str(resolved), stat.st_ino, stat.st_size, stat.st_mtime_ns, turn_limit)
+        with self.history_lock:
+            cached = self.history_cache.get(cache_key)
+            if cached is not None:
+                self.history_cache.move_to_end(cache_key)
+                result = copy.deepcopy(cached)
+                result.update(title=meta.get('name') or meta.get('title'), cwd=meta['cwd'], latestModel=meta.get('model'))
+                return result
+        raw, complete = self._recent_lines(resolved, turn_limit)
         items, turns, current = [], [], None
-        with resolved.open(encoding='utf-8') as stream:
-            for line in stream:
-                try:
-                    record = json.loads(line)
-                except ValueError:
-                    continue
-                payload = record.get("payload", {})
-                if record.get("type") == "event_msg" and payload.get("type") == "task_started":
-                    current = {"turnId": payload.get("turn_id"), "status": "inProgress", "items": []}
+        for line in raw.splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            payload = record.get("payload", {})
+            if record.get("type") == "event_msg" and payload.get("type") == "task_started":
+                current = {"turnId": payload.get("turn_id"), "status": "inProgress", "items": []}
+                turns.append(current)
+                items = current["items"]
+            elif record.get("type") == "event_msg" and payload.get("type") in ("task_complete", "turn_aborted"):
+                if current:
+                    current["status"] = "completed" if payload["type"] == "task_complete" else "interrupted"
+            elif record.get("type") == "response_item":
+                if current is None:
+                    current = {"turnId": "history", "status": "completed", "items": []}
                     turns.append(current)
                     items = current["items"]
-                elif record.get("type") == "event_msg" and payload.get("type") in ("task_complete", "turn_aborted"):
-                    if current:
-                        current["status"] = "completed" if payload["type"] == "task_complete" else "interrupted"
-                elif record.get("type") == "response_item":
-                    if current is None:
-                        current = {"turnId": "history", "status": "completed", "items": []}
-                        turns.append(current)
-                        items = current["items"]
-                    if payload.get("type") == "message" and payload.get("role") in ("user", "assistant"):
-                        role = payload["role"]
-                        if role == "user":
-                            items.append({"id": str(len(items)), "type": "userMessage", "content": payload.get("content", [])})
-                        else:
-                            items.append({"id": str(len(items)), "type": "agentMessage", "text": "\n".join(x.get("text", "") for x in payload.get("content", []) if isinstance(x, dict)), "phase": payload.get("phase")})
-                    elif payload.get("type") in ("agent_message", "agentMessage"):
-                        items.append({"id": payload.get("id", str(len(items))), "type": "agentMessage", "text": payload.get("text", "")})
-                    elif payload.get("type") in ("function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output"):
-                        items.append({"id": payload.get("call_id", str(len(items))), "type": "storedToolEvent", **payload})
-        return {"id": thread_id, "title": meta.get("name") or meta.get("title"), "cwd": meta["cwd"],
+                if payload.get("type") == "message" and payload.get("role") in ("user", "assistant"):
+                    role = payload["role"]
+                    if role == "user":
+                        items.append({"id": str(len(items)), "type": "userMessage", "content": payload.get("content", [])})
+                    else:
+                        items.append({"id": str(len(items)), "type": "agentMessage", "text": "\n".join(x.get("text", "") for x in payload.get("content", []) if isinstance(x, dict)), "phase": payload.get("phase")})
+                elif payload.get("type") in ("agent_message", "agentMessage"):
+                    items.append({"id": payload.get("id", str(len(items))), "type": "agentMessage", "text": payload.get("text", "")})
+                elif payload.get("type") in ("function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output"):
+                    items.append({"id": payload.get("call_id", str(len(items))), "type": "storedToolEvent", **payload})
+        result = {"id": thread_id, "title": meta.get("name") or meta.get("title"), "cwd": meta["cwd"],
                 "latestModel": meta.get("model"), "modelProvider": meta.get("model_provider"),
-                "turns": turns, "requests": [], "threadRuntimeStatus": {"type": "notLoaded"}}
+                "turns": turns, "turnsPagination": {"hasLoadedOldest": complete}, "requests": [], "threadRuntimeStatus": {"type": "notLoaded"}}
+        with self.history_lock:
+            if len(raw) <= 4 * 1024 * 1024:
+                self.history_cache[cache_key] = result
+            while len(self.history_cache) > 8:
+                self.history_cache.popitem(last=False)
+        return copy.deepcopy(result)
