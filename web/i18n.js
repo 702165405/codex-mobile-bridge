@@ -2,6 +2,24 @@
 // UI messages only. Never translate chat content, commands, model IDs or user input.
 const BridgeI18n=(()=>{
 const en={
+"网关启动与入口通知":"Gateway startup and entry notifications",
+"每次启动网关及入口变化时发送地址":"Send addresses on every gateway start and entry change",
+"网关名称（可选）":"Gateway name (optional)",
+"例如：家中电脑":"For example: Home computer",
+"向已启用的 PushPlus、Bark、ntfy 发送访问链接，不包含密码或登录令牌，与聊天提醒开关无关。":"Send access links through enabled PushPlus, Bark and ntfy channels, without passwords or sign-in tokens. Independent of chat notifications.",
+"发送当前入口测试通知":"Send a test with the current entry link",
+"请先保存设置并启动网关，再测试手机接收。通知包含已启用的局域网、固定域名和已就绪的临时入口；局域网地址需在同一网络访问。":"Save settings and start the gateway before testing phone delivery. Notifications include enabled LAN addresses, fixed domains and ready temporary entries. LAN links require the same network.",
+"配置并测试入口通知":"Configure and test entry notifications",
+"入口通知未开启，网关启动或地址变化时不会自动通知你。":"Entry notifications are off. Gateway starts and address changes will not be sent to you.",
+"请启用至少一个通知通道，并发送测试通知。":"Enable at least one notification channel and send a test.",
+"入口通知已开启，每次启动网关都会发送地址，入口变化后补发更新。请先确认手机能收到测试通知。":"Entry notifications are on. Addresses are sent on every gateway start, with updates when entries change. Confirm test delivery on your phone first.",
+"部分入口通知发送失败，将自动重试。":"Some entry notifications failed and will be retried.",
+"请先开启入口通知及至少一个通知通道，并保存配置。":"Enable entry notifications and at least one channel, then save settings.",
+"请先启动网关，并启用局域网或等待外网入口就绪。":"Start the gateway and enable LAN access or wait for an external entry to be ready.",
+"已向启用通道发送当前入口，请在手机确认是否收到。":"Sent the current entry to enabled channels. Confirm receipt on your phone.",
+"网关名称应为不超过 80 字的单行文本":"Use a single line of up to 80 characters for the gateway name.",
+"无需 Cloudflare 账号或域名；临时地址会随隧道重启变化，流量经过 Cloudflare。电脑与网关需保持在线。请在“手机通知”开启并测试入口通知，以便远程重连。":"No Cloudflare account or domain is required. The address changes when the tunnel restarts, and traffic passes through Cloudflare. Keep the host and gateway online. Enable and test entry notifications under Phone notifications to reconnect remotely.",
+
 "设置":"Settings",
 "主页快捷入口":"Home shortcuts",
 "显示 PushPlus 通知入口":"Show PushPlus shortcut",
