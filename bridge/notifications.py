@@ -16,7 +16,7 @@ from .tls import client_context
 DEFAULTS = {'enabled': False, 'server': 'https://ntfy.sh', 'topic': '', 'token': '',
             'barkEnabled': False, 'barkServer': 'https://api.day.app', 'barkKey': '',
             'pushplusEnabled': False, 'pushplusToken': '',
-            'clickBase': '', 'includeTitle': False}
+            'clickBase': '', 'includeTitle': False, 'addressEnabled': False, 'addressName': ''}
 
 
 def read_json(path, default):
@@ -54,9 +54,11 @@ def save_settings(data_dir, value):
     result = {**prior, **{k: value[k] for k in DEFAULTS if k in value}}
     result['server'] = valid_url(str(result['server']), allow_path=True)
     result['barkServer'] = valid_url(str(result['barkServer']), allow_path=True)
-    for key in ('enabled', 'barkEnabled', 'pushplusEnabled', 'includeTitle'):
+    for key in ('enabled', 'barkEnabled', 'pushplusEnabled', 'includeTitle', 'addressEnabled'):
         if not isinstance(result[key], bool):
             raise ValueError('通知开关格式不正确')
+    if not isinstance(result['addressName'], str) or len(result['addressName']) > 80 or any(not c.isprintable() for c in result['addressName']):
+        raise ValueError('网关名称应为不超过 80 字的单行文本')
     if not isinstance(result['topic'], str) or (result['topic'] and not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', result['topic'])):
         raise ValueError('ntfy 主题只允许 1–64 位字母、数字、下划线和短横线')
     if result['enabled'] and not result['topic']:

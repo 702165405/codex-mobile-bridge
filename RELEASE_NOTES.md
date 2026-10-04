@@ -1,39 +1,33 @@
-## v1.3.1 · 手机端目标控制与交互优化
+## v1.3.2 · 网关启动与入口通知
 
 ### 本次更新
 
-- **目标模式**：本机聊天支持创建、暂停、恢复、修改和关闭原生 Goal，同步目标状态及 Token 用量。减少创建与暂停前的历史读取等待；操作按钮集中在同一行。修改前须暂停，保存后保持暂停并保留预算、重置用量。暂停或关闭目标不会中断当前回复，需要立即中断时使用“停止”。SSH 聊天暂不支持目标控制。
-- **计划与消息模式**：保留“发送新消息、完成后发送、补充当前任务”和“普通模式、计划模式、目标模式”。有修改意见时突出“按照修改意见继续规划”，禁用“按照当前规划结果执行计划”，避免忽略意见直接执行。
-- **手机布局与附件**：上传、消息类型、工作模式、目标入口和发送按钮在窄屏中保持同一行；支持附件预览，修复草稿、排队消息及附件保留问题。
-- **列表与历史**：保留按项目或最近交互展示，交互后及时更新最近排序；较早会话优先读取最近完整轮次，向上按需加载，减少首次等待。
-- **通知与主页设置**：分别控制全会话待处理请求和运行完成通知，单一会话可继承全局设置或独立开启、关闭。会话提醒打开该会话的设置；主页 PushPlus 通知和账户管理入口可分别显示或隐藏。通知仍需配置并启用相应通道。
+- **每次启动都发送入口**：在电脑 App“手机通知 → 网关启动与入口通知”开启并保存后，每次启动网关都会向已启用的 PushPlus、Bark、ntfy 通道发送当前地址，即使地址没有变化。支持可选网关名称。
+- **汇总多种访问方式**：包含已启用的局域网、NAS / 已有反代固定域名、自有服务器（SSH 转发建立后）及临时 HTTPS（隧道就绪后）。过滤关闭的网卡、关闭的入口和回环地址；局域网需要手机在同一网络，固定域名需要完成部署。
+- **入口变化后补发**：稍晚就绪的隧道或地址变化会更新通知。同一次运行内去重，各通道独立退避重试；只发送当前入口，停止网关或关闭通知后不再开始新发送。
+- **设置与测试**：提供“发送当前入口测试通知”和应用更新前的配置提示。入口通知默认关闭，与聊天提醒独立，不包含密码或登录令牌，也不沿用聊天通知的固定跳转地址。
 
-### 贡献致谢
+### 使用与升级
 
-感谢 [@qybgh（Luoran Yau）](https://github.com/qybgh) 在 [PR #8](https://github.com/try2love/codex-mobile-bridge/pull/8) 中对移动端计划、目标模式、附件预览和界面体验的贡献。本版本保留原始提交，并在此基础上完成审阅修订与用户验收优化。
+先配置并启用至少一个推送通道，打开入口通知开关并保存；启动网关，再发送测试通知，以手机实际收到为准。通知服务接受请求不等于手机已收到，电脑断网或网关启动失败时无法保证送达。
 
-### 安装与升级
+Mac / Windows v1.1.0–v1.3.1 用户可在“应用更新”选择“更新并重启”。旧版尚不支持入口通知，首次升级后需要开启并测试，后续重启才能自动通知新入口。较老 Windows 版本请先停止网关并退出，再将 Setup.exe 安装到原位置。Linux 仍为实验性支持，请停止网关并退出后手动升级。保留数据目录即可保留原有配置。
 
-提供 Apple Silicon / Intel Mac 的 DMG 和 ZIP、Windows x64 的 Setup.exe 和 ZIP，以及 Ubuntu x64 / ARM64 的 `.deb` 和 AppImage。
-
-Mac / Windows v1.1.0–v1.3.0 用户可在“应用更新”选择“更新并重启”，随后刷新网页。较老的 Windows 版本请先停止网关并退出，再用新版 Setup.exe 安装到原位置。Linux 仍为实验性支持，暂不支持应用内更新；停止网关并退出 App 后手动安装或替换 AppImage。保留数据目录即可保留登录、网络、通知和已保存接入。
-
-Mac 包采用 ad-hoc 完整性签名，未获 Apple 公证；Windows 包未做证书签名。下载可用 `SHA256SUMS.txt` 校验，Mac / Windows 应用内更新使用签名的 `bridge-update.json`。Goal 能力依赖本机 Codex 桌面运行时支持。
+提供 Mac Apple Silicon / Intel 的 DMG、ZIP，Windows x64 的 Setup.exe、ZIP，以及 Ubuntu x64 / ARM64 的 DEB、AppImage。Mac 包采用 ad-hoc 完整性签名，未获 Apple 公证；Windows 包未做证书签名。可用 `SHA256SUMS.txt` 校验下载；Mac / Windows 应用内更新使用签名的 `bridge-update.json`。
 
 ---
 
 ## English
 
-**v1.3.1 improves mobile Goal controls, planning, attachments and chat notifications.**
+**v1.3.2 sends gateway access addresses on startup and when entries change.**
 
-- Create, pause, resume, edit and close native goals in local chats, with confirmed state and token usage. Goal controls share one action row and avoid unnecessary full-history reads. Editing requires a paused goal, retains its budget, resets usage and leaves it paused. Pause/close does not stop an active reply; use Stop. Goal controls are not yet supported for SSH chats.
-- Retain the existing send/queue/steer choices and Default/Plan/Goal modes. Revision feedback highlights further planning and disables immediate implementation, preventing feedback from being ignored.
-- Keep upload, send type, work mode, Goal access and Send on one row on narrow screens. Improve attachment previews and preserve attachments across drafts and queues.
-- Retain project/recent grouping, update recency after interaction, and load recent complete turns first for older chats, with older history available on demand.
-- Configure request and completion notifications independently, with global defaults and per-chat overrides. Choose whether PushPlus and account shortcuts appear on the home page. Notification channels still require configuration and activation.
+- Enable **Phone notifications → Gateway startup and entry notifications** in the desktop App. Every gateway start sends the current addresses through enabled PushPlus, Bark and ntfy channels, even when unchanged. An optional gateway name identifies the host.
+- Include enabled LAN addresses, NAS / existing reverse-proxy domains, personal servers once SSH forwarding connects, and temporary HTTPS once ready. Disabled interfaces, disabled entries and loopback addresses are excluded. LAN links require the same network; fixed domains require completed deployment.
+- Send updates when an entry becomes ready later or its address changes. Deduplicate within one run and retry each channel independently with backoff. New sends stop when the gateway stops or the switch is disabled.
+- Test current-entry delivery and check configuration before updating. Entry notifications are off by default, independent of chat alerts, contain no passwords or login tokens, and use current entries instead of the chat click URL.
 
-**Thanks to [@qybgh (Luoran Yau)](https://github.com/qybgh) for [PR #8](https://github.com/try2love/codex-mobile-bridge/pull/8).** This release preserves the original contribution and adds reviewed, user-tested refinements.
+**Setup:** enable and save at least one push channel and the entry notification switch, start the gateway, then send a test and confirm receipt on your phone. Service acceptance does not guarantee phone receipt; delivery requires a working gateway and network.
 
-**Upgrade:** Mac/Windows v1.1.0–v1.3.0 users can choose App updates → Update and restart, then refresh the browser. Older Windows clients should stop and quit before installing over the existing location. Linux requires a manual upgrade after stopping the gateway and quitting the app. Keep the data directory to retain settings and saved connections.
+**Upgrade:** Mac / Windows v1.1.0–v1.3.1 users can choose App updates → Update and restart. Earlier versions do not support entry notifications; configure and test after this first upgrade before relying on them for later restarts. Older Windows clients should stop and quit before installing over the existing location. Linux requires a manual upgrade after stopping and quitting. Keep the data directory to retain settings.
 
-Packages include Mac arm64/x64 DMG and ZIP, Windows x64 installer and ZIP, and experimental Ubuntu x64/ARM64 DEB and AppImage. Mac packages are ad-hoc signed, not Apple-notarized; Windows packages have no certificate signature. Verify downloads with `SHA256SUMS.txt`; Mac/Windows in-app updates use the signed manifest. Goal support depends on the local Codex desktop runtime.
+Packages include Mac arm64/x64 DMG and ZIP, Windows x64 installer and ZIP, and experimental Ubuntu x64/ARM64 DEB and AppImage. Mac packages are ad-hoc signed, not Apple-notarized; Windows packages have no certificate signature. Verify downloads with `SHA256SUMS.txt`; Mac/Windows in-app updates use the signed manifest.

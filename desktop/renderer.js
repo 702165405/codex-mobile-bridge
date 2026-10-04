@@ -70,6 +70,13 @@ function render(value,watchRevision=watchPanel.revision){
   $('login-summary').textContent=value.auth.mode==='none'?t('免密访问'):t('账号：')+value.auth.username;
   $('credentials').disabled=!value.credentialsAvailable;
   const notificationsEnabled=value.notifications.enabled||value.notifications.barkEnabled||value.notifications.pushplusEnabled;
+  const addressReady=value.notifications.addressEnabled&&notificationsEnabled;
+  const addressHint=!value.notifications.addressEnabled?t('入口通知未开启，网关启动或地址变化时不会自动通知你。'):!notificationsEnabled?t('请启用至少一个通知通道，并发送测试通知。'):t('入口通知已开启，每次启动网关都会发送地址，入口变化后补发更新。请先确认手机能收到测试通知。');
+  const addressRecords=Object.values(value.addressNotificationStatus?.deliveries||{});
+  const addressFailed=addressRecords.some(record=>record.error);
+  $('address-notification-state').textContent=addressHint+(addressReady&&addressFailed?' '+t('部分入口通知发送失败，将自动重试。'):'');
+  $('update-address-state').hidden=!value.preferences.tunnel;
+  $('update-address-state').textContent=addressHint;
   $('notification-summary').textContent=notificationsEnabled?t('已开启 · ')+value.watches.length+t(' 个关注聊天'):t('未开启');
   $('notification-state').textContent=value.runtime.running&&!value.runtime.supportsNotifications?t('当前网关版本较旧，重启后启用通知能力。'):t(value.notificationStatus.error)||t('手机关闭网页后，已关注聊天仍会继续提醒。');
   for(const [channel,id] of [['ntfy','notification-detail'],['bark','bark-detail'],['pushplus','pushplus-detail']]){
@@ -93,6 +100,7 @@ function render(value,watchRevision=watchPanel.revision){
     $('ntfy-enabled').checked=n.enabled;input('ntfy-server',n.server);input('ntfy-topic',n.topic);input('click-base',n.clickBase);$('include-title').checked=n.includeTitle;
     $('bark-enabled').checked=!!n.barkEnabled;input('bark-server',n.barkServer||'https://api.day.app');
     $('pushplus-enabled').checked=!!n.pushplusEnabled;
+    $('address-enabled').checked=!!n.addressEnabled;input('address-name',n.addressName||'');
     savedFields=fieldValues();
   }
   $('ntfy-token').placeholder=value.notifications.hasToken?t('已保存；留空保留，服务地址变化时清除'):t('如服务需要认证，在这里填写');
@@ -109,7 +117,7 @@ function render(value,watchRevision=watchPanel.revision){
   renderUpdate();
 }
 async function refresh(){if(loading)return;loading=true;try{const revision=watchPanel.revision;render(await api.snapshot(),revision);}catch(e){feedback(e.message,true);}finally{loading=false;}}
-function collect(){return {preferences:{autoStart:$('auto-start').checked,port:Number($('port').value),lan:$('lan').checked,lanAddresses:$('lan-scope').value==='all'?null:[...lanDraft],localAccess:$('local-access').checked,connections:connectionDraft,cloudflared:$('cloudflared').value.trim(),codexHome:$('codex-home').value.trim(),ipcPath:$('ipc-path').value.trim(),codexBin:$('codex-bin').value.trim()},auth:{sessionHours:Number($('session-hours').value),mode:$('auth-mode').value,username:$('username').value.trim(),password:$('password').value},origins:$('origins').value.split('\n').map(s=>s.trim()).filter(Boolean),notifications:{pushplusEnabled:$('pushplus-enabled').checked,pushplusToken:$('pushplus-token').value,clearPushplusToken:$('clear-pushplus-token').checked,enabled:$('ntfy-enabled').checked,server:$('ntfy-server').value.trim(),topic:$('ntfy-topic').value.trim(),token:$('ntfy-token').value,clearToken:$('clear-token').checked,barkEnabled:$('bark-enabled').checked,barkServer:$('bark-server').value.trim(),barkKey:$('bark-key').value,clearBarkKey:$('clear-bark-key').checked,clickBase:$('click-base').value.trim(),includeTitle:$('include-title').checked}};}
+function collect(){return {preferences:{autoStart:$('auto-start').checked,port:Number($('port').value),lan:$('lan').checked,lanAddresses:$('lan-scope').value==='all'?null:[...lanDraft],localAccess:$('local-access').checked,connections:connectionDraft,cloudflared:$('cloudflared').value.trim(),codexHome:$('codex-home').value.trim(),ipcPath:$('ipc-path').value.trim(),codexBin:$('codex-bin').value.trim()},auth:{sessionHours:Number($('session-hours').value),mode:$('auth-mode').value,username:$('username').value.trim(),password:$('password').value},origins:$('origins').value.split('\n').map(s=>s.trim()).filter(Boolean),notifications:{addressEnabled:$('address-enabled').checked,addressName:$('address-name').value.trim(),pushplusEnabled:$('pushplus-enabled').checked,pushplusToken:$('pushplus-token').value,clearPushplusToken:$('clear-pushplus-token').checked,enabled:$('ntfy-enabled').checked,server:$('ntfy-server').value.trim(),topic:$('ntfy-topic').value.trim(),token:$('ntfy-token').value,clearToken:$('clear-token').checked,barkEnabled:$('bark-enabled').checked,barkServer:$('bark-server').value.trim(),barkKey:$('bark-key').value,clearBarkKey:$('clear-bark-key').checked,clickBase:$('click-base').value.trim(),includeTitle:$('include-title').checked}};}
 $('settings').onsubmit=async event=>{
   event.preventDefault();$('save').disabled=true;const submitted=fieldValues(),submittedConnections=JSON.stringify(connectionDraft),submittedLan=JSON.stringify(lanDraft);
   try{
@@ -123,7 +131,7 @@ $('settings').onsubmit=async event=>{
 };
 $('start').onclick=async()=>{if(cloudflaredBusy||startPending)return;if(dirty){feedback(t('请先保存配置，再启动网关。'),true);return;}$('start').disabled=true;startPending=true;try{if(snapshot?.preferences.tunnel){try{await api.checkCloudflared(snapshot.preferences.cloudflared);}catch(error){tab('advanced');throw error;}}const result=await api.start();startingUntil=result.started?Date.now()+70000:0;feedback(result.message,false,'gateway');await refresh();}catch(e){startingUntil=0;feedback(e.message,true);$('start').disabled=false;}finally{startPending=false;}};
 $('stop').onclick=async()=>{$('stop').disabled=true;try{feedback((await api.stop()).message,false,'gateway');startingUntil=0;await refresh();}catch(e){feedback(e.message,true);$('stop').disabled=false;}};
-for(const [id,channel] of [['test-notification','ntfy'],['test-bark','bark'],['test-pushplus','pushplus']])$(id).onclick=async()=>{if(dirty){feedback(t('请先保存通知配置，再发送测试通知。'),true);return;}$(id).disabled=true;try{feedback((await api.testNotification({channel})).message);}catch(e){feedback(e.message,true);}finally{$(id).disabled=false;}};
+for(const [id,channel] of [['test-notification','ntfy'],['test-bark','bark'],['test-pushplus','pushplus'],['test-address','address']])$(id).onclick=async()=>{if(dirty){feedback(t('请先保存通知配置，再发送测试通知。'),true);return;}$(id).disabled=true;try{feedback((await api.testNotification({channel})).message);}catch(e){feedback(e.message,true);}finally{$(id).disabled=false;}};
 $('ntfy-help').onclick=()=>api.open('ntfy-help').catch(e=>feedback(e.message,true));
 $('bark-help').onclick=()=>api.open('bark-help').catch(e=>feedback(e.message,true));
 for(const id of ['project-home'])$(id).onclick=()=>api.open(id).catch(e=>feedback(e.message,true));

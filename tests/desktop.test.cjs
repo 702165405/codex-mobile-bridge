@@ -451,3 +451,25 @@ test('project navigation uses fixed project destinations',async()=>{
   assert.deepEqual(opened,['project-home']);
   assert.equal(ui.nodes.has('project-issues'),false);assert.equal(ui.nodes.has('project-pulls'),false);
 });
+
+test('entry notification preference, current-link test and update readiness stay independent of chat watches',async()=>{
+  const ui=await renderer();
+  ui.value.preferences.tunnel=true;
+  await ui.poll();
+  assert.match(ui.nodes.get('update-address-state').textContent,/未开启/);
+  ui.value.notifications.addressEnabled=true;
+  ui.value.notifications.addressName='Home computer';
+  await ui.poll();
+  assert.match(ui.nodes.get('update-address-state').textContent,/至少一个/);
+  ui.value.notifications.barkEnabled=true;
+  await ui.poll();
+  assert.equal(ui.nodes.get('address-enabled').checked,true);
+  assert.equal(ui.nodes.get('address-name').value,'Home computer');
+  assert.match(ui.nodes.get('update-address-state').textContent,/已开启/);
+  const calls=[];ui.api.testNotification=async payload=>{calls.push(payload);return {message:'accepted'};};
+  await ui.nodes.get('test-address').onclick();
+  assert.equal(calls[0].channel,'address');
+  const config=ui.run('collect()');
+  assert.equal(config.notifications.addressEnabled,true);
+  assert.equal(config.notifications.addressName,'Home computer');
+});

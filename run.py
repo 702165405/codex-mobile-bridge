@@ -22,6 +22,7 @@ from bridge.lifecycle import GatewayControl
 from bridge.service import Bridge
 from bridge.tunnel import QuickTunnel
 from bridge.ssh_tunnel import SSHTunnel
+from bridge.address_notifications import AddressNotifications, ready_url, gateway_ready, entry_urls
 from bridge.notifications import Notifications
 from bridge import network
 
@@ -156,6 +157,17 @@ def main(connections=None):
     tunnel = None
     tunnel_thread = None
     ssh_tunnels = []
+    def notification_urls():
+        if not gateway_ready(args.port, server.instance_id):
+            return []
+        from bridge.notifications import read_json
+        external = {}
+        for entry in entries:
+            status = read_json(args.config.parent/('ssh-status-'+entry['id']+'.json'), {})
+            if status.get('pid') == os.getpid():
+                external[entry['id']] = status
+        return entry_urls(preferences, hosts, ready_url(tunnel, args.port, server.instance_id), external)
+    address_notifications = AddressNotifications(args.config.parent, notification_urls, server.instance_id)
     notifications = Notifications(bridge, args.config.parent, lambda: server.origins, lambda: config.get('publicUrl', ''))
     for listener in servers:
         listener.notifications = notifications
@@ -206,6 +218,7 @@ def main(connections=None):
             tunnel_thread = threading.Thread(target=connect_tunnel, daemon=True)
             tunnel_thread.start()
         notifications.start()
+        address_notifications.start()
         control.start(server.shutdown, server.pairing.control, server.instance_id, server.auth, bridge.account.control, server.notifications.control, bridge.accounts.control)
         for listener in servers[1:]:
             thread = threading.Thread(target=listener.serve_forever, kwargs={'poll_interval': 0.5}, daemon=True)
@@ -218,6 +231,7 @@ def main(connections=None):
         for listener, thread in listener_threads:
             listener.shutdown()
             thread.join()
+        address_notifications.close()
         notifications.close()
         if tunnel:
             tunnel.close()

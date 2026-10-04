@@ -88,12 +88,14 @@ class Desktop:
         quick = read_json(self.data_dir/'cloudflare-status.json', {})
         if not runtime['running'] or quick.get('pid') != runtime.get('pid'):
             quick = {}
+        quick_url = ''
         public = self.data_dir/'外网地址.txt'
         # Never offer a Quick Tunnel URL unless cloudflared says it is still ready.
         # A lost tunnel keeps its old text for a moment but its DNS record is gone.
         if runtime['running'] and preferences['tunnel'] and public.exists() and quick.get('state') == 'ready':
             value = public.read_text(encoding='utf-8').splitlines()[0]
             if value.startswith('https://'):
+                quick_url = value
                 urls.insert(0, value)
         urls = [url+'/' for url in access.public_urls(preferences)] + urls
         external = {}
@@ -103,10 +105,14 @@ class Desktop:
                 external[entry['id']] = status
         executable = preferences['cloudflared']
         cloudflared = {'path': executable, 'available': bool(executable and Path(executable).is_file() and os.access(executable, os.X_OK))}
+        from .address_notifications import entry_urls
+        notification_urls = entry_urls(preferences, hosts, quick_url, external) if runtime['running'] else []
         notifications = settings(self.data_dir)
         return {'preferences': preferences, 'auth': {'username': config['auth'].get('username', 'admin'), 'mode': config['auth']['mode'], 'sessionHours': config['auth'].get('sessionHours', 12)},
                 'origins': config.get('origins', []), 'notifications': {**notifications, 'token': '', 'hasToken': bool(notifications['token']), 'barkKey': '', 'hasBarkKey': bool(notifications['barkKey']), 'pushplusToken': '', 'hasPushplusToken': bool(notifications['pushplusToken'])},
                 'watches': self.notification_watches({'action': 'list'})['watches'],
+                'notificationUrls': notification_urls,
+                'addressNotificationStatus': read_json(self.data_dir/'address-notifications.json', {}),
                 'notificationStatus': read_json(self.data_dir/'notification-status.json', {}),
                 'dataDir': str(self.data_dir), 'credentialsAvailable': (self.data_dir/'首次登录.txt').exists(),
                 'runtime': runtime, 'urls': urls, 'externalStatus': external, 'cloudflared': cloudflared, 'quickTunnel': quick}
@@ -271,6 +277,26 @@ class Desktop:
         return {'watches': rows}
 
     def test_notification(self, value=None):
+        if (value or {}).get('channel') == 'address':
+            from .address_notifications import send_address
+            from .notifications import channels
+            config = settings(self.data_dir)
+            snapshot = self.snapshot()
+            urls = snapshot['notificationUrls']
+            targets = channels(config)
+            if not config['addressEnabled'] or not targets:
+                raise ValueError('请先开启入口通知及至少一个通知通道，并保存配置。')
+            if not urls:
+                raise ValueError('请先启动网关，并启用局域网或等待外网入口就绪。')
+            failed = []
+            for channel in targets:
+                try:
+                    send_address(config, channel, urls, test=True)
+                except Exception:
+                    failed.append(channel)
+            if failed:
+                raise ValueError('部分通道发送失败：' + ', '.join(failed) + '；请在手机确认其他通道是否收到。')
+            return {'message': '已向启用通道发送当前入口，请在手机确认是否收到。'}
         channel = (value or {}).get('channel', 'ntfy')
         if channel not in ('ntfy', 'bark', 'pushplus'):
             raise ValueError('未知通知通道')
