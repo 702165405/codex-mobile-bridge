@@ -2,6 +2,21 @@
 // UI messages only. Never translate chat content, commands, model IDs or user input.
 const BridgeI18n=(()=>{
 const en={
+"关闭目标":"Clear goal",
+"正在关闭目标…":"Clearing goal…",
+"目标已关闭":"Goal cleared",
+"目标已修改，保持暂停":"Goal updated and paused",
+"修改目标":"Edit goal",
+"目标内容":"Goal objective",
+"保存目标":"Save goal",
+"放弃修改":"Discard changes",
+"修改目标前请先暂停。":"Pause the goal before editing it.",
+"修改目标内容会重置用量统计，保存后保持暂停。":"Changing the objective resets usage. The saved goal stays paused.",
+"暂停或关闭目标不会停止当前回复；如需立即停止，请点击“停止”。":"Pausing or clearing a goal does not stop the current reply. Use Stop to interrupt it.",
+"目标已发生变化，请刷新后重试":"The goal has changed. Refresh and try again.",
+"请先暂停目标，再修改目标内容":"Pause the goal before editing its objective.",
+"请输入 1–4000 字的目标内容":"Enter a goal of 1–4,000 characters.",
+"目标操作结果尚未确认，请查看目标状态":"The goal operation is not confirmed. Check its current state.",
 "请选择上游模型":"Choose an upstream model",
 "当前聊天模型不在上游列表中，请选择可用模型后应用。":"The current chat model is not in the upstream list. Choose an available model and apply it.",
 "此 API 接入使用额外认证配置，请手动填写模型 ID":"This API connection uses additional authentication settings. Enter the model ID manually.",

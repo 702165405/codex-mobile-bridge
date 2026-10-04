@@ -6,9 +6,9 @@ function fixture(saved=new Map()){
   const hint=node(),goalRoot=node(),goalOption=node(),goalToggle=node();goalOption.value='goal';
   const select={get value(){return goalOption.value;},set value(value){goalOption.value=value;},disabled:false,title:'',onchange:null,querySelector(){return goalOption;}};
   const storage={getItem:key=>saved.get(key)||null,setItem:(key,value)=>saved.set(key,value),removeItem:key=>saved.delete(key)};
-  const ctx=vm.createContext({select,hint,goalRoot,goalToggle,storage,localStorage:storage,window:{},document:{createElement:node}});
+  const ctx=vm.createContext({crypto:require('node:crypto').webcrypto,select,hint,goalRoot,goalToggle,storage,localStorage:storage,window:{},document:{createElement:node}});
   for(const name of ['i18n.js','modes.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../web',name),'utf8'),ctx);
-  const statusCalls=[];const panel=vm.runInContext('new WorkModes({select,hint,goalRoot,goalToggle,storage,onStatus:status=>{if(status===\'paused\')throw Error(\'offline\')}})',ctx);
+  const statusCalls=[];const panel=vm.runInContext('new WorkModes({select,hint,goalRoot,goalToggle,storage,onStatus:payload=>{if(payload.status===\'paused\')throw Error(\'offline\')}})',ctx);
   const all=n=>[n,...n.children.flatMap(all)];
   const text=()=>all(goalRoot).map(n=>n.textContent).join('\n');
   return {panel,select,goalOption,hint,goalRoot,goalToggle,text,saved,statusCalls,language:()=>vm.runInContext("BridgeI18n.setLanguage('en')",ctx)};
@@ -78,13 +78,13 @@ test('paused and active goals expose resume and pause actions',async()=>{
  assert.match(ui.text(),/Goal active|目标进行中/);
 });
 
-test('limited goals remain cancellable but complete goals expose no actions',()=>{
+test('limited goals can pause and complete goals can be cleared',()=>{
  const ui=fixture();
  ui.panel.render({status:'idle',connected:true,host:'local',goal:{objective:'Work',status:'usageLimited'}},'send',false);
- assert.match(ui.text(),/目标已达到用量限制/);assert.match(ui.text(),/取消目标/);
- assert.equal(ui.goalRoot.children.find(n=>(n.className||'').includes('goal-status')),undefined);
+ assert.match(ui.text(),/目标已达到用量限制/);assert.match(ui.text(),/关闭目标/);
+ assert.ok(ui.goalRoot.children.find(n=>(n.className||'').includes('goal-status')));
  ui.panel.render({status:'idle',connected:true,host:'local',goal:{objective:'Work',status:'complete'}},'send',false);
- assert.match(ui.text(),/目标已完成/);assert.equal(ui.goalRoot.querySelector('.goal-cancel'),undefined);
+ assert.match(ui.text(),/目标已完成/);assert.ok(ui.goalRoot.children.find(n=>(n.className||'').includes('goal-cancel')));
 });
 
 test('Goal mode is disabled when the desktop runtime is unavailable',()=>{
@@ -96,4 +96,33 @@ test('Goal mode is disabled when the desktop runtime is unavailable',()=>{
  assert.match(ui.goalOption.title,/未找到桌面 App 的 Codex 运行时/);
  ui.language();ui.panel.render({...idle,goalRuntimeAvailable:false},'send',false);
  assert.match(ui.goalOption.title,/desktop Codex runtime was not found/);
+});
+
+test('goal controls work on first render without composer render and block double clicks',async()=>{
+ const ui=fixture();ui.panel.open('local|a');ui.panel.render({...idle,goal:{objective:'Work',status:'active'}});
+ let release,calls=0;ui.panel.onStatus=()=>{calls++;return new Promise(resolve=>release=resolve);};
+ const pending=ui.panel.setStatus('paused');await ui.panel.setStatus('paused');assert.equal(calls,1);
+ assert.equal(ui.panel.busy(),true);release();await pending;assert.equal(ui.panel.busy(),false);
+});
+test('unknown goal request keeps its id across language change and repeated clicks',async()=>{
+ const ui=fixture();ui.panel.open('local|a');ui.panel.render({...idle,goal:{objective:'Work',status:'active'}});
+ const payloads=[];ui.panel.onStatus=payload=>{payloads.push(payload);throw Error('offline');};
+ await ui.panel.setStatus('paused');ui.language();await ui.panel.setStatus('paused');
+ assert.equal(payloads.length,2);assert.equal(payloads[0].id,payloads[1].id);assert.equal(payloads[0].uiLocale,payloads[1].uiLocale);
+});
+test('late goal operation failure cannot contaminate the next chat',async()=>{
+ const ui=fixture();ui.panel.open('local|a');ui.panel.render({...idle,goal:{objective:'Work A',status:'active'}});
+ let reject;ui.panel.onStatus=()=>new Promise((_,r)=>reject=r);
+ const pending=ui.panel.setStatus('paused');ui.panel.open('local|b');ui.panel.render(idle);reject(Error('Old failure'));await pending;
+ assert.doesNotMatch(ui.text(),/Old failure|Work A/);assert.equal(ui.panel.busy(),false);
+});
+test('editing is only available paused and preserves draft across streamed renders',async()=>{
+ const ui=fixture();ui.panel.open('local|a');ui.panel.render({...idle,goal:{objective:'Work',status:'active'}});
+ assert.equal(ui.goalRoot.children.find(n=>(n.className||'').includes('goal-edit')),undefined);
+ const view={...idle,goal:{objective:'Work',status:'paused'}};ui.panel.render(view);
+ ui.goalRoot.children.find(n=>(n.className||'').includes('goal-edit')).onclick();
+ const input=ui.goalRoot.children.find(n=>n.className==='goal-editor');input.value='Revised';input.oninput();ui.panel.render(view);
+ assert.equal(ui.goalRoot.children.find(n=>n.className==='goal-editor').value,'Revised');
+ let payload;ui.panel.onEdit=p=>{payload=p;};await ui.panel.saveEdit();
+ assert.equal(payload.objective,'Revised');assert.equal(payload.expected.status,'paused');assert.equal(ui.panel.editing,false);
 });

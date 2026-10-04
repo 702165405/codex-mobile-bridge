@@ -1,8 +1,8 @@
 """Limited native-goal access through the desktop Codex app-server.
 
-The app-server connection is intentionally persistent: native goal runners are
-tied to that connection.  Only three thread-goal RPCs are exposed; turns,
-credentials and general app-server access are never delegated here.
+The connection is reused only for goal metadata. No thread is loaded or resumed
+and no turn is executed here; activation is sent through the original desktop
+owner. Only three thread-goal RPCs and initialization are exposed.
 """
 import json
 import os
@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 GOAL_STATUSES = {"active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"}
-GOAL_ACTIONS = {"create", "pause", "resume", "cancel"}
+GOAL_ACTIONS = {"create", "pause", "resume", "cancel", "edit"}
 _STATUS_ALIASES = {"usage_limited": "usageLimited", "budget_limited": "budgetLimited"}
 
 
@@ -91,6 +91,14 @@ def normalize_goal(value):
     return value
 
 
+def goal_identity(goal):
+    goal = normalize_goal(goal) or {}
+    created = goal.get('createdAt')
+    if created is None and goal.get('createdAtMs') is not None:
+        created = goal['createdAtMs'] // 1000
+    return {'objective': goal.get('objective'), 'createdAt': created}
+
+
 def goal_command_fingerprint(action, objective, status=None):
     return json.dumps({"action": action, "objective": (objective or "").strip(), "status": status},
                       ensure_ascii=False, sort_keys=True)
@@ -117,9 +125,15 @@ def plan_goal_command(action, objective, current, *, status=None):
             return "duplicate", "", "active"
         return "invalid", "此聊天已有未完成目标，请先处理当前目标", None
     if action == "cancel":
-        if current is None or current_status == "complete" or not same_objective:
+        if current is None:
             return "duplicate", "", "cancelled"
+        if not same_objective:
+            return "invalid", "目标已发生变化，请刷新后重试", None
         return "execute", "", "cancelled"
+    if action == "edit":
+        if current is None or current_status != "paused":
+            return "invalid", "请先暂停目标，再修改目标内容", None
+        return ("duplicate" if same_objective else "execute"), "", "paused"
     expected = "paused" if action == "pause" else "active"
     predecessor = "active" if action == "pause" else "paused"
     if current is None:
@@ -128,7 +142,7 @@ def plan_goal_command(action, objective, current, *, status=None):
         return "invalid", "目标已发生变化，请刷新后重试", None
     if current_status == expected:
         return "duplicate", "", expected
-    if current_status == predecessor:
+    if current_status == predecessor or (action == "pause" and current_status in ("blocked", "usageLimited", "budgetLimited")):
         return "execute", "", expected
     return "invalid", "目标当前状态不支持暂停" if action == "pause" else "目标当前状态不支持恢复", None
 
@@ -161,7 +175,7 @@ def normalize_goal_result(result):
     return normalize_goal(result["goal"] if "goal" in result else result)
 
 
-def goal_activation(thread_id, goal, action, ui_locale=DEFAULT_UI_LOCALE):
+def goal_activation(thread_id, goal, action, ui_locale=DEFAULT_UI_LOCALE, transition_id=None):
     """Return a stable id and text for the turn that starts a goal."""
     if action not in GOAL_ACTIONS:
         raise ValueError("目标启动操作无效")
@@ -170,13 +184,19 @@ def goal_activation(thread_id, goal, action, ui_locale=DEFAULT_UI_LOCALE):
     if not identity:
         created = goal.get("createdAtMs") or goal.get("created_at_ms") or goal.get("createdAt")
         identity = f"created:{created}" if created else f"objective:{goal.get('objective', '')}"
-    command_id = str(uuid.uuid5(uuid.UUID(str(thread_id)), f"goal-activation:v1:{action}:{identity}"))
+    command_id = str(uuid.uuid5(uuid.UUID(str(thread_id)), f"goal-activation:v1:{action}:{transition_id or identity}"))
     return command_id, GOAL_ACTIVATION_TEXTS[normalize_ui_locale(ui_locale)][action]
 
 
 def goal_state_confirms_command(command, current):
     """Whether readable state proves an already-sent command completed."""
     if not isinstance(command, dict):
+        return False
+    current = normalize_goal(current)
+    if command.get('action') == 'cancel':
+        return current is None
+    before = command.get('before')
+    if before and command.get('action') in ('pause', 'resume') and goal_identity(before) != goal_identity(current):
         return False
     decision, _, _ = plan_goal_command(
         command.get("action"), command.get("objective"), current, status=command.get("status"))
@@ -230,10 +250,11 @@ class GoalRPC:
                     [str(self.executable), 'app-server', '--listen', 'stdio://'], cwd=self.home,
                     env={**os.environ, 'CODEX_HOME': str(self.home)}, stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding='utf-8', **options)
-                reader = threading.Thread(target=self._read, args=(messages,), daemon=True)
+                reader = threading.Thread(target=self._read, args=(messages, self.process.stdout), daemon=True)
                 reader.start()
-                self._send('initialize', {'clientInfo': {'name': 'codex_mobile_goal', 'version': '0.1'},
+                request_id = self._send('initialize', {'clientInfo': {'name': 'codex_mobile_goal', 'version': '0.1'},
                                           'capabilities': {'experimentalApi': True}})
+                self._receive(request_id)
                 self.process.stdin.write('{"method":"initialized"}\n')
                 self.process.stdin.flush()
                 return self
@@ -241,9 +262,9 @@ class GoalRPC:
                 self.close()
                 raise GoalUnavailable('无法连接 Codex 原生目标服务，请检查电脑端 Codex') from exc
 
-    def _read(self, messages):
+    def _read(self, messages, stdout):
         try:
-            for line in self.process.stdout:
+            for line in stdout:
                 try:
                     messages.put(json.loads(line))
                 except ValueError:
@@ -264,41 +285,53 @@ class GoalRPC:
     def request(self, method, params=None):
         if method not in self.METHODS:
             raise ValueError('目标接口只允许读取、设置或取消目标')
-        self.start()
         with self.lock:
+            self.start()
             request_id = self._send(method, params)
-            deadline = time.monotonic() + 15
-            while True:
-                try:
-                    value = self.messages.get(timeout=max(.01, deadline - time.monotonic()))
-                except queue.Empty as exc:
+            return self._receive(request_id)
+
+    def _receive(self, request_id):
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                value = self.messages.get(timeout=max(.01, deadline - time.monotonic()))
+            except queue.Empty as exc:
+                self.close()
+                raise GoalError('Codex 原生目标操作超时') from exc
+            if value is None:
+                self.close()
+                raise GoalUnavailable('Codex 原生目标服务已断开')
+            if value.get('id') != request_id:
+                if time.monotonic() >= deadline:
                     self.close()
-                    raise GoalError('Codex 原生目标操作超时') from exc
-                if value is None:
-                    self.close()
-                    raise GoalUnavailable('Codex 原生目标服务已断开')
-                if value.get('id') != request_id:
-                    continue
-                if 'error' in value:
-                    error = value['error'] or {}
-                    message = str(error.get('message') or 'Codex 原生目标操作未完成')
-                    if error.get('code') in (-32601, 'method_not_found') or 'method not found' in message.lower():
-                        raise GoalUnsupported('桌面 Codex 版本不支持原生目标模式')
-                    raise GoalError('Codex 原生目标操作未完成，请检查电脑端 Codex')
-                return value.get('result') or {}
+                    raise GoalError('Codex 原生目标操作超时')
+                continue
+            if 'error' in value:
+                error = value['error'] or {}
+                message = str(error.get('message') or 'Codex 原生目标操作未完成')
+                if error.get('code') in (-32601, 'method_not_found') or 'method not found' in message.lower():
+                    raise GoalUnsupported('桌面 Codex 版本不支持原生目标模式')
+                raise GoalError('Codex 原生目标操作未完成，请检查电脑端 Codex')
+            return value.get('result') or {}
 
     def get_goal(self, thread_id):
-        return self.request('thread/goal/get', {'threadId': str(thread_id)}).get('goal')
+        return normalize_goal_result(self.request('thread/goal/get', {'threadId': str(thread_id)}))
 
     def set_goal(self, thread_id, objective):
         params = {'threadId': str(thread_id), 'objective': objective, 'status': 'active'}
-        return self.request('thread/goal/set', params).get('goal')
+        return normalize_goal_result(self.request('thread/goal/set', params))
 
     def set_goal_status(self, thread_id, status):
         if status not in ('active', 'paused'):
             raise ValueError('目标状态无效')
         params = {'threadId': str(thread_id), 'status': status}
-        return self.request('thread/goal/set', params).get('goal')
+        return normalize_goal_result(self.request('thread/goal/set', params))
+
+    def edit_goal(self, thread_id, objective, token_budget=None):
+        params = {'threadId': str(thread_id), 'objective': objective, 'status': 'paused'}
+        if token_budget is not None:
+            params['tokenBudget'] = token_budget
+        return normalize_goal_result(self.request('thread/goal/set', params))
 
     def clear_goal(self, thread_id):
         return self.request('thread/goal/clear', {'threadId': str(thread_id)})

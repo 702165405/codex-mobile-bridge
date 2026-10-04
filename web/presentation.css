@@ -121,3 +121,7 @@ aside{background:var(--surface)}
 @media(max-width:350px){.compose-bottom{gap:4px;grid-template-columns:26px minmax(0,1fr) minmax(0,1fr) auto}.attach-button{width:26px}.compose-bottom:has(.goal-toggle:not([hidden])){gap:4px}.compose-actions{gap:4px}.compose-actions .primary,.compose-actions .stop{padding:8px 7px}.compose-bottom select{font-size:10px}}
 
 .fast-mode-control{padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.fast-mode-control p{font-size:12px;line-height:1.6;margin:8px 0 0}.fast-mode-control a{color:var(--green)}
+
+.goal-editor{display:block;width:100%;box-sizing:border-box;resize:vertical;min-height:5rem;margin:.5rem 0;padding:.6rem;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+
+.goal-state:has(.goal-editor){max-height:45dvh}

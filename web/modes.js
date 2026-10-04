@@ -1,8 +1,8 @@
 'use strict';
 
 class WorkModes {
-  constructor({select,hint,goalRoot,goalToggle,storage=sessionStorage,onCancel,onStatus}) {
-    this.select=select;this.hint=hint;this.goalRoot=goalRoot;this.goalToggle=goalToggle;this.storage=storage;this.onCancel=onCancel;this.onStatus=onStatus;
+  constructor({select,hint,goalRoot,goalToggle,storage=sessionStorage,onCancel,onStatus,onEdit,newId=()=>crypto.randomUUID()}) {
+    this.select=select;this.hint=hint;this.goalRoot=goalRoot;this.goalToggle=goalToggle;this.storage=storage;this.onCancel=onCancel;this.onStatus=onStatus;this.onEdit=onEdit;this.newId=newId;this.sending=false;this.editing=false;this.editText="";
     this.key=null;this.selection=null;this.view=null;this.cancelBusy=false;this.statusBusy=null;this.actionError='';
     select.onchange=()=>{this.selection=select.value;this.storage.setItem('work-mode:'+this.key,this.selection);this.actionError='';this.render();};
     goalToggle.onclick=()=>{this.storage.removeItem('hidden-goal:'+this.key);this.render();this.goalRoot.querySelector('.goal-close')?.focus();};
@@ -10,7 +10,7 @@ class WorkModes {
   open(key) {
     this.key=key;const saved=this.storage.getItem('work-mode:'+key);
     this.selection=['default','plan','goal'].includes(saved)?saved:null;
-    this.view=null;this.cancelBusy=false;this.statusBusy=null;this.actionError='';this.render();
+    this.view=null;this.cancelBusy=false;this.statusBusy=null;this.sending=false;this.editing=false;this.editText='';this.actionError='';this.render();
   }
   value(sendMode) {return sendMode==='steer'?null:this.select.value;}
   submitted(key,mode) {
@@ -18,18 +18,27 @@ class WorkModes {
     this.storage.setItem('work-mode:'+key,'default');
     if(key===this.key){this.selection='default';this.cancelBusy=false;this.statusBusy=null;this.actionError='';this.render();}
   }
-  async action(kind,run) {
+  async action(kind,fields,run) {
     if(this.busy())return;
-    this.cancelBusy=kind==='cancel'?true:null;this.statusBusy=kind==='cancel'?null:kind;this.actionError='';this.render();
-    try{await run();}
-    catch(error){this.actionError=BridgeI18n.t(error.message||'目标操作失败，请重试');}
-    finally{this.cancelBusy=false;this.statusBusy=null;this.render();}
+    const key=this.key,storageKey='goal-action:'+key;
+    const goal=this.view?.goal;
+    const expected=goal?Object.fromEntries(['objective','status','createdAt','createdAtMs','goalId'].filter(k=>goal[k]!=null).map(k=>[k,goal[k]])):{};
+    const fingerprint=JSON.stringify({kind,fields,expected});
+    let pending;try{pending=JSON.parse(this.storage.getItem(storageKey));}catch{}
+    if(!pending||pending.fingerprint!==fingerprint)pending={fingerprint,payload:{id:this.newId(),...fields,expected,uiLocale:BridgeI18n.locale()}};
+    this.storage.setItem(storageKey,JSON.stringify(pending));
+    this.cancelBusy=kind==='cancel';this.statusBusy=kind==='cancel'?null:kind;this.actionError='';this.render();
+    try{await run(pending.payload);this.storage.removeItem(storageKey);if(this.key===key)this.editing=false;}
+    catch(error){if(this.key===key)this.actionError=BridgeI18n.t(error.message||'目标操作失败，请重试');}
+    finally{if(this.key===key){this.cancelBusy=false;this.statusBusy=null;this.render();}}
   }
-  cancel(){return this.action('cancel',()=>this.onCancel());}
-  setStatus(status){return this.action(status,()=>this.onStatus(status));}
-  busy(){return this.cancelBusy||this.statusBusy!=null;}
-  render(view=this.view,sendMode=this.sendMode,busy=this.busy) {
-    this.view=view;this.sendMode=sendMode;this.busyArgument=busy;this.busy=()=>!!busy;
+  cancel(){return this.action('cancel',{},payload=>this.onCancel(payload));}
+  setStatus(status){return this.action(status,{status},payload=>this.onStatus(payload));}
+  saveEdit(){return this.action('edit',{objective:this.editText.trim()},payload=>this.onEdit(payload));}
+  busy(){return !!(this.sending||this.cancelBusy||this.statusBusy);}
+  render(view=this.view,sendMode=this.sendMode,sending=this.sending) {
+    this.view=view;this.sendMode=sendMode;this.sending=!!sending;
+    const busy=this.busy();
     const t=BridgeI18n.t,goalSupported=!!view&&view.host==='local'&&view.goalRuntimeAvailable!==false;
     const goalUnavailableReason=!view||view.host!=='local'?'目标模式暂不支持 SSH 主机':'未找到桌面 App 的 Codex 运行时';
     this.select.value=this.selection||(view?.collaborationMode==='plan'?'plan':'default');
@@ -62,14 +71,22 @@ class WorkModes {
       this.goalRoot.append(node('p',t(labels[request.status]||labels.unknown),'goal-pending'));
     }
     if(this.actionError)this.goalRoot.append(node('p',this.actionError,'error'));
-    if(goal&&goalSupported&&goal.status!=='complete'){
-      if(goal.status==='active'){
+    if(goal&&goalSupported){
+      if(['active','blocked','usageLimited','budgetLimited'].includes(goal.status)){
         this.goalRoot.append(button(this.statusBusy==='paused'?t('正在暂停目标…'):t('暂停目标'),'goal-status secondary',()=>this.setStatus('paused'),this.busy()));
       }
       if(goal.status==='paused'){
         this.goalRoot.append(button(this.statusBusy==='active'?t('正在恢复目标…'):t('恢复目标'),'goal-status primary',()=>this.setStatus('active'),this.busy()));
       }
-      this.goalRoot.append(button(this.cancelBusy?t('正在取消目标…'):t('取消目标'),'goal-cancel secondary',()=>this.cancel(),this.busy()));
+      if(goal.status==='paused')this.goalRoot.append(button(t('修改目标'),'goal-edit secondary',()=>{this.editing=true;this.editText=goal.objective;this.render();this.goalRoot.querySelector('.goal-editor')?.focus();},this.busy()));
+      this.goalRoot.append(node('p',t('暂停或关闭目标不会停止当前回复；如需立即停止，请点击“停止”。'),'muted'));
+      if(goal.status==='active')this.goalRoot.append(node('p',t('修改目标前请先暂停。'),'muted'));
+      if(this.editing&&goal.status==='paused'){
+        const input=node('textarea','', 'goal-editor');input.value=this.editText;input.maxLength=4000;input.rows=3;input.disabled=this.busy();input.setAttribute('aria-label',t('目标内容'));input.oninput=()=>{this.editText=input.value;};
+        this.goalRoot.append(input,node('p',t('修改目标内容会重置用量统计，保存后保持暂停。'),'muted'));
+        this.goalRoot.append(button(t('保存目标'),'goal-save primary',()=>this.saveEdit(),this.busy()),button(t('放弃修改'),'secondary',()=>{this.editing=false;this.render();},this.busy()));
+      }
+      this.goalRoot.append(button(this.cancelBusy?t('正在关闭目标…'):t('关闭目标'),'goal-cancel secondary',()=>this.cancel(),this.busy()));
     }
     if(goalIdentity){
       const close=node('button','×','goal-close');close.type='button';close.title=t('隐藏目标栏');close.setAttribute('aria-label',close.title);

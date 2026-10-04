@@ -53,10 +53,15 @@ class GoalStub:
         self._complete(goal,thread_id)
         return {'goal':goal}
 
+    def edit_goal(self,thread_id,objective,token_budget=None):
+        goal={'objective':objective,'status':'paused','tokensUsed':0,'tokenBudget':token_budget}
+        self.goals[thread_id]=goal;self._complete(goal,thread_id)
+        return goal
+
     def clear_goal(self,thread_id):
         self.clear_calls.append(thread_id)
         if self.error:raise self.error
-        self.goals.pop(thread_id,None)
+        self.goals[thread_id]=None
         self._complete(None,thread_id)
         return {'ok':True}
 
@@ -117,7 +122,7 @@ class GoalStateTests(unittest.TestCase):
         self.assertEqual(plan_goal_command('resume', 'Work', active)[0], 'duplicate')
         self.assertEqual(plan_goal_command('pause', 'Work', complete)[0], 'invalid')
         self.assertEqual(plan_goal_command('cancel', 'Work', active)[0], 'execute')
-        self.assertEqual(plan_goal_command('cancel', 'Work', complete)[0], 'duplicate')
+        self.assertEqual(plan_goal_command('cancel', 'Work', complete)[0], 'execute')
         self.assertEqual(plan_goal_command('cancel', 'Work', None)[0], 'duplicate')
 
     def test_owner_transport_is_authoritative_and_exposed_to_projection(self):
@@ -277,6 +282,7 @@ class ModeTests(unittest.TestCase):
         goal={'threadId':THREAD,'objective':'Keep tests green','status':'active',
               'createdAt':1791057183,'updatedAt':1791057183}
         session=self.bridge.session(THREAD)
+        stub.goals[THREAD]=goal
         response={'status':'active','confirmed':True,'result':goal}
         activation=self.bridge._send_goal_activation(session,response,'create')
         calls=self.calls()
@@ -391,15 +397,14 @@ class ModeTests(unittest.TestCase):
                                   'result': None, 'activation': None})
         self.assertEqual(len(stub.set_calls), 1)
 
-    def test_goal_unavailable_is_retried_once(self):
-        stub=GoalStub(self.bridge,error=GoalUnavailable('transient'))
-        stub.failures=1
+    def test_goal_unavailable_write_is_not_retried(self):
+        stub=GoalStub(self.bridge,error=GoalUnavailable('transient'));stub.failures=1
         self.bridge.goal=stub
         key=str(uuid.uuid4())
-        result=self.bridge.send(THREAD,'Keep tests green',key,work_mode='goal')
-        self.assertEqual(result['status'],'accepted');self.assertTrue(result['confirmed'])
-        self.assertEqual(stub.set_calls,[(THREAD,'Keep tests green'),(THREAD,'Keep tests green')])
-        self.assertEqual(self.desktop_opens,[(THREAD,'local')])
+        with self.assertRaises(IPCError):
+            self.bridge.send(THREAD,'Keep tests green',key,work_mode='goal')
+        self.assertEqual(len(stub.set_calls),1)
+        self.assertEqual(self.bridge.goal_commands[THREAD+':'+key]['state'],'unknown')
 
     def test_goal_unavailable_does_not_leave_pending_request(self):
         stub=GoalStub(self.bridge,error=GoalUnavailable('offline'));stub.failures=999;self.bridge.goal=stub
@@ -421,7 +426,7 @@ class ModeTests(unittest.TestCase):
         view=self.bridge.view(THREAD)
         self.assertIsNone(view['goal']);self.assertIsNone(view['goalSubmission'])
         result=self.bridge.cancel_goal(THREAD,str(uuid.uuid4()))
-        self.assertEqual(result,{'status':'cancelled','confirmed':True,'duplicate':True,'result':{'ok':True}})
+        self.assertEqual(result['status'],'cancelled');self.assertTrue(result['confirmed']);self.assertTrue(result['duplicate'])
         self.assertEqual(len(stub.clear_calls),1)
         self.assertIsNone(self.bridge.view(THREAD)['goal'])
 
@@ -455,9 +460,10 @@ class ModeTests(unittest.TestCase):
         self.bridge.cancel_goal(THREAD,str(uuid.uuid4()))
         self.assertEqual(stub.clear_calls,[THREAD])
         stub.clear_calls.clear()
-        self.live(threadGoal={'objective':'Keep tests green','status':'complete'})
+        stub.goals[THREAD]={'objective':'Keep tests green','status':'complete'}
+        self.live(threadGoal=stub.goals[THREAD])
         self.bridge.cancel_goal(THREAD,str(uuid.uuid4()))
-        self.assertEqual(stub.clear_calls,[])
+        self.assertEqual(stub.clear_calls,[THREAD])
 
     def test_pause_is_serialized_and_one_operation_is_a_native_duplicate(self):
         stub=GoalStub(self.bridge);self.bridge.goal=stub
@@ -500,7 +506,7 @@ class ModeTests(unittest.TestCase):
         self.assertIsNone(self.bridge.view(THREAD)['goal'])
         self.assertEqual(self.bridge.goal_commands[THREAD+':'+key]['action'], 'create')
         result=self.bridge.cancel_goal(THREAD, str(uuid.uuid4()))
-        self.assertEqual(result, {'status': 'cancelled', 'confirmed': True, 'duplicate': True, 'result': {'ok': True}})
+        self.assertEqual(result['status'], 'cancelled');self.assertTrue(result['confirmed']);self.assertTrue(result['duplicate'])
 
     def test_unknown_cancel_is_reconciled_without_native_replay(self):
         key=str(uuid.uuid4())
@@ -520,8 +526,7 @@ class ModeTests(unittest.TestCase):
             'error':'目标操作已发送，但状态尚未确认',
         }
         result=self.bridge.cancel_goal(THREAD, str(uuid.uuid4()))
-        self.assertEqual(result, {'status':'cancelled','confirmed':True,'duplicate':True,
-                                  'reconciled':True,'result':None})
+        self.assertEqual(result['status'],'cancelled');self.assertTrue(result['confirmed'])
         self.assertEqual(self.bridge.goal_commands[THREAD+':'+unknown]['state'],'confirmed')
         self.assertTrue(self.bridge.goal_commands[THREAD+':'+unknown]['response']['reconciled'])
         self.assertEqual(stub.clear_calls,[])

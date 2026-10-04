@@ -22,7 +22,7 @@ from .create import rename_thread, create_empty, fork_copy, open_in_desktop, Cre
 from .timeline import Timeline
 from .account import Account
 from .accounts import Accounts, operation
-from .goal import GoalRPC, GoalError, GoalUnavailable, GoalUnsupported, goal_activation, normalize_goal_result, normalize_ui_locale, goal_command_fingerprint, goal_state_confirms_command, native_goal_absent, normalize_goal, plan_goal_command, read_native_goal
+from .goal import GoalRPC, GoalError, GoalUnavailable, GoalUnsupported, goal_activation, goal_identity, normalize_goal_result, normalize_ui_locale, goal_command_fingerprint, goal_state_confirms_command, native_goal_absent, normalize_goal, plan_goal_command, read_native_goal
 from .uploads import Uploads, image_type
 from .remote import upload_file
 
@@ -49,7 +49,7 @@ class LiveSession:
         self.condition = threading.Condition(threading.RLock())
         self.attach_lock = threading.Lock()
         self.activation_lock = threading.Lock()
-        self.action_lock = threading.Lock()
+        self.action_lock = threading.RLock()
         self.timeline = Timeline()
 
     def changed(self):
@@ -118,6 +118,10 @@ class Bridge:
         self.goal_commands_path = self.data_dir / 'goal-commands.json'
         self.goal_commands = json.loads(self.goal_commands_path.read_text(encoding='utf-8')) if self.goal_commands_path.exists() else {}
         self.goal_lock = threading.RLock()
+        for command in self.goal_commands.values():
+            if command.get('state') in ('pending', 'sent'):
+                command['state'] = 'unknown'
+
         for key, value in self.submissions.items():
             if value.get("status") == "queued":
                 self.live.setdefault(key.split(":")[0], LiveSession(key.split(":")[0]))
@@ -144,18 +148,16 @@ class Bridge:
                 native = self._goal_call('get_goal', thread_id)
                 # A successful empty answer is authoritative. Do not let a stale
                 # desktop snapshot resurrect a goal that native state has cleared.
-                return normalize_goal(native)
+                return normalize_goal_result(native)
             except GoalUnsupported:
                 pass
             except GoalError:
                 if strict:
                     raise
-        return normalize_goal(read_native_goal(self.codex_home, thread_id))
-
-    def _refresh_goal_snapshot(self, session):
-        # Loading history through the desktop owner forces it to broadcast a
-        # snapshot. It can still contain a stale goal, so callers overlay native.
-        self._call(session, "thread-follower-load-complete-history", {}, timeout=180)
+        native = normalize_goal(read_native_goal(self.codex_home, thread_id))
+        if strict and native is None and not native_goal_absent(self.codex_home, thread_id):
+            raise GoalUnavailable('无法确认原生目标状态，请稍后刷新')
+        return native
 
     def _reconcile_goal_commands(self, thread_id):
         """Promote unknown commands that authoritative native state now proves.
@@ -167,10 +169,13 @@ class Bridge:
         """
         with self.submit_lock:
             pending = [(key, copy.deepcopy(value)) for key, value in self.goal_commands.items()
-                       if key.startswith(thread_id + ':') and value.get('state') == 'unknown']
+                       if key.startswith(thread_id + ':') and value.get('state') in ('unknown', 'sent', 'pending')]
         if not pending:
             return
-        native = self._native_goal_state(thread_id)
+        try:
+            native = self._native_goal_state(thread_id, strict=True)
+        except GoalError:
+            return
         confirmed_keys = []
         for key, command in pending:
             objective = (command.get('objective') or '').strip()
@@ -183,15 +188,16 @@ class Bridge:
         with self.submit_lock:
             for key, command in confirmed_keys:
                 stored = self.goal_commands.get(key)
-                if not stored or stored.get('state') != 'unknown':
+                if not stored or stored.get('state') not in ('unknown', 'sent', 'pending'):
                     continue
                 action = command.get('action')
                 status = {'create': 'active', 'pause': 'paused', 'resume': 'active',
-                          'cancel': 'cancelled'}.get(action)
+                          'cancel': 'cancelled', 'edit': 'paused'}.get(action)
                 stored['state'] = 'confirmed'; stored['sent'] = True
                 stored['confirmedAt'] = time.time()
                 stored['response'] = {'status': status, 'confirmed': True,
-                                      'reconciled': True, 'result': None}
+                                      'reconciled': True, 'result': native, 'transitionId': key.split(':')[-1],
+                                      'uiLocale': stored.get('uiLocale')}
                 if action == 'cancel':
                     objective = (command.get('objective') or '').strip()
                     for old_key, old in self.goal_commands.items():
@@ -200,30 +206,24 @@ class Bridge:
                             old['goalCancelled'] = True
                 self._save_goal_commands()
 
-    def _goal_command(self, session, thread_id, request_id, action, *, objective=None, status=None, ui_locale=None):
+    def _goal_command(self, session, thread_id, request_id, action, *, objective=None, status=None, ui_locale=None, expected=None):
         uuid.UUID(request_id)
-        if action not in ('create', 'pause', 'resume', 'cancel'):
+        if action not in ('create', 'pause', 'resume', 'cancel', 'edit'):
             raise ValueError('目标操作无效')
         key = thread_id + ':' + request_id
+        if expected is not None and not isinstance(expected, dict):
+            raise ValueError('目标状态无效')
         objective = (objective or '').strip()
-        if action in ('create', 'pause', 'resume') and not objective:
+        if action in ('create', 'pause', 'resume', 'edit') and not objective:
             raise ValueError('当前聊天没有目标')
+        if len(objective) > 4000:
+            raise ValueError('目标内容不能超过 4000 字')
         fingerprint = goal_command_fingerprint(action, objective, status)
-        expected_status = {'create': 'active', 'resume': 'active', 'pause': 'paused'}.get(action)
+        expected_status = {'create': 'active', 'resume': 'active', 'pause': 'paused', 'edit': 'paused'}.get(action)
         # Goal commands mutate one native object and are observed asynchronously,
         # so serialize every bridge-side transition before checking the ledger.
         with self.goal_lock:
             self._reconcile_goal_commands(thread_id)
-            if action == 'cancel':
-                with self.submit_lock:
-                    prior = max((copy.deepcopy(value) for old_key, value in self.goal_commands.items()
-                                 if old_key.startswith(thread_id + ':') and value.get('action') == 'cancel' and
-                                 value.get('state') == 'confirmed' and
-                                 value.get('objective', '').strip() == objective),
-                                key=lambda value: value.get('at', 0), default=None)
-                if prior:
-                    response = prior.get('response') or {'status': 'cancelled', 'confirmed': True}
-                    return {**response, 'duplicate': True}
             native = self._native_goal_state(thread_id, strict=True)
             with self.submit_lock:
                 command = self.goal_commands.get(key)
@@ -242,7 +242,9 @@ class Bridge:
                     # automatically could create or clear the wrong goal.
                     return {'status': 'unknown', 'confirmed': False, 'duplicate': True,
                             'error': command.get('error') or '目标操作结果尚未确认'}
-                command = {'action': action, 'workMode': 'goal', 'objective': objective, 'status': status,
+                if expected is not None and (goal_identity(expected) != goal_identity(native) or expected.get('status') != (native or {}).get('status')):
+                    raise ValueError('目标已发生变化，请刷新后重试')
+                command = {'before': native, 'action': action, 'workMode': 'goal', 'objective': objective, 'status': status,
                            'uiLocale': normalize_ui_locale(ui_locale), 'state': 'pending', 'sent': False,
                            'at': time.time(), 'fingerprint': fingerprint}
                 self.goal_commands[key] = command
@@ -251,6 +253,8 @@ class Bridge:
             def confirm(response, *, duplicate=False):
                 with self.submit_lock:
                     command['state'] = 'confirmed'; command['sent'] = True
+                    if not duplicate:
+                        response['transitionId'] = request_id
                     command['confirmedAt'] = time.time(); command['response'] = response
                     if duplicate:
                         response['duplicate'] = True
@@ -278,7 +282,7 @@ class Bridge:
                 raise ValueError(decision_error)
 
             rpc_methods = {'create': ('set_goal', objective), 'pause': ('set_goal_status', 'paused'),
-                           'resume': ('set_goal_status', 'active'), 'cancel': ('clear_goal', None)}
+                           'resume': ('set_goal_status', 'active'), 'cancel': ('clear_goal', None), 'edit': ('edit_goal', objective)}
             rpc_method, rpc_arg = rpc_methods[action]
             with self.submit_lock:
                 command['sent'] = True; command['state'] = 'sent'; command['attemptedAt'] = time.time()
@@ -286,7 +290,9 @@ class Bridge:
             with session.condition:
                 session.changed()
             try:
-                if rpc_arg is None:
+                if action == 'edit':
+                    result = self._goal_call('edit_goal', thread_id, objective, (native or {}).get('tokenBudget'))
+                elif rpc_arg is None:
                     result = self._goal_call(rpc_method, thread_id)
                 else:
                     result = self._goal_call(rpc_method, thread_id, rpc_arg)
@@ -300,7 +306,6 @@ class Bridge:
                 fail(str(exc), unknown=unknown)
                 raise IPCError(str(exc)) from exc
 
-            rpc_goal = normalize_goal_result(result)
             try:
                 self._open_desktop(thread_id, self.host)
             except (OSError, CreationError, subprocess.SubprocessError):
@@ -311,7 +316,11 @@ class Bridge:
                 # The native RPC already succeeded. Mobile UI reads the SQLite
                 # state even when the desktop owner cannot broadcast a snapshot.
                 pass
-            native = normalize_goal(self._native_goal_state(thread_id, strict=True)) or normalize_goal(rpc_goal)
+            try:
+                native = self._native_goal_state(thread_id, strict=True)
+            except GoalError as exc:
+                fail(str(exc), unknown=True)
+                raise IPCError('目标操作已发送，但状态尚未确认') from exc
             confirmed = goal_state_confirms_command(command, native)
             if action == 'cancel':
                 if confirmed:
@@ -325,7 +334,7 @@ class Bridge:
                         session.changed()
                     return confirm({'status': 'cancelled', 'confirmed': True, 'result': result})
             elif confirmed:
-                return confirm({'status': expected_status, 'confirmed': True, 'result': result,
+                return confirm({'status': expected_status, 'confirmed': True, 'result': native,
                                 'uiLocale': command['uiLocale']})
             fail('目标操作已发送，但状态尚未确认', unknown=True)
             raise IPCError('目标操作已发送，但状态尚未确认')
@@ -336,7 +345,7 @@ class Bridge:
                 with self.submit_lock:
                     protected=set()
                     for value in self.submissions.values():
-                        if value.get("status") in ("queued","unknown"):
+                        if value.get("status") in ("queued", "unknown", "accepted"):
                             protected.update(value.get("attachments") or [])
                 removed=self.uploads.collect(protected=protected)
                 if removed:
@@ -926,8 +935,6 @@ class Bridge:
                          if k.startswith(session.id + ':') and (v.get('workMode') == 'goal' or v.get('action') == 'cancel')]
         latest_goal_command = max(goal_commands, key=lambda pair: pair[1].get('at', 0), default=None)
         if latest_goal_command and latest_goal_command[1].get('action') == 'cancel':
-            if goal and goal.get('objective','').strip() == latest_goal_command[1].get('objective','').strip():
-                view['goal'] = None
             return
         # The direct GoalRPC connection can leave the desktop owner's in-memory
         # thread goal behind after the owner deletes or completes it. Once
@@ -949,8 +956,6 @@ class Bridge:
         # Once the authoritative native goal is cleared, hide a stale desktop
         # snapshot instead of offering a second cancel.
         if entry.get("goalCancelled"):
-            if goal and goal.get("objective", "").strip() == objective:
-                view["goal"] = None
             return
 
         goal_statuses = {"active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"}
@@ -991,8 +996,6 @@ class Bridge:
         if not paths:
             return
         by_path = self.uploads.by_path(session.id, paths)
-        if not by_path:
-            return
         for row in rows:
             for attachment in row.get('attachments', []):
                 path = attachment.get('path')
@@ -1079,6 +1082,8 @@ class Bridge:
         native_goal = normalize_goal(read_native_goal(self.codex_home, thread_id))
         if native_goal:
             view["goal"] = native_goal
+        elif native_goal_absent(self.codex_home, thread_id):
+            view["goal"] = None
         elif view.get("goal") and self._cancelled_goal_objective(thread_id, view["goal"].get("objective", "")):
             view["goal"] = None
         return view
@@ -1208,7 +1213,7 @@ class Bridge:
             response = command.get('response') or {}
             goal = normalize_goal_result(response.get('result'))
             if response.get('confirmed') and goal:
-                ids.add(goal_activation(thread_id, goal, command['action'])[0])
+                ids.add(goal_activation(thread_id, goal, command['action'], transition_id=response.get('transitionId'))[0])
         return ids
 
     def _cancel_goal_activation_queues(self, thread_id):
@@ -1238,15 +1243,21 @@ class Bridge:
         if not goal:
             return None
         # Prefer the authoritative row when the RPC result omits a stable goal id.
-        goal = normalize_goal(self._native_goal_state(session.id, strict=True)) or goal
-        ui_locale = normalize_ui_locale(ui_locale or response.get("uiLocale"))
-        activation_id, text = goal_activation(session.id, goal, action, ui_locale)
+        goal = normalize_goal(self._native_goal_state(session.id, strict=True))
+        if goal is None:
+            return None
+        ui_locale = normalize_ui_locale(response.get("uiLocale") or ui_locale)
+        if goal.get('status') != 'active' or goal_identity(goal) != goal_identity(normalize_goal_result(response.get('result'))):
+            return None
+        if response.get('duplicate') and not response.get('transitionId'):
+            return None
+        activation_id, text = goal_activation(session.id, goal, action, ui_locale, response.get('transitionId'))
         with session.condition:
             active = session.state.get("threadRuntimeStatus", {}).get("type") == "active"
         try:
             activation = self.send(session.id, text, activation_id, "queue" if active else "send",
                                    activation={"action": action, "objective": goal["objective"],
-                                               "uiLocale": ui_locale})
+                                               "uiLocale": ui_locale, "goal": goal_identity(goal)})
         except Exception as exc:
             raise IPCError(f"目标状态已确认，但启动消息发送失败：{exc}") from exc
         if activation.get("status") not in ("accepted", "queued"):
@@ -1261,13 +1272,13 @@ class Bridge:
             # second writer and reintroduce split-brain state.
             return getattr(self.owner_goal, method)(*args)
         last = None
-        for attempt in range(2):
+        for attempt in range(2 if method == 'get_goal' else 1):
             try:
                 return getattr(self.goal, method)(*args)
             except GoalUnavailable as exc:
                 last = exc
                 self.goal.close()
-                if attempt == 0 and not self.closed.is_set():
+                if method == 'get_goal' and attempt == 0 and not self.closed.is_set():
                     self.closed.wait(.25)
                     continue
                 raise
@@ -1278,36 +1289,41 @@ class Bridge:
         # stream. Loading history through the owner forces a fresh broadcast.
         self._call(session, "thread-follower-load-complete-history", {}, timeout=180)
 
-    def set_goal_status(self, thread_id, status, request_id, ui_locale=None):
+    @operation
+    def _goal_control(self, thread_id, request_id, action, *, status=None, objective=None, ui_locale=None, expected=None):
         uuid.UUID(request_id)
-        if status not in ("active", "paused"):
-            raise ValueError("目标状态无效")
-        if self.host != "local" or self.goal is None:
-            raise ValueError("目标模式暂不支持 SSH 主机")
+        if self.host != 'local' or self.goal is None:
+            raise ValueError('目标模式暂不支持 SSH 主机')
         session = self._target(thread_id)
-        action = "pause" if status == "paused" else "resume"
-        with session.condition:
-            objective = (session.state.get("threadGoal") or {}).get("objective", "")
-        response = self._goal_command(session, thread_id, request_id, action, objective=objective,
-                                      status=status, ui_locale=ui_locale)
-        response["activation"] = self._send_goal_activation(session, response, action,
-                                                            ui_locale=ui_locale)
-        return response
-
-    def cancel_goal(self, thread_id, request_id):
-        uuid.UUID(request_id)
-        if self.host != "local" or self.goal is None:
-            raise ValueError("目标模式暂不支持 SSH 主机")
-        session = self._target(thread_id)
-        with session.condition:
-            objective = (session.state.get("threadGoal") or {}).get("objective", "")
-        if not objective:
-            objective = self._latest_created_goal_objective(thread_id)
-        with self.goal_lock:
-            response = self._goal_command(session, thread_id, request_id, "cancel", objective=objective)
-            if response.get("confirmed"):
+        # Match the queue dispatcher lock order and serialize state + activation.
+        with session.action_lock, self.goal_lock:
+            prior = self.goal_commands.get(thread_id + ':' + request_id)
+            native = self._native_goal_state(thread_id, strict=True)
+            if objective is None:
+                objective = (prior or {}).get('objective', (native or {}).get('objective', ''))
+            response = self._goal_command(session, thread_id, request_id, action,
+                objective=objective, status=status, ui_locale=ui_locale, expected=expected)
+            if response.get('confirmed') and action in ('pause', 'cancel', 'edit'):
                 self._cancel_goal_activation_queues(thread_id)
+            if action == 'resume':
+                response['activation'] = self._send_goal_activation(session, response, action)
+            with session.condition:
+                session.changed()
             return response
+
+    def set_goal_status(self, thread_id, status, request_id, ui_locale=None, expected=None):
+        if status not in ('active', 'paused'):
+            raise ValueError('目标状态无效')
+        return self._goal_control(thread_id, request_id, 'pause' if status == 'paused' else 'resume',
+                                  status=status, ui_locale=ui_locale, expected=expected)
+
+    def cancel_goal(self, thread_id, request_id, expected=None):
+        return self._goal_control(thread_id, request_id, 'cancel', expected=expected)
+
+    def edit_goal(self, thread_id, objective, request_id, expected=None):
+        if not isinstance(objective, str) or not 0 < len(objective.strip()) <= 4000:
+            raise ValueError('请输入 1–4000 字的目标内容')
+        return self._goal_control(thread_id, request_id, 'edit', objective=objective, expected=expected)
 
     def cancel_queued(self, thread_id, submission_id):
         uuid.UUID(submission_id)
@@ -1348,14 +1364,15 @@ class Bridge:
             if skills:
                 raise ValueError("目标模式只接受纯文本目标")
             session = self._target(thread_id)
-            response = self._goal_command(session, thread_id, submission_id, "create", objective=text,
-                                          ui_locale=ui_locale or activation.get("uiLocale") if activation else ui_locale)
-            result = {"status": "unknown" if response.get("status") == "unknown" else "accepted",
-                      "confirmed": bool(response.get("confirmed")), "duplicate": bool(response.get("duplicate")),
-                      "id": submission_id, "result": response.get("result")}
-            result["activation"] = self._send_goal_activation(
-                session, response, "create", ui_locale or activation.get("uiLocale") if activation else ui_locale)
-            return result
+            with session.action_lock, self.goal_lock:
+                response = self._goal_command(session, thread_id, submission_id, "create", objective=text,
+                                              ui_locale=ui_locale or activation.get("uiLocale") if activation else ui_locale)
+                result = {"status": "unknown" if response.get("status") == "unknown" else "accepted",
+                          "confirmed": bool(response.get("confirmed")), "duplicate": bool(response.get("duplicate")),
+                          "id": submission_id, "result": response.get("result")}
+                result["activation"] = self._send_goal_activation(
+                    session, response, "create", ui_locale or activation.get("uiLocale") if activation else ui_locale)
+                return result
         session = self._target(thread_id)
         selected = self._resolve_skills(session, [] if skills is None else skills)
         key = thread_id + ":" + submission_id
@@ -1417,10 +1434,10 @@ class Bridge:
                     activation = entry.get("goalActivation")
                     cancelled = False
                     if activation:
-                        goal = self._native_goal_state(session.id)
+                        goal = self._native_goal_state(session.id, strict=True)
                         objective = (activation.get("objective") or "").strip()
                         goal_objective = (goal or {}).get("objective", "").strip()
-                        if goal is None or goal.get("status") == "complete" or goal_objective != objective:
+                        if goal is None or goal.get("status") != "active" or goal_objective != objective or (activation.get("goal") and activation["goal"] != goal_identity(goal)):
                             self.submissions[key]["status"] = "cancelled"
                             self._save_ledger()
                             cancelled = True

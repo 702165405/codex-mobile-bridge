@@ -356,3 +356,24 @@ class UploadHttpTests(unittest.TestCase):
             original=preview+'?variant=original'
             status,headers,body=self.upload_preview(original,credentials)
             self.assertEqual(status,200);self.assertEqual(headers['Content-Type'],'image/png');self.assertEqual(body,PNG)
+
+class UploadBoundaryRegressions(unittest.TestCase):
+    setUp = support.IntegrationTests.setUp
+    tearDown = support.IntegrationTests.tearDown
+
+    def test_desktop_only_image_gets_preview_and_no_disk_path(self):
+        session=self.bridge.session(THREAD)
+        path=self.root/'desktop.png';path.write_bytes(PNG)
+        rows=[{'attachments':[{'type':'localImage','path':str(path)}]}]
+        self.bridge._annotate_upload_attachments(session,rows)
+        attachment=rows[0]['attachments'][0]
+        self.assertEqual(attachment['name'],'desktop.png')
+        self.assertIn('desktopId',attachment);self.assertNotIn('path',attachment)
+
+    def test_upload_directory_symlink_cannot_escape_on_read(self):
+        upload=self.bridge.upload(THREAD,str(uuid.uuid4()),'image.png',PNG)
+        folder=self.bridge.uploads.root/THREAD/upload['id']
+        outside=self.root/'outside';folder.rename(outside)
+        try:folder.symlink_to(outside,target_is_directory=True)
+        except OSError:self.skipTest('symlinks unavailable')
+        with self.assertRaises(ValueError):self.bridge.uploads.preview(THREAD,upload['id'])

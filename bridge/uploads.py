@@ -129,7 +129,7 @@ class Uploads:
         if variant != 'original' and row.get('thumbPath'):
             name = row['thumbPath']
             path = self.root/thread/identifier/'internal'/name
-            if path.is_file() and not path.is_symlink() and path.resolve() == (self.root/thread/identifier/'internal'/name).resolve():
+            if file_name(name) == name and path.is_file() and not path.is_symlink() and path.resolve().parent == (self.root/thread/identifier/'internal').resolve():
                 return {**row, 'previewPath': str(path.resolve()), 'previewMime': row['thumbMime'],
                         'previewSha256': row['thumbSha256']}, 'thumb'
         return {**row, 'previewPath': row['localPath'], 'previewMime': row['image'],
@@ -141,7 +141,11 @@ class Uploads:
         try:
             row = json.loads(meta.read_text(encoding='utf-8'))
             path = Path(row['localPath'])
-            upload_dir = (self.root/thread/identifier).resolve()
+            folder = self.root/thread/identifier
+            upload_dir = folder.resolve()
+            upload_dir.relative_to(self.root.resolve())
+            if any(part.is_symlink() for part in (self.root/thread, folder, folder/'internal', meta)):
+                raise ValueError('附件路径无效')
             resolved = path.resolve()
             try:
                 resolved.relative_to(upload_dir)

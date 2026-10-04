@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlsplit, quote
 from .pairing import Pairing
 from .auth import Auth
 from .ipc import IPCError
+from .goal import GoalError
 from .catalog import CatalogError
 from .store import StoreUnavailable
 from .remote import RemoteUnavailable
@@ -56,6 +57,7 @@ UPLOAD_PREVIEW_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/uploads/([0-9
 UPLOAD_THUMB_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/uploads/([0-9a-f-]{36})/thumb$")
 DESKTOP_IMAGE_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/desktop-images/([0-9a-f]{64})$")
 GOAL_CANCEL_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/goal/cancel$")
+GOAL_EDIT_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/goal/edit$")
 GOAL_STATUS_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/goal/status$")
 
 
@@ -359,12 +361,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.output(200, bridge.upload_thumb(thumb_match[1], thumb_match[2], data, width, height))
             goal_match = GOAL_CANCEL_ROUTE.fullmatch(path)
             if write and goal_match:
-                return self.output(200, bridge.cancel_goal(goal_match[1], self.read_json().get("id", "")))
+                body = self.read_json()
+                return self.output(200, bridge.cancel_goal(goal_match[1], body.get("id", ""), expected=body.get("expected")))
+            goal_edit_match = GOAL_EDIT_ROUTE.fullmatch(path)
+            if write and goal_edit_match:
+                body = self.read_json()
+                return self.output(200, bridge.edit_goal(goal_edit_match[1], body.get('objective'),
+                                                        body.get('id', ''), expected=body.get('expected')))
             goal_status_match = GOAL_STATUS_ROUTE.fullmatch(path)
             if write and goal_status_match:
                 body = self.read_json()
                 return self.output(200, bridge.set_goal_status(goal_status_match[1], body.get("status"),
-                                                              body.get("id", ""), body.get("uiLocale")))
+                                                              body.get("id", ""), body.get("uiLocale"), expected=body.get("expected")))
             match = THREAD_ROUTE.fullmatch(path)
             if not match:
                 return self.output(404, {"error": "页面不存在"})
@@ -446,7 +454,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self.close_connection = True
             self.output(400, {"error": str(exc)})
-        except (IPCError, CatalogError, RemoteUnavailable, CreationError, StoreUnavailable, AccountError) as exc:
+        except (IPCError, GoalError, CatalogError, RemoteUnavailable, CreationError, StoreUnavailable, AccountError) as exc:
             self.close_connection = True
             self.output(409, {"error": str(exc), "code": "desktop_unavailable"})
         except (BrokenPipeError, ConnectionResetError, socket.timeout):
