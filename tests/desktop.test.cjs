@@ -378,6 +378,19 @@ test('update UI blocks installation while settings are unsaved and preserves dra
   ui.context.applyLanguage('en');assert.equal(ui.context.collect().preferences.connections[0].id,'unsaved');
 });
 
+test('check update button locks immediately and unlocks after failed check',async()=>{
+  const ui=await renderer();let release;
+  ui.value.update={state:'idle',current:'1.2.2'};
+  await ui.poll();
+  ui.api.checkUpdate=()=>new Promise(resolve=>{release=value=>{ui.value.update=value;resolve(value);};});
+  const clicked=ui.nodes.get('check-update').onclick();
+  assert.equal(ui.nodes.get('check-update').disabled,true);
+  release({state:'error',current:'1.2.2',message:'network failed'});
+  await clicked;await ui.poll();
+  assert.equal(ui.nodes.get('check-update').disabled,false);
+  assert.match(ui.nodes.get('update-state').textContent,/network failed/);
+});
+
 test('download and retry states disable updates without permanently locking settings',async()=>{
   const ui=await renderer();
   ui.value.update={state:'downloading',current:'0.2.0-beta.5',version:'0.2.0-beta.6',received:20,total:100};

@@ -8,7 +8,7 @@ const {pairingImage}=require('./qr.cjs');
 const {createTray}=require('./tray.cjs');
 const {normalize,translate}=require('./i18n.js');
 const cloudflared=require('./cloudflared.cjs');
-const {Updater,allowedUrl}=require('./updater.cjs');
+const {Updater,allowedMirrorUrl}=require('./updater.cjs');
 const {spawn}=require('node:child_process');
 const {randomUUID}=require('node:crypto');
 const {interfaces}=require('./network.cjs');
@@ -87,7 +87,7 @@ async function installUpdate(candidate){
 }
 function setupUpdater(){
   updater=new Updater({current:app.getVersion(),key:fs.readFileSync(path.join(__dirname,'update-public-key.pem')),
-    fetch:cloudflared.electronFetch(net,allowedUrl),directory:path.join(app.getPath('userData'),'updates'),
+    fetch:cloudflared.electronFetch(net,allowedMirrorUrl),directory:path.join(app.getPath('userData'),'updates'),
     supported:app.isPackaged&&['darwin','win32'].includes(process.platform),install:installUpdate});
   setTimeout(()=>updater.check(),5000).unref();
   setInterval(()=>updater.check(),6*60*60*1000).unref();

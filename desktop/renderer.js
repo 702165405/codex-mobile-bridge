@@ -231,7 +231,13 @@ function renderUpdate(){
     for(const id of ['start','stop','choose-data','install-cloudflared'])$(id).disabled=true;
   }else $('settings').inert=false;
 }
-$('check-update').onclick=async()=>{try{await api.checkUpdate();await refresh();}catch(error){feedback(error.message,true);}};
+$('check-update').onclick=async()=>{
+  if(updateBusy)return;
+  updateBusy=true;renderUpdate();
+  try{await api.checkUpdate();await refresh();}
+  catch(error){feedback(error.message,true);}
+  finally{updateBusy=false;renderUpdate();}
+};
 $('install-update').onclick=async()=>{
   if(updateBusy)return;
   if(dirty||devicesDirty){feedback('请先保存配置，再更新应用。',true);return;}
