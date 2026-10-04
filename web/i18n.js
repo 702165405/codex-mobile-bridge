@@ -2,6 +2,22 @@
 // UI messages only. Never translate chat content, commands, model IDs or user input.
 const BridgeI18n=(()=>{
 const en={
+"设置":"Settings",
+"主页快捷入口":"Home shortcuts",
+"显示 PushPlus 通知入口":"Show PushPlus shortcut",
+"显示账户管理入口":"Show account shortcut",
+"全会话通知":"Notifications for all chats",
+"请求处理通知":"Action required notifications",
+"运行完毕通知":"Run completion notifications",
+"应用于所有聊天，可在聊天提醒中单独调整。需先配置通知通道。":"Applies to all chats. Override in chat reminders. Configure a notification channel first.",
+"跟随全局设置":"Use global setting",
+"开启":"On",
+"通知通道已开启":"Notification channel enabled",
+"尚未配置通知通道，可在设置中配置 PushPlus，或在电脑端配置 Bark、ntfy。":"No notification channel configured. Set up PushPlus in Settings, or Bark or ntfy in the desktop app.",
+"按照当前规划结果执行":"Execute the current plan",
+"按照修改意见继续规划":"Revise the plan using feedback",
+"聊天通知设置格式不正确":"Invalid chat notification settings",
+
 "关闭目标":"Clear goal",
 "正在关闭目标…":"Clearing goal…",
 "目标已关闭":"Goal cleared",
@@ -154,7 +170,7 @@ const en={
   "所选地址不可用或端口已被占用，请检查网卡与端口；不会自动开放其他地址": "A selected address is unavailable or its port is in use. Check your adapters and port; other addresses will not be opened automatically.",
   "本机网页访问已关闭": "Local browser access is disabled",
   "仅允许本机状态检查": "Only local status checks are allowed",
-  "使用微信登录 PushPlus、关注服务号并完成实名认证，复制个人资料中的 Token。勾选启用并保存后发送测试通知，再在需要提醒的聊天中开启提醒。": "Sign in to PushPlus with WeChat, follow its service account, complete real-name verification, and copy the token from your profile. Enable and save the channel, send a test notification, then enable reminders in each chat you want to follow.",
+  "使用微信登录 PushPlus、关注服务号并完成实名认证，复制个人资料中的 Token。勾选启用并保存后发送测试通知，再到设置中选择全会话通知，或在聊天提醒中单独调整。": "Sign in to PushPlus with WeChat, follow its service account, complete real-name verification, and copy the token from your profile. Enable and save the channel, send a test notification, then choose global notifications in Settings or adjust reminders for individual chats.",
   "PushPlus 需付费实名认证，最低 3.9 元；认证后可使用基础额度，无需另购会员。费用以官方页面为准。": "PushPlus requires paid real-name verification, starting at CNY 3.90. Verified users can use the basic allowance without a membership. Check the official page for current pricing.",
   "微信渠道普通实名用户每天 200 次请求、每分钟 5 次；相同内容每小时最多 3 条，失败请求也计入额度。超限可能暂停推送。": "For ordinary verified users, the WeChat channel allows 200 requests per day and 5 per minute, with up to 3 identical messages per hour. Failed requests also count. Exceeding limits may suspend delivery.",
   "PushPlus 官网与 Token ↗": "PushPlus website and token ↗",

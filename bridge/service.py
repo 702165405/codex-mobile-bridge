@@ -34,6 +34,7 @@ class LiveSession:
         self.discovering = False
         self.state = None
         self.saved_view = None
+        self.history_limit = 20
         self.revision = None
         self.sequence = 0
         self.connected = False
@@ -58,7 +59,7 @@ class LiveSession:
 
     def set_history(self, state):
         self.saved_view = normalize_state(state, False)
-        if self.state is None:
+        if self.state is None or not self.connected:
             self.state = state
         self.changed()
 
@@ -73,7 +74,8 @@ class LiveSession:
                 first = next((i for i, turn in enumerate(saved) if turns and turn['id'] == turns[0]['id']), None)
                 if not turns or first is not None:
                     result['turns'] = saved[:first] + turns if turns else saved
-                    result['historyComplete'] = True
+                    result['historyComplete'] = self.saved_view['historyComplete']
+            result["savedHistoryMore"] = bool(self.saved_view and not result["historyComplete"] and not self.saved_view["historyComplete"])
             result["sequence"] = self.sequence
             result["connectionError"] = self.error
             result["connecting"] = self.connecting
@@ -307,16 +309,6 @@ class Bridge:
                 raise IPCError(str(exc)) from exc
 
             try:
-                self._open_desktop(thread_id, self.host)
-            except (OSError, CreationError, subprocess.SubprocessError):
-                pass
-            try:
-                self._refresh_goal_snapshot(session)
-            except IPCError:
-                # The native RPC already succeeded. Mobile UI reads the SQLite
-                # state even when the desktop owner cannot broadcast a snapshot.
-                pass
-            try:
                 native = self._native_goal_state(thread_id, strict=True)
             except GoalError as exc:
                 fail(str(exc), unknown=True)
@@ -330,7 +322,8 @@ class Bridge:
                                 old['goalCancelled'] = True
                         self._save_goal_commands()
                     with session.condition:
-                        session.state['threadGoal'] = None
+                        if session.state is not None:
+                            session.state['threadGoal'] = None
                         session.changed()
                     return confirm({'status': 'cancelled', 'confirmed': True, 'result': result})
             elif confirmed:
@@ -600,16 +593,45 @@ class Bridge:
                     finally:
                         with self.lock: self.activity_following = False
                 threading.Thread(target=follow, daemon=True).start()
+        try:
+            recencies = self.store.recencies([s.id for s in sessions])
+        except (OSError, ValueError, StoreUnavailable, RemoteUnavailable):
+            recencies = {}
         rows = []
         for session in sessions:
             with session.condition:
                 state = session.state or {}
                 turns = ordered_turns(state)
                 last = next((t for t in reversed(turns) if t.get('turnId')), {})
-                rows.append({'id': session.id, 'host': self.host, 'connected': session.connected,
+                rows.append({'id': session.id, 'host': self.host, 'recency': recencies.get(session.id, 0), 'connected': session.connected,
                              'status': state.get('threadRuntimeStatus', {}).get('type') if session.connected else 'unknown',
                              'turnId': last.get('turnId'), 'turnStatus': last.get('status')})
         return rows
+
+    def notification_candidates(self):
+        rows = []
+        for archived in (False, True):
+            offset = 0
+            while True:
+                page = self.list(limit=500, offset=offset, archived=archived)
+                rows.extend({'id': r['id'], 'host': r['host']} for r in page)
+                if len(page) < 500:
+                    break
+                offset += len(page)
+        return rows
+
+    def notification_session(self, thread_id):
+        # Follow only; never parse saved history or activate an unloaded owner.
+        with self.lock:
+            session = self.live.get(thread_id)
+            if session is None:
+                session = self.live[thread_id] = LiveSession(thread_id)
+                session.activity_only = True
+        session.watched = True
+        if not session.connected and time.monotonic() >= session.retry_at:
+            session.retry_at = time.monotonic() + 15
+            self._attach(session, timeout=0)
+        return session
 
     def upload(self, thread_id, identifier, name, data):
         self.store.get(thread_id)  # Uploads do not activate a desktop chat.
@@ -640,12 +662,15 @@ class Bridge:
         if attach and not session.connected:
             self._attach(session)
         if session.state is None or session.activity_only:
-            fallback = self.store.history(thread_id)
+            fallback = self._saved_history(session)
             with session.condition:
                 if session.state is None or session.activity_only:
                     session.set_history(fallback)
                     session.activity_only = False
         return session
+
+    def _saved_history(self, session):
+        return self.store.history(session.id, turn_limit=session.history_limit)
 
     def _refresh_async(self, session, force=False):
         with session.condition:
@@ -653,13 +678,17 @@ class Bridge:
                 return
             if not force and time.monotonic() < session.retry_at and not session.activity_only:
                 return
+            needs_history = session.state is None or session.activity_only
             session.connecting = True
             session.changed()
         def refresh():
+            # Owner discovery and saved-history IO progress independently.
+            attachment = threading.Thread(target=self._attach, args=(session,), daemon=True)
+            attachment.start()
             try:
-                if session.state is None or session.activity_only:
+                if needs_history:
                     try:
-                        fallback = self.store.history(session.id)
+                        fallback = self._saved_history(session)
                         with session.condition:
                             session.set_history(fallback)
                     except (OSError, ValueError, KeyError, RemoteUnavailable, StoreUnavailable):
@@ -667,13 +696,12 @@ class Bridge:
                         logging.getLogger(__name__).warning("Saved history unavailable; trying desktop snapshot")
                     finally:
                         session.activity_only = False
-                if not self.closed.is_set():
-                    self._attach(session)
             except Exception:
                 logging.getLogger(__name__).exception("Background session read failed")
                 with session.condition:
                     session.error = "读取会话失败，请重新连接或查看网关日志。"
             finally:
+                attachment.join()
                 with session.condition:
                     session.connecting = False
                     session.retry_at = time.monotonic() + 15
@@ -829,7 +857,12 @@ class Bridge:
                     except Exception:
                         pass  # Unknown outcomes stay recorded and are never automatically replayed.
                 if (session.viewers > 0 or queued or session.watched) and not session.connected:
-                    self._refresh_async(session)
+                    if session.activity_only and session.viewers == 0 and not queued:
+                        if time.monotonic() >= session.retry_at:
+                            session.retry_at = time.monotonic() + 15
+                            self._attach(session, timeout=0)
+                    else:
+                        self._refresh_async(session)
                 elif session.viewers == 0 and not queued and not session.watched and time.monotonic() - session.touched > 300:
                     with self.lock:
                         if session.viewers != 0 or session.watched:
@@ -1090,6 +1123,17 @@ class Bridge:
 
     def timeline_read(self, thread_id, mode='page', **options):
         session = self.session(thread_id, background=True)
+        # Expand saved history only when the reader reaches its loaded edge.
+        if mode == 'page' and options.get('before'):
+            with session.condition:
+                position = session.timeline.position(options['before'])
+                expand = position is not None and position < options.get('limit', 20) and session.saved_view and not session.saved_view['historyComplete']
+                if expand:
+                    session.history_limit += 50
+            if expand:
+                saved = self._saved_history(session)
+                with session.condition:
+                    session.set_history(saved)
         with session.condition:
             projection = session.timeline
             authoritative_view = self._overlay_native_goal(session, thread_id, session.view())
@@ -1253,7 +1297,7 @@ class Bridge:
             return None
         activation_id, text = goal_activation(session.id, goal, action, ui_locale, response.get('transitionId'))
         with session.condition:
-            active = session.state.get("threadRuntimeStatus", {}).get("type") == "active"
+            active = (session.state or {}).get("threadRuntimeStatus", {}).get("type") == "active"
         try:
             activation = self.send(session.id, text, activation_id, "queue" if active else "send",
                                    activation={"action": action, "objective": goal["objective"],
@@ -1284,17 +1328,12 @@ class Bridge:
                 raise
         raise last
 
-    def _refresh_goal_snapshot(self, session):
-        # The GoalRPC app-server writes state outside the desktop owner's event
-        # stream. Loading history through the owner forces a fresh broadcast.
-        self._call(session, "thread-follower-load-complete-history", {}, timeout=180)
-
     @operation
     def _goal_control(self, thread_id, request_id, action, *, status=None, objective=None, ui_locale=None, expected=None):
         uuid.UUID(request_id)
         if self.host != 'local' or self.goal is None:
             raise ValueError('目标模式暂不支持 SSH 主机')
-        session = self._target(thread_id)
+        session = self.session(thread_id, attach=False, background=True)
         # Match the queue dispatcher lock order and serialize state + activation.
         with session.action_lock, self.goal_lock:
             prior = self.goal_commands.get(thread_id + ':' + request_id)
@@ -1386,7 +1425,7 @@ class Bridge:
                         raise ValueError("同一消息标识不能用于不同内容")
                     return {"status": prior["status"], "duplicate": True, "id": submission_id}
             with session.condition:
-                active = session.state.get("threadRuntimeStatus", {}).get("type") == "active"
+                active = (session.state or {}).get("threadRuntimeStatus", {}).get("type") == "active"
                 if active and mode == "send":
                     raise ValueError("Codex 正在执行。请选择「排队发送」或「补充当前任务」。")
                 if not active and mode == "steer":
@@ -1519,7 +1558,7 @@ class Bridge:
             text = "<send_user_message_question_reply>\n" + json.dumps(replies, ensure_ascii=False, separators=(",", ":")) + "\n</send_user_message_question_reply>"
             submission = str(uuid.uuid5(uuid.UUID(thread_id), request_id + text))
             with session.condition:
-                active = session.state.get("threadRuntimeStatus", {}).get("type") == "active"
+                active = (session.state or {}).get("threadRuntimeStatus", {}).get("type") == "active"
             return self.send(thread_id, text, submission, "steer" if active else "send")
         with session.condition:
             pending = next((r for r in session.state.get("requests", []) if str(r.get("id")) == str(request_id)), None)

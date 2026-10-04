@@ -22,6 +22,7 @@ class Timeline:
         self.epoch = uuid.uuid4().hex
         self.sequence = -1
         self.rows = []
+        self.order_origin = 0
         self.details = {}
         self.positions = {}
         self.versions = OrderedDict()
@@ -66,9 +67,17 @@ class Timeline:
                                  truncated=len(text) > TEXT_PREVIEW, version=hashlib.sha256(text.encode()).hexdigest()[:24]))
                 details[key] = text
         old_keys = [row['key'] for row in self.rows]
-        if old_keys != [row['key'] for row in rows[:len(old_keys)]]:
+        new_keys = [row['key'] for row in rows]
+        # Prepending saved turns preserves existing row keys and cursors.
+        first = new_keys.index(old_keys[0]) if old_keys and old_keys[0] in new_keys else 0
+        if old_keys != new_keys[first:first + len(old_keys)]:
             self.epoch = uuid.uuid4().hex
             self.versions.clear()
+            self.order_origin = 0
+        elif old_keys:
+            self.order_origin -= first
+        for index, row in enumerate(rows):
+            row['order'] = self.order_origin + index
         self.sequence = view['sequence']
         self.rows, self.details = rows, details
         self.positions = {row['key']: i for i, row in enumerate(rows)}
@@ -106,7 +115,7 @@ class Timeline:
         start = end - len(selected)
         return {'epoch': self.epoch, 'sequence': self.sequence, 'rows': selected,
                 'before': self.cursor(selected[0]['key']) if selected else None,
-                'hasMore': start > 0, 'meta': self.meta}
+                'hasMore': start > 0 or self.meta.get('savedHistoryMore', False), 'meta': self.meta}
 
     def changes(self, after, epoch, start):
         first = self.position(start) if start else None

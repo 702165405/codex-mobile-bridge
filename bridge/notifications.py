@@ -191,6 +191,8 @@ class Notifications:
             if migrated != self.completions:
                 self.completions = migrated
                 write_json(self.data_dir/'notification-completions.json', migrated)
+        self.candidates = {}
+        self.discovery_at = 0
         self.attached = {}
         self.worker = None
 
@@ -207,6 +209,60 @@ class Notifications:
 
     def watches(self):
         return read_json(self.data_dir/'notification-watches.json', [])
+
+    def policies(self):
+        return read_json(self.data_dir/'notification-policies.json',
+                         {'requests': True, 'completion': False, 'chats': {}})
+
+    def defaults(self, value=None):
+        with self.lock:
+            policies = self.policies()
+            if value is not None:
+                if not isinstance(value, dict) or set(value) != {'requests', 'completion'} or any(type(v) is not bool for v in value.values()):
+                    raise ValueError('通知开关格式不正确')
+                policies.update(value)
+                write_json(self.data_dir/'notification-policies.json', policies)
+            return {key: policies[key] for key in ('requests', 'completion')}
+
+    def _effective(self, row, policies=None, legacy_rows=None):
+        policies = policies or self.policies()
+        key = row['host'] + '|' + row['id']
+        overrides = policies.get('chats', {}).get(key, {})
+        # Existing explicit watches keep their old preferences on upgrade.
+        legacy = next((r for r in (self.watches() if legacy_rows is None else legacy_rows) if r['host'] == row['host'] and r['id'] == row['id']), None)
+        choices = {key: overrides.get(key, ('on' if legacy.get('notifyOnCompletion') else 'off') if key == 'completion' and legacy else 'on' if legacy else 'inherit') for key in ('requests', 'completion')}
+        enabled = {key: policies[key] if choice == 'inherit' else choice == 'on' for key, choice in choices.items()}
+        return {**row, 'notifyOnRequest': enabled['requests'], 'notifyOnCompletion': enabled['completion'], 'choices': choices}
+
+    def policy(self, thread_id, host, value=None):
+        uuid.UUID(thread_id)
+        with self.lock:
+            policies = self.policies()
+            if value is not None:
+                if not isinstance(value, dict) or set(value) != {'requests', 'completion'} or any(v not in ('inherit', 'on', 'off') for v in value.values()):
+                    raise ValueError('聊天通知设置格式不正确')
+                if self.bridge is not None:
+                    self.bridge.for_host(host).store.get(thread_id)
+                policies.setdefault('chats', {})[host + '|' + thread_id] = value
+                self._clear_completion(host, thread_id)
+                write_json(self.data_dir/'notification-completions.json', self.completions)
+                write_json(self.data_dir/'notification-policies.json', policies)
+            row = self._effective({'id': thread_id, 'host': host}, policies)
+            return {'available': bool(channels(settings(self.data_dir))), 'watching': row['notifyOnRequest'] or row['notifyOnCompletion'],
+                    'notifyOnRequest': row['notifyOnRequest'], 'notifyOnCompletion': row['notifyOnCompletion'],
+                    'requests': row['choices']['requests'], 'completion': row['choices']['completion']}
+
+    def _selected(self):
+        policies = self.policies()
+        legacy_rows = self.watches()
+        rows = {(r['host'], r['id']): r for r in legacy_rows}
+        if policies['requests'] or policies['completion']:
+            rows.update(self.candidates)
+        for key in policies.get('chats', {}):
+            host, identifier = key.rsplit('|', 1)
+            rows.setdefault((host, identifier), {'id': identifier, 'host': host})
+        effective = [self._effective(row, policies, legacy_rows) for row in rows.values()]
+        return [row for row in effective if row['notifyOnRequest'] or row['notifyOnCompletion']]
 
     def watch(self, thread_id, host, enabled=None, notify_on_completion=None, *, existing_only=False):
         uuid.UUID(thread_id)
@@ -256,6 +312,13 @@ class Notifications:
                                     self.completions[key] = self._completion_baseline(ordered_turns(session.state or {}))
                 write_json(self.data_dir/'notification-completions.json', self.completions)
                 write_json(self.data_dir/'notification-watches.json', rows)
+                policies = self.policies()
+                key = host + '|' + thread_id
+                if not selected:
+                    policies.setdefault('chats', {})[key] = {'requests': 'off', 'completion': 'off'}
+                else:
+                    policies.setdefault('chats', {}).pop(key, None)
+                write_json(self.data_dir/'notification-policies.json', policies)
             return {'available': bool(targets), 'watching': selected, 'notifyOnCompletion': selected and completion}
 
     def control(self, value):
@@ -285,7 +348,7 @@ class Notifications:
     def _completion_pending(self, row, turns, target):
         key = self._completion_key(row['host'], row['id'], target)
         with self.lock:
-            if not any(r['id'] == row['id'] and r['host'] == row['host'] and r.get('notifyOnCompletion') for r in self.watches()):
+            if not self._effective(row)['notifyOnCompletion']:
                 return []
             previous = self.completions.get(key)
             current = self._completion_baseline(turns)
@@ -325,8 +388,13 @@ class Notifications:
     def scan(self):
         config = settings(self.data_dir)
         targets = channels(config)
+        if targets and time.monotonic() >= self.discovery_at and hasattr(self.bridge, 'notification_candidates'):
+            self.discovery_at = time.monotonic() + 15
+            if any(self.defaults().values()):
+                for row in self.bridge.notification_candidates():
+                    self.candidates[(row['host'], row['id'])] = row
         with self.lock:
-            watches = self.watches() if targets else []
+            watches = self._selected() if targets else []
             tracked = {self._completion_key(r['host'], r['id'], target) for r in watches if r.get('notifyOnCompletion') for target in targets.values()}
             if set(self.completions) - tracked:
                 self.completions = {k: v for k, v in self.completions.items() if k in tracked}
@@ -343,19 +411,18 @@ class Notifications:
                 break
             try:
                 source = self.bridge.for_host(row['host'])
-                session = source.session(row['id'], background=True)
+                session = source.notification_session(row['id']) if hasattr(source, 'notification_session') else source.session(row['id'], background=True)
                 session.watched = True
                 self.attached[(row['host'], row['id'])] = session
                 with self.lock:
                     with session.condition:
                         metadata = {k: session.state[k] for k in ('title', 'cwd') if (session.state or {}).get(k)}
                         rows = self.watches()
-                        current = next((r for r in rows if r['id'] == row['id'] and r['host'] == row['host']), None)
-                        if current is None:
-                            continue
-                        if any(current.get(k) != v for k, v in metadata.items()):
-                            current.update(metadata)
+                        legacy = next((r for r in rows if r['id'] == row['id'] and r['host'] == row['host']), None)
+                        if legacy is not None and any(legacy.get(k) != v for k, v in metadata.items()):
+                            legacy.update(metadata)
                             write_json(self.data_dir/'notification-watches.json', rows)
+                        current = self._effective(row)
                         if not session.connected:
                             continue  # Saved history is not a live pending approval.
                         requests = pending_requests(session.state)
@@ -364,12 +431,10 @@ class Notifications:
                     completed_keys = {channel: self._completion_pending(current, turns, target) if current.get('notifyOnCompletion') else [] for channel, target in targets.items()}
                 for channel, target in targets.items():
                     with self.lock:
-                        current = next((r for r in self.watches() if r['id'] == row['id'] and r['host'] == row['host']), None)
-                        if current is None:
-                            continue
+                        current = self._effective(row)
                         now = time.time()
                         for completed, keys in ((False, [self._delivery_key(row, r['id'], target=target) for r in requests]), (True, completed_keys[channel])):
-                            if completed and not current.get('notifyOnCompletion'):
+                            if not current['notifyOnCompletion' if completed else 'notifyOnRequest']:
                                 continue
                             pending = [k for k in keys if not self.ledger.get(k, {}).get('delivered') and now >= self.ledger.get(k, {}).get('next', 0)]
                             if not pending:

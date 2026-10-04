@@ -24,6 +24,22 @@ class GoalControlTests(unittest.TestCase):
             self.bridge.goal = GoalStub(self.bridge)
         return self.bridge.send(THREAD, text, str(uuid.uuid4()), work_mode='goal')
 
+    def test_pause_does_not_wait_for_history_or_activate_desktop(self):
+        self.create()
+        with patch.object(self.bridge, '_refresh_goal_snapshot', side_effect=AssertionError('full history requested')), patch.object(self.bridge, '_target', side_effect=AssertionError('activation requested')):
+            result = self.bridge.set_goal_status(THREAD, 'paused', str(uuid.uuid4()))
+        self.assertTrue(result['confirmed'])
+
+    def test_cold_goal_pause_needs_no_history_or_desktop_owner(self):
+        self.create()
+        stub = self.bridge.goal
+        stub._complete = lambda *args: None
+        self.bridge.live.pop(THREAD)
+        with patch.object(self.bridge, '_target', side_effect=AssertionError('activation requested')), patch.object(self.bridge.store, 'history', side_effect=AssertionError('history requested')):
+            result = self.bridge.set_goal_status(THREAD, 'paused', str(uuid.uuid4()))
+        self.assertTrue(result['confirmed'])
+        self.assertIsNone(self.bridge.live[THREAD].state)
+
     def test_two_resume_cycles_dispatch_distinct_turns_and_retry_once(self):
         self.create()
         ids=[]

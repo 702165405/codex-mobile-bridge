@@ -34,6 +34,41 @@ class NotificationTests(unittest.TestCase):
         save_settings(self.directory, {'enabled': True, 'topic': 'test', 'token': 'secret-token'})
         self.manager.watch(self.thread, 'remote', True)
 
+    def test_global_defaults_monitor_unwatched_chats_without_loading_history(self):
+        # Discovery finds a chat that was never explicitly watched.
+        other = str(uuid.uuid4())
+        self.source.notification_candidates = lambda: [{'id': other, 'host': 'local'}]
+        self.source.notification_session = lambda identifier: self.session
+        self.source.store = type('Store', (), {'get': lambda _, identifier: {}})()
+        self.manager.watch(self.thread, 'remote', False)
+        with patch.object(self.source, 'session', side_effect=AssertionError('history read')), patch('bridge.notifications.publish') as send:
+            self.manager.scan()
+            self.assertEqual(send.call_count, 1)
+            self.manager.policy(other, 'local', {'requests': 'off', 'completion': 'on'})
+            self.session.state['turns'] = [{'turnId':'old','status':'completed','items':[]}]
+            self.manager.scan();self.assertEqual(send.call_count, 1)
+            self.session.state['turns'].append({'turnId':'new','status':'inProgress','items':[]})
+            self.manager.scan()
+            self.session.state['turns'][-1]['status'] = 'completed'
+            self.manager.scan();self.assertEqual(send.call_count, 2)
+        self.assertEqual(self.manager.policy(other,'local')['requests'], 'off')
+        self.assertTrue(self.manager.policy(other,'local')['notifyOnCompletion'])
+
+    def test_global_policy_inheritance_and_explicit_overrides_survive_restart(self):
+        other = str(uuid.uuid4())
+        self.source.store = type('Store', (), {'get': lambda _, identifier: {}})()
+        self.assertTrue(self.manager.policy(other, 'local')['notifyOnRequest'])
+        self.manager.defaults({'requests': False, 'completion': True})
+        self.assertFalse(self.manager.policy(other, 'local')['notifyOnRequest'])
+        self.assertTrue(self.manager.policy(other, 'local')['notifyOnCompletion'])
+        self.manager.policy(other, 'local', {'requests': 'on', 'completion': 'off'})
+        other_manager = Notifications(self.source, self.directory)
+        self.assertTrue(other_manager.policy(other, 'local')['notifyOnRequest'])
+        self.assertFalse(other_manager.policy(other, 'local')['notifyOnCompletion'])
+        # Legacy explicit choices are independent of the new defaults.
+        self.assertFalse(other_manager.policy(self.thread, 'remote')['notifyOnCompletion'])
+        other_manager.close()
+
     def test_pushplus_token_validation_preservation_and_clear(self):
         with self.assertRaises(ValueError):
             save_settings(self.directory, {'pushplusEnabled': True})

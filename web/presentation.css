@@ -125,3 +125,6 @@ aside{background:var(--surface)}
 .goal-editor{display:block;width:100%;box-sizing:border-box;resize:vertical;min-height:5rem;margin:.5rem 0;padding:.6rem;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px}
 
 .goal-state:has(.goal-editor){max-height:45dvh}
+
+:root[data-show-pushplus=false] #pushplus-settings,:root[data-show-accounts=false] #accounts-button{display:none}
+@media(max-width:600px){.compose-bottom{grid-template-columns:32px minmax(0,1fr) minmax(0,1fr)}.compose-actions{grid-column:1/-1;justify-content:flex-end}.compose-bottom select{font-size:12px}}

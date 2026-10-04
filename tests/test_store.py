@@ -82,3 +82,57 @@ class StoreTests(unittest.TestCase):
             with self.assertRaises(StoreUnavailable):
                 self.store.list()
             copy.assert_not_called()
+
+
+class RecentHistoryTests(unittest.TestCase):
+    def setUp(self):
+        import json
+        self.temp = tempfile.TemporaryDirectory(dir=ROOT/'.tmp')
+        self.home = Path(self.temp.name)
+        (self.home/'sessions').mkdir()
+        self.path = self.home/'sessions/rollout.jsonl'
+        self.records = []
+        for index in range(120):
+            self.records.extend([
+                {'type': 'event_msg', 'payload': {'type': 'task_started', 'turn_id': str(index)}},
+                {'type': 'response_item', 'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'text', 'text': '问题'+str(index)}]}},
+                {'type': 'response_item', 'payload': {'type': 'message', 'role': 'assistant', 'content': [{'text': '答'*24000}]}},
+                {'type': 'event_msg', 'payload': {'type': 'task_complete'}}])
+        self.path.write_text(''.join(json.dumps(r, ensure_ascii=False)+'\n' for r in self.records))
+        self.store = SessionStore(self.home)
+        self.get = patch.object(self.store, 'get', return_value={'rollout_path': str(self.path), 'cwd': '/fixture'})
+        self.get.start()
+
+    def tearDown(self):
+        self.get.stop(); self.temp.cleanup()
+
+    def test_tail_matches_full_turns_across_unicode_and_chunk_boundaries(self):
+        full = self.store.history('fixture')
+        for limit in (1, 20, 70, 150):
+            tail = self.store.history('fixture', limit)
+            self.assertEqual(tail['turns'], full['turns'][-limit:])
+            self.assertEqual(tail['turnsPagination']['hasLoadedOldest'], limit >= 120)
+
+    def test_cache_does_not_share_mutations_and_invalidates_after_append(self):
+        import json
+        tail = self.store.history('fixture', 20)
+        tail['turns'].clear()
+        with patch.object(self.store, '_recent_lines', side_effect=AssertionError('reread')):
+            self.assertEqual(len(self.store.history('fixture', 20)['turns']), 20)
+        with self.path.open('a') as stream:
+            stream.write(json.dumps({'type':'event_msg','payload':{'type':'task_started','turn_id':'new'}})+'\n')
+        self.assertEqual(self.store.history('fixture', 20)['turns'][-1]['turnId'], 'new')
+
+    def test_prepend_preserves_cursor_and_existing_order(self):
+        from bridge.model import normalize_state
+        from bridge.timeline import Timeline
+        timeline = Timeline()
+        tail = normalize_state(self.store.history('fixture', 20));tail['sequence'] = 1
+        timeline.update(tail);page = timeline.page(limit=20)
+        before = page['before'];orders = {row['key']: row['order'] for row in timeline.rows}
+        expanded = normalize_state(self.store.history('fixture', 70));expanded['sequence'] = 2
+        timeline.update(expanded)
+        older = timeline.page(limit=100, before=before)
+        self.assertFalse(older.get('reset', False))
+        self.assertEqual({row['key']:row['order'] for row in timeline.rows if row['key'] in orders}, orders)
+        self.assertLess(older['rows'][0]['order'], page['rows'][0]['order'])

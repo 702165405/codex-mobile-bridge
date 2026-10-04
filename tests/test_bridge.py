@@ -223,12 +223,15 @@ class IntegrationTests(unittest.TestCase):
             release.wait(2)
         self.bridge._attach = slow_attach
         history = {**state(), 'title': 'Saved history'}
-        self.bridge.store.history = lambda tid: history
+        self.bridge.store.history = lambda tid, **kwargs: history
         try:
             started = time.monotonic()
             self.bridge.view(THREAD, background=True)
             self.assertLess(time.monotonic() - started, .5)
             self.assertTrue(entered.wait(1))
+            session = self.bridge.live[THREAD]
+            with session.condition:
+                self.assertTrue(session.condition.wait_for(lambda: session.saved_view is not None, timeout=1))
             view = self.bridge.view(THREAD, background=True)
             self.assertEqual(view['title'], 'Saved history')
             self.assertTrue(view['connecting'])
@@ -241,10 +244,27 @@ class IntegrationTests(unittest.TestCase):
                 with session.condition:
                     session.condition.wait_for(lambda: not session.connecting, timeout=3)
 
+    def test_fast_owner_snapshot_does_not_skip_saved_history(self):
+        from unittest.mock import patch, Mock
+        session = LiveSession(THREAD)
+        saved = {**state(), 'turns': [{'turnId':'old','status':'completed','items':[]}]}
+        class InlineThread:
+            def __init__(self, target, args=(), **kwargs):self.target,self.args=target,args
+            def start(self):self.target(*self.args)
+            def join(self):pass
+        def attach(target):
+            target.state = {**state(), 'turnsPagination': {'hasLoadedOldest':False}}
+            target.connected = True
+        with patch('bridge.service.threading.Thread', InlineThread), patch.object(self.bridge, '_attach', side_effect=attach), patch.object(self.bridge.store, 'history', return_value=saved) as read:
+            self.bridge._refresh_async(session)
+        read.assert_called_once_with(THREAD, turn_limit=20)
+        self.assertEqual(session.view()['turns'][0]['id'], 'old')
+        self.assertTrue(session.connected)
+
     def test_cold_read_never_opens_desktop_and_late_snapshot_can_connect(self):
         from unittest.mock import patch
         self.fixture.loaded = False
-        self.bridge.store.history = lambda tid: {**state(), 'title': 'Saved history'}
+        self.bridge.store.history = lambda tid, **kwargs: {**state(), 'title': 'Saved history'}
         with patch('bridge.service.open_in_desktop') as opened:
             session = self.bridge.session(THREAD, background=True)
             with session.condition:
@@ -260,7 +280,7 @@ class IntegrationTests(unittest.TestCase):
     def test_explicit_activation_recovers_cold_chat_without_a_model_request(self):
         from unittest.mock import patch
         self.fixture.loaded = False
-        self.bridge.store.history = lambda tid: state()
+        self.bridge.store.history = lambda tid, **kwargs: state()
         with patch('bridge.service.open_in_desktop', side_effect=lambda *args: setattr(self.fixture, 'loaded', True)) as opened:
             session = self.bridge.activate(THREAD)
             self.assertTrue(session.connected)
@@ -279,7 +299,7 @@ class IntegrationTests(unittest.TestCase):
         from unittest.mock import patch
         self.fixture.loaded = False
         self.bridge.host = self.fixture.host = 'remote:test'
-        self.bridge.store.history = lambda tid: state()
+        self.bridge.store.history = lambda tid, **kwargs: state()
         with patch('bridge.service.open_in_desktop', side_effect=lambda *args: setattr(self.fixture, 'loaded', True)) as opened:
             self.bridge.send(THREAD, 'hello', str(uuid.uuid4()))
             opened.assert_called_once_with(THREAD, 'remote:test')
@@ -292,7 +312,7 @@ class IntegrationTests(unittest.TestCase):
     def test_failed_activation_never_sends_or_marks_message_submitted(self):
         from unittest.mock import patch
         self.fixture.loaded = False
-        self.bridge.store.history = lambda tid: state()
+        self.bridge.store.history = lambda tid, **kwargs: state()
         with patch('bridge.service.open_in_desktop', side_effect=OSError('handler unavailable')):
             with self.assertRaisesRegex(IPCError, '未发送'):
                 self.bridge.send(THREAD, 'hello', str(uuid.uuid4()))
@@ -820,21 +840,28 @@ class HttpTests(unittest.TestCase):
 
     def test_notification_route_is_authenticated_and_csrf_protected(self):
         class NotificationsFixture:
-            def watch(self, thread, host, enabled, notify_on_completion):
-                return {'available': True, 'watching': bool(enabled), 'notifyOnCompletion': bool(notify_on_completion)}
+            def policy(self, thread, host, value):
+                return {'available': True, 'watching': value['requests']=='on', 'notifyOnCompletion': value['completion']=='on'}
+            def defaults(self, value=None):
+                return value or {'requests':True,'completion':False}
         self.server.notifications = NotificationsFixture()
         self.server.bridge.host = 'local'
         path = '/api/sessions/'+THREAD+'/notifications'
         self.assertEqual(self.request('GET', path)[0], 401)
         auth = self.login()
-        self.assertEqual(self.request('POST', path, {'enabled': True}, {'Cookie': auth['Cookie']})[0], 403)
-        status, _, value = self.request('POST', path, {'enabled': True}, auth)
+        self.assertEqual(self.request('POST', path, {'requests':'on','completion':'off'}, {'Cookie': auth['Cookie']})[0], 403)
+        status, _, value = self.request('POST', path, {'requests':'on','completion':'off'}, auth)
         self.assertEqual(status, 200)
         self.assertTrue(value['watching'])
         self.assertFalse(value['notifyOnCompletion'])
-        status, _, value = self.request('POST', path, {'enabled': True, 'notifyOnCompletion': True}, auth)
+        status, _, value = self.request('POST', path, {'requests':'on','completion':'on'}, auth)
         self.assertEqual(status, 200)
         self.assertTrue(value['notifyOnCompletion'])
+
+        defaults = '/api/notifications/defaults'
+        self.assertEqual(self.request('GET', defaults)[0], 401)
+        self.assertEqual(self.request('POST', defaults, {'requests':False,'completion':True}, {'Cookie':auth['Cookie']})[0], 403)
+        self.assertEqual(self.request('POST', defaults, {'requests':False,'completion':True}, auth)[0], 200)
 
     def test_formula_css_fonts_and_path_boundary(self):
         conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)

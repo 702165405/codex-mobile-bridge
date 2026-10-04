@@ -314,6 +314,10 @@ class Handler(BaseHTTPRequestHandler):
             if write and path == '/api/sessions':
                 body = self.read_json()
                 return self.output(200, self.server.bridge.create_chat(body.get('project'), body.get('title'), body.get('id')))
+            if path == '/api/notifications/defaults':
+                if self.server.notifications is None:
+                    raise ValueError('当前网关未启用通知服务')
+                return self.output(200, self.server.notifications.defaults(self.read_json() if write else None))
             if path in ('/api/notifications/pushplus', '/api/notifications/pushplus/test'):
                 manager = self.server.notifications
                 if manager is None:
@@ -390,7 +394,7 @@ class Handler(BaseHTTPRequestHandler):
                 if self.server.notifications is None:
                     return self.output(200, {'available': False, 'watching': False, 'notifyOnCompletion': False})
                 body = self.read_json() if write else {}
-                return self.output(200, self.server.notifications.watch(thread_id, bridge.host, body.get('enabled'), body.get('notifyOnCompletion')))
+                return self.output(200, self.server.notifications.policy(thread_id, bridge.host, body if write else None))
             if not write:
                 if action == 'timeline':
                     return self.output(200, bridge.timeline_read(thread_id, limit=int(query.get('limit', ['20'])[0]), before=query.get('before', [None])[0]))
