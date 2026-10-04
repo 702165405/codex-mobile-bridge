@@ -200,6 +200,35 @@ class UploadActivityTests(unittest.TestCase):
         mapped = self.bridge.uploads.by_path(THREAD, [stored['localPath'], '/outside/private.png'])
         self.assertEqual(mapped[str(Path(stored['localPath']).resolve())]['id'], image['id'])
 
+    def test_model_images_embed_and_imageview_activity_render_securely(self):
+        image = self.root/'model-preview.png'
+        image.write_bytes(PNG)
+        uri = image.as_uri()
+        session = self.bridge.session(THREAD)
+        self.fixture.state['turns'] = [{'turnId': 'turn', 'status': 'completed', 'items': [
+            {'id': 'view', 'type': 'imageView', 'path': uri},
+            {'id': 'reply', 'type': 'agentMessage',
+             'text': 'Preview\n\n![model preview](%s)' % str(image)},
+        ]}]
+        with session.condition:
+            session.state = copy.deepcopy(self.fixture.state)
+            session.changed()
+        rows = self.bridge.timeline_read(THREAD)['rows']
+        self.assertEqual(rows[0]['kind'], 'imageView')
+        self.assertEqual(rows[0]['title'], '图片预览')
+        self.assertEqual(rows[0]['text'], '')
+        self.assertFalse(rows[0]['truncated'])
+        self.assertNotIn('path', rows[0]['attachments'][0])
+        activity_id = rows[0]['attachments'][0]['desktopId']
+        preview, variant = self.bridge.desktop_image_preview(THREAD, activity_id)
+        self.assertEqual(variant, 'desktop')
+        self.assertEqual(Path(preview['previewPath']), image.resolve())
+        files = {item['reference']: item for item in self.bridge.timeline_read(THREAD)['files']}
+        self.assertIn(str(image), files)
+        resolved = self.bridge.artifact(THREAD, files[str(image)]['id'])
+        self.assertEqual(Path(resolved['path']), image.resolve())
+        self.assertTrue(resolved['image'])
+
     def test_timeline_annotates_only_ledger_image_attachments(self):
         image = self.upload('photo.png', PNG)
         stored = self.bridge.uploads.get(THREAD, image['id'])

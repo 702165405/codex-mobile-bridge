@@ -11,7 +11,7 @@ import time
 import unittest
 import uuid
 from contextlib import closing
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from bridge.auth import Auth, password_record
 from bridge.files import artifact_paths
@@ -561,6 +561,13 @@ class ModelTests(unittest.TestCase):
         self.assertFalse(req['supported'])
         self.assertNotIn('secret', json.dumps(req))
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows drive path syntax')
+    def test_reference_path_accepts_windows_drive_paths(self):
+        from bridge.files import reference_path
+        path = reference_path('D:\\workspace\\report.txt')
+        self.assertTrue(path.is_absolute())
+        self.assertEqual(path, PureWindowsPath('D:/workspace/report.txt'))
+
     def test_artifacts_only_referenced_workspace_files(self):
         with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
             root = Path(directory)
@@ -978,3 +985,15 @@ class HttpTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows drive path syntax')
+    def test_windows_drive_markdown_reference_remains_in_workspace(self):
+        with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
+            root = Path(directory)
+            workspace = root / 'workspace';workspace.mkdir()
+            allowed = workspace / 'report.txt';allowed.write_text('report', encoding='utf-8')
+            outside = root / 'private.txt';outside.write_text('private', encoding='utf-8')
+            value = state();value['cwd'] = str(workspace)
+            value['turns'] = [{'items': [{'type': 'agentMessage', 'text': f'[report]({allowed}) [private]({outside})'}]}]
+            files = artifact_paths(value, root / '.codex')
+            self.assertEqual([item['name'] for item in files.values()], ['report.txt'])

@@ -15,7 +15,7 @@ from .ipc import DesktopIPC, IPCError
 from .transport import ipc_endpoint
 from .model import apply_patches, computer_use_approval, items_array, normalize_state, normalize_request, ordered_turns, pending_requests, async_requests, request_id, user_display_text
 from .store import SessionStore, StoreUnavailable
-from .files import artifact_paths
+from .files import artifact_paths, referenced_model_images
 from .catalog import Catalog
 from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh_read, payload
 from .create import rename_thread, create_empty, fork_copy, open_in_desktop, CreationError, ForkUnavailable
@@ -1141,6 +1141,7 @@ class Bridge:
                         path = attachment.get('path')
                         if isinstance(path, str) and path:
                             paths.append(Path(path))
+            paths.extend(referenced_model_images(session.state or {}))
         for path in paths:
             try:
                 resolved = path.resolve()
@@ -1224,8 +1225,14 @@ class Bridge:
                                       hostLabel='此电脑' if self.host == 'local' else self.hosts.hosts().get(self.host, {}).get('displayName', self.host))
                 texts = [row['text'] for row in result['rows'] if row['role'] == 'assistant']
             cwd = (session.state or {}).get('cwd')
-        # Resolve only links in the delivered page, not every file in the chat.
-        file_state = {'cwd': cwd, 'turns': [{'items': [{'type': 'agentMessage', 'text': text} for text in texts]}]}
+            media_items = [item for turn in ordered_turns(session.state or {})
+                           for item in items_array(turn.get('items')) if item.get('type') in ('ImageView', 'imageView')]
+        # Resolve links in the delivered page, plus ImageView evidence needed by
+        # embedded model screenshots that can live outside workspace roots.
+        file_state = {'cwd': cwd, 'turns': [
+            {'items': [{'type': 'agentMessage', 'text': text} for text in texts]},
+            {'items': media_items},
+        ]}
         artifacts = artifact_paths(file_state, self.store.home) if self.host == 'local' else {}
         result['files'] = [{'id': k, 'name': v['name'], 'reference': v['reference'], 'image': v['image']} for k, v in artifacts.items()]
         if mode != 'detail':
