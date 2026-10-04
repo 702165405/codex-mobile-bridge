@@ -1,5 +1,13 @@
 # 验证记录
 
+## v1.3.1 发布准备（2026-10-04）
+
+- 用户已完成临时 App 与局域网网页测试，并明确批准合入 PR #8、发布 v1.3.1；包含 Goal 生命周期、计划修改、通知偏好、历史读取及手机布局优化。保留原作者提交，README 与发布说明明确署名。
+- 最终本地 Python 全量 385 项：381 通过、4 项平台条件跳过；桌面/Web 127 项通过；更新器 13 项通过、1 项 Windows 条件跳过。Node 检查复用已有依赖，未安装新软件。
+- 320px 与 390px 手机宽度检查发送栏保持一行、无横向溢出；320px 下目标操作按钮同排。临时包已完成 macOS arm64 构建、签名校验与实际局域网资源核对。
+- 双语发布说明、README 和官网下载入口更新为 1.3.1，历史视频与截图继续标注 v1.3.0。正式发布由原生五架构 CI 重新构建并生成签名更新清单。
+- 本地模拟及用户验收不代表 Windows/Ubuntu 真机、SSH Goal 或所有 Codex 运行时已验证；Linux 保持实验性，Goal 控制仅支持本机。
+
 ## v1.3.0 正式发布（2026-10-03）
 
 - 用户验收后，标签 `v1.3.0` 指向 `9d798f12c8f9001e2a6c39638c8ed5e0bd3b78e4`，Ubuntu 集成和账号功能一并进入正式版本。[预检五架构构建](https://github.com/try2love/codex-mobile-bridge/actions/runs/37123464691)、[正式签名发布](https://github.com/try2love/codex-mobile-bridge/actions/runs/37124047542)与[正式标签测试矩阵](https://github.com/try2love/codex-mobile-bridge/actions/runs/37124047365)全部成功。

@@ -31,18 +31,18 @@ Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明�
 
 ## 下载与快速开始（推荐）
 
-日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.3.0 正式版**。
+日常使用直接下载桌面 App，**无需 Agent 帮忙部署，也无需安装 Python、Node.js 或打开终端**。当前版本为 **v1.3.1 正式版**。
 
 | 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
-| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
-| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
-| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
-| Ubuntu x64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Linux-amd64.deb) | Ubuntu 22.04；安装后以普通用户启动 |
-| Ubuntu ARM64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/Codex-Mobile-Bridge-1.3.0-Linux-arm64.deb) | Ubuntu 22.04 ARM64；不含 32 位 ARM |
+| Windows x64（推荐安装包） | [下载 Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-Windows-x64-Setup.exe) | 运行安装包，从快捷方式打开 |
+| Windows x64（免安装） | [下载完整 ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-Windows-x64.zip) | 完整解压后运行 `Codex Mobile Bridge.exe`，不要单独移动 exe |
+| macOS Apple Silicon（M 系列） | [下载 arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-macOS-arm64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| macOS Intel（英特尔） | [下载 x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-macOS-x64.dmg) | 打开 DMG，将 App 拖入“应用程序” |
+| Ubuntu x64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-Linux-amd64.deb) | Ubuntu 22.04；安装后以普通用户启动 |
+| Ubuntu ARM64（实验性） | [下载 .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/Codex-Mobile-Bridge-1.3.1-Linux-arm64.deb) | Ubuntu 22.04 ARM64；不含 32 位 ARM |
 
-[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.0/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
+[查看所有版本与更新说明](https://github.com/try2love/codex-mobile-bridge/releases) · [下载 SHA256 校验文件](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.3.1/SHA256SUMS.txt)。两种 Mac 同时提供 ZIP，供应用内更新或手动替换使用。Windows ARM 暂无专用安装包。Mac 版采用本地完整性签名但未公证，首次打开可能需要手动允许；Windows 版未做证书签名。详见下方 macOS 首次打开说明。
 
 1. 在电脑上打开原来的 **Codex App**，再打开 **Codex Mobile Bridge**。
 2. 在“网络与登录”保留局域网访问，保存后点击 **启动网关**。已有配置时沿用原端口。
@@ -59,7 +59,7 @@ Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明�
 
 从 `v0.2.0-beta.5` 起，可在桌面 App 的「应用更新」中检查新版、查看说明并点击「更新并重启」。下载与校验完成后短暂重启网关，保留登录、网络、通知和关注聊天配置；失败时尝试恢复原版本。此前版本需要先手动安装一次支持更新的版本。使用临时 HTTPS 时，重启后请打开最新地址。发布与恢复说明见 [桌面更新文档](docs/desktop-updates.md)。
 
-**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.3.0 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
+**Windows beta.7 / 1.0.0 用户：**旧更新器可能因目录占用报 `WinError 32` 并回退。请先在托盘选择“停止网关并退出”，再用 **1.3.1 Setup.exe** 安装到原位置；无需卸载或删除数据。1.1.0 修复后续更新的目录占用问题。
 
 ### 手机阅读与显示设置
 
@@ -93,10 +93,10 @@ v1.3.0 支持在 Bridge 桌面端添加官方账号、自定义 API 或扫描导
 
 当前 Mac 版具有本地完整性签名（ad-hoc），**没有 Apple Developer ID 签名和公证**，首次打开仍可能被 macOS 拦截。旧版 `v0.2.0-beta.1` 还存在包签名缺陷，请优先下载 `v1.1.0` 或后续版本。
 
-1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.3.0 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
+1. 从本仓库的 Release 下载对应芯片的 DMG 或 ZIP，以及 `SHA256SUMS.txt`。计算下载文件的 SHA-256，与校验文件中同名文件的一行比较；不一致时重新下载，不要放行。以下以 1.3.1 的 M 系列 Mac DMG 为例，其他文件请替换文件名：
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.3.0-macOS-arm64.dmg"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.3.1-macOS-arm64.dmg"
    ```
 
 2. 打开 DMG，将 `Codex Mobile Bridge.app` 拖入“应用程序”，再推出磁盘映像；ZIP 则先解压并移动 App。尝试从“应用程序”打开后，前往 **系统设置 → 隐私与安全性 → 仍要打开**，按系统提示确认。
@@ -424,7 +424,7 @@ Fast 会增加额度消耗，具体以[官方速度说明](https://learn.chatgpt
 在底部发送栏中间选择 **工作模式**，再输入任务并发送：
 
 - **普通模式**：直接处理任务。
-- **计划模式**：先讨论并制定计划。计划完成后，可在网页展开全文、点击 **执行计划**，或填写修改意见后点击 **继续修改**。执行计划会切回普通模式，继续修改保留计划模式。
+- **计划模式**：先讨论并制定计划。计划完成后，可在网页展开全文、点击 **按照当前规划结果执行计划**，或填写修改意见后点击 **按照修改意见继续规划**。有修改意见时强调继续规划，并禁用直接执行，避免忽略意见。执行计划会切回普通模式，继续规划保留计划模式。
 - **目标模式**：输入要完成的目标。通过本机 Codex 原生 Goal 接口设置目标，再由原聊天的桌面 owner 开始执行。网页显示目标内容、状态和 Token 用量；操作结果未确认时保留请求标识，不自动重发。
 
 目标栏右侧的 **×** 可隐藏该栏，目标继续运行。隐藏后，点击发送键旁的 **目标进度** 恢复显示；窄屏下显示为目标图标。同一目标在当前浏览器标签页刷新后保持隐藏，新目标默认显示。
@@ -736,6 +736,8 @@ python3 -B -m unittest discover -s tests -v
 ## 致谢
 
 感谢 [LINUX DO](https://linux.do/) 社区及各位佬友的支持。
+
+感谢 [@qybgh（Luoran Yau）](https://github.com/qybgh) 在 [PR #8](https://github.com/try2love/codex-mobile-bridge/pull/8) 中对移动端计划、目标模式、附件预览和界面体验的贡献。v1.3.1 在该贡献基础上完成目标控制、通知和交互优化。
 
 ## 许可证与参考
 
