@@ -82,7 +82,7 @@ aside{background:var(--surface)}
 .appearance-grid select{font-size:13px;padding:10px;margin-top:8px}
 .appearance-section{border:0;margin:14px 0 0;padding:16px 0 0;border-top:1px solid var(--line);min-width:0}
 .appearance-section legend{float:left;font-size:13px;font-weight:600;width:100%;margin-bottom:12px}
-.conversation-options{margin-top:0;padding-top:0;border-top:0;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.conversation-options{margin-bottom:0;padding-bottom:0}
 .picker .display-option{display:flex;align-items:center;justify-content:space-between;gap:16px;clear:both;margin:0;padding:10px 0;cursor:pointer}
 .display-option strong{display:block;font-size:13px;font-weight:500}.display-option small{display:block;font-size:11px;line-height:1.6;color:var(--muted);margin-top:3px}
 .display-option input[type=checkbox]{width:20px;height:20px;padding:0;margin:0;flex:none;cursor:pointer}
@@ -127,4 +127,4 @@ aside{background:var(--surface)}
 .goal-state:has(.goal-editor){max-height:45dvh}
 
 :root[data-show-pushplus=false] #pushplus-settings,:root[data-show-accounts=false] #accounts-button{display:none}
-@media(max-width:600px){.compose-bottom{grid-template-columns:32px minmax(0,1fr) minmax(0,1fr)}.compose-actions{grid-column:1/-1;justify-content:flex-end}.compose-bottom select{font-size:12px}}
+@media(max-width:600px){.compose-bottom select{font-size:11px}.compose-actions button{white-space:nowrap}}
