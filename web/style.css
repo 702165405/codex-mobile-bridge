@@ -46,5 +46,3 @@
 .timeline .attachment-image{display:block;max-width:min(100%,360px);max-height:260px;margin:8px 0;border:1px solid var(--line);border-radius:10px;object-fit:contain;background:#fff}
 .attachment-chip{background:#edf0e8}.attachment-thumb{width:40px;height:40px;object-fit:cover;background:#dfe5d9}
 .timeline .attachment-image{min-height:80px;background:#dfe5d9}
-.goal-cancel{margin-top:10px}
-.goal-status{margin-top:10px}

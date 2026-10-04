@@ -72,13 +72,16 @@ class WorkModes {
     }
     if(this.actionError)this.goalRoot.append(node('p',this.actionError,'error'));
     if(goal&&goalSupported){
+      const actions=node('div','','goal-actions');
+      this.goalRoot.append(actions);
       if(['active','blocked','usageLimited','budgetLimited'].includes(goal.status)){
-        this.goalRoot.append(button(this.statusBusy==='paused'?t('正在暂停目标…'):t('暂停目标'),'goal-status secondary',()=>this.setStatus('paused'),this.busy()));
+        actions.append(button(this.statusBusy==='paused'?t('正在暂停目标…'):t('暂停目标'),'goal-status secondary',()=>this.setStatus('paused'),this.busy()));
       }
       if(goal.status==='paused'){
-        this.goalRoot.append(button(this.statusBusy==='active'?t('正在恢复目标…'):t('恢复目标'),'goal-status primary',()=>this.setStatus('active'),this.busy()));
+        actions.append(button(this.statusBusy==='active'?t('正在恢复目标…'):t('恢复目标'),'goal-status primary',()=>this.setStatus('active'),this.busy()));
       }
-      if(goal.status==='paused')this.goalRoot.append(button(t('修改目标'),'goal-edit secondary',()=>{this.editing=true;this.editText=goal.objective;this.render();this.goalRoot.querySelector('.goal-editor')?.focus();},this.busy()));
+      if(goal.status==='paused')actions.append(button(t('修改目标'),'goal-edit secondary',()=>{this.editing=true;this.editText=goal.objective;this.render();this.goalRoot.querySelector('.goal-editor')?.focus();},this.busy()));
+      actions.append(button(this.cancelBusy?t('正在关闭目标…'):t('关闭目标'),'goal-cancel secondary',()=>this.cancel(),this.busy()));
       this.goalRoot.append(node('p',t('暂停或关闭目标不会停止当前回复；如需立即停止，请点击“停止”。'),'muted'));
       if(goal.status==='active')this.goalRoot.append(node('p',t('修改目标前请先暂停。'),'muted'));
       if(this.editing&&goal.status==='paused'){
@@ -86,7 +89,6 @@ class WorkModes {
         this.goalRoot.append(input,node('p',t('修改目标内容会重置用量统计，保存后保持暂停。'),'muted'));
         this.goalRoot.append(button(t('保存目标'),'goal-save primary',()=>this.saveEdit(),this.busy()),button(t('放弃修改'),'secondary',()=>{this.editing=false;this.render();},this.busy()));
       }
-      this.goalRoot.append(button(this.cancelBusy?t('正在关闭目标…'):t('关闭目标'),'goal-cancel secondary',()=>this.cancel(),this.busy()));
     }
     if(goalIdentity){
       const close=node('button','×','goal-close');close.type='button';close.title=t('隐藏目标栏');close.setAttribute('aria-label',close.title);

@@ -128,3 +128,5 @@ aside{background:var(--surface)}
 
 :root[data-show-pushplus=false] #pushplus-settings,:root[data-show-accounts=false] #accounts-button{display:none}
 @media(max-width:600px){.compose-bottom select{font-size:11px}.compose-actions button{white-space:nowrap}}
+
+.goal-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.goal-actions button{margin:0;padding:8px;font-size:12px;white-space:nowrap}
