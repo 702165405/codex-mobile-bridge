@@ -571,6 +571,30 @@ class ModelTests(unittest.TestCase):
         self.assertTrue(path.is_absolute())
         self.assertEqual(path, PureWindowsPath('D:/workspace/report.txt'))
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows drive path syntax')
+    def test_windows_drive_markdown_reference_remains_in_workspace(self):
+        with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
+            root = Path(directory)
+            workspace = root / 'workspace';workspace.mkdir()
+            allowed = workspace / 'report.txt';allowed.write_text('report', encoding='utf-8')
+            outside = root / 'private.txt';outside.write_text('private', encoding='utf-8')
+            value = state();value['cwd'] = str(workspace)
+            value['turns'] = [{'items': [{'type': 'agentMessage', 'text': f'[report]({allowed}) [private]({outside})'}]}]
+            files = artifact_paths(value, root / '.codex')
+            self.assertEqual([item['name'] for item in files.values()], ['report.txt'])
+
+    def test_file_uri_image_view_links_plain_markdown_reference(self):
+        with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
+            root = Path(directory)
+            image = root / 'preview.png';image.write_bytes(b'PNG')
+            value = {**state(), 'cwd': str(root), 'turns': [{'items': [
+                {'type': 'ImageView', 'path': image.as_uri()},
+                {'type': 'agentMessage', 'text': f'![preview]({image})'},
+            ]}]}
+            files = artifact_paths(value, root / '.codex')
+            self.assertEqual(len(files), 1)
+            self.assertEqual(next(iter(files.values()))['reference'], str(image))
+
     def test_artifacts_only_referenced_workspace_files(self):
         with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
             root = Path(directory)
@@ -1005,15 +1029,3 @@ class HttpTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
-    @unittest.skipUnless(os.name == 'nt', 'Windows drive path syntax')
-    def test_windows_drive_markdown_reference_remains_in_workspace(self):
-        with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
-            root = Path(directory)
-            workspace = root / 'workspace';workspace.mkdir()
-            allowed = workspace / 'report.txt';allowed.write_text('report', encoding='utf-8')
-            outside = root / 'private.txt';outside.write_text('private', encoding='utf-8')
-            value = state();value['cwd'] = str(workspace)
-            value['turns'] = [{'items': [{'type': 'agentMessage', 'text': f'[report]({allowed}) [private]({outside})'}]}]
-            files = artifact_paths(value, root / '.codex')
-            self.assertEqual([item['name'] for item in files.values()], ['report.txt'])

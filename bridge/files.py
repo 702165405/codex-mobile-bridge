@@ -1,6 +1,7 @@
 """Serve only artifacts referenced by this chat inside its workspace/visualizations."""
 import hashlib
 import ntpath
+import os
 import re
 from pathlib import Path, PureWindowsPath
 from urllib.parse import unquote, urlsplit
@@ -12,6 +13,15 @@ MARKDOWN_PATH = re.compile(r'!?\[[^\]\n]*\]\((?:<([^>]+)>|([^\n)]+))\)')
 IMAGE_MARKDOWN_PATH = re.compile(r'!\[[^\]\n]*\]\((?:<([^>]+)>|([^\n)]+))\)')
 AGENT_KINDS = ('agentMessage', 'assistantMessage', 'planImplementation')
 IMAGE_SUFFIXES = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
+
+
+def path_identity(value):
+    """Return the host-normalized identity used to link duplicate references."""
+    path = value if isinstance(value, Path) else Path(value)
+    try:
+        return Path(os.path.normcase(str(path.resolve(strict=False))))
+    except (OSError, RuntimeError):
+        return Path(os.path.normcase(os.path.abspath(str(path))))
 
 
 def reference_path(value):
@@ -31,12 +41,14 @@ def reference_path(value):
             return Path(url2pathname(file_path))
         drive, tail = ntpath.splitdrive(value)
         if drive:
+            # On Windows, keep the actual drive path. On POSIX, preserve a
+            # PureWindowsPath-derived shape for synthetic cross-platform tests.
+            if os.name == 'nt':
+                return Path(value)
             candidate = PureWindowsPath(drive + tail)
             if not candidate.is_absolute():
                 return None
-            # On Windows this is a concrete WindowsPath. On POSIX this stays a
-            # relative drive path and is rejected by the same is_absolute gate.
-            return Path(str(candidate))
+            return Path(*candidate.parts)
         if parsed.scheme:
             return None
         path = Path(unquote(parsed.path or value))
@@ -45,36 +57,51 @@ def reference_path(value):
         return None
 
 
-def referenced_model_images(state, image_views_only=False):
-    """Map image paths shown by the runtime or embedded in model output.
+def _is_plain_reference(value):
+    """Treat Windows drive paths as plain text, not as a URL scheme."""
+    return bool(ntpath.splitdrive(value)[0]) or not urlsplit(value).scheme
+
+
+def _model_image_references(state):
+    """Map model image references and return the trusted runtime-view identities.
 
     ImageView rows are runtime-generated evidence and may point at desktop-side
     screenshots outside a workspace. Markdown image links are model-authored
     text and must not grant that broader filesystem trust.
     """
     result = {}
-    def add(value, reference):
+    trusted_views = set()
+    def add(value, reference, runtime_view=False):
         # Remove an editor line suffix without changing the reference shown by
         # Markdown; only the actual filesystem lookup uses the trimmed path.
         path = reference_path(re.sub(r':\d+$', '', value))
         if not path or not (path.is_absolute() or bool(ntpath.splitdrive(str(path))[0])):
             return
-        row = result.setdefault(path.resolve(), set())
+        key = path_identity(path)
+        row = result.setdefault(key, set())
         if isinstance(reference, str) and reference:
             row.add(reference)
+        if runtime_view:
+            trusted_views.add(key)
 
     for turn in ordered_turns(state):
         for item in items_array(turn.get('items')):
             kind = item.get('type')
             if kind in ('ImageView', 'imageView'):
-                add(item.get('path'), item.get('path'))
-            elif kind in AGENT_KINDS and not image_views_only:
+                add(item.get('path'), item.get('path'), runtime_view=True)
+            elif kind in AGENT_KINDS:
                 text = item.get('text', '')
                 if isinstance(text, str):
                     for match in IMAGE_MARKDOWN_PATH.finditer(text):
                         reference = match[1] or match[2]
                         add(reference, reference)
-    return result
+    return result, trusted_views
+
+
+def referenced_model_images(state, image_views_only=False):
+    """Map image paths shown by the runtime or embedded in model output."""
+    result, trusted_views = _model_image_references(state)
+    return trusted_views if image_views_only else result
 
 
 def artifact_paths(state, codex_home):
@@ -94,8 +121,7 @@ def artifact_paths(state, codex_home):
                     if isinstance(value, str):
                         candidates.add(value)
     result = {}
-    model_images = referenced_model_images(state)
-    trusted_views = referenced_model_images(state, image_views_only=True)
+    model_images, trusted_views = _model_image_references(state)
     for raw in candidates:
         # Model-authored Markdown and response attachments remain bound to the
         # workspace/visualization roots even when they name an image suffix.
@@ -109,7 +135,7 @@ def artifact_paths(state, codex_home):
                 continue
         except OSError:
             continue
-        key = hashlib.sha256(str(path).encode()).hexdigest()
+        key = hashlib.sha256(str(path_identity(path)).encode()).hexdigest()
         result[key] = {'path': path, 'reference': raw, 'name': path.name,
                        'image': path.suffix.lower() in IMAGE_SUFFIXES}
     # A path can be shown once as ImageView and embedded later with another text
@@ -124,8 +150,10 @@ def artifact_paths(state, codex_home):
                 continue
         except OSError:
             continue
-        plain = sorted((ref for ref in references if reference_path(ref) == path and not urlsplit(ref).scheme),
-                       key=lambda value: (len(value), value))
+        plain = sorted(
+            (ref for ref in references if path_identity(reference_path(ref)) == path and _is_plain_reference(ref)),
+            key=lambda value: (len(value), value),
+        )
         file_refs = sorted(ref for ref in references if urlsplit(ref).scheme == 'file')
         reference = plain[0] if plain else (file_refs[0] if file_refs else next(iter(references)))
         key = hashlib.sha256(str(path).encode()).hexdigest()
