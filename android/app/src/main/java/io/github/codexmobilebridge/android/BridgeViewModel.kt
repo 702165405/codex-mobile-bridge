@@ -16,7 +16,60 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.File
 
 class BridgeViewModel(app: Application) : AndroidViewModel(app) {
+    private val updates = AppUpdates()
+    var updateBusy by mutableStateOf(false); private set
+    var availableUpdate by mutableStateOf<AppUpdate?>(null); private set
+    var updateMessage by mutableStateOf(""); private set
+    var updateFile by mutableStateOf<File?>(null); private set
+    fun checkAppUpdate() {
+        if(updateBusy)return
+        updateBusy=true; updateMessage=""; availableUpdate=null; updateFile=null
+        viewModelScope.launch {
+            try {
+                availableUpdate=updates.check()
+                updateMessage=if((availableUpdate?.code ?: 0)>BuildConfig.VERSION_CODE) t("发现新版本","New version available") else if(availableUpdate==null) t("更新源尚未发布安卓版本","No Android release published yet") else t("已是最新版本","You are up to date")
+            } catch(e:Exception) {updateMessage=t("检查失败，可重试：","Check failed; retry: ")+(e.message ?: "")}
+            finally {updateBusy=false}
+        }
+    }
+    fun downloadAppUpdate() {
+        val value=availableUpdate ?: return
+        if(updateBusy || value.code<=BuildConfig.VERSION_CODE)return
+        updateBusy=true;updateMessage=t("正在下载并校验安装包…","Downloading and verifying…")
+        viewModelScope.launch {
+            try {updateFile=updates.download(getApplication(),value);updateMessage=t("下载完成，请点击安装更新","Download complete. Tap Install update")}
+            catch(e:Exception) {updateFile=null;updateMessage=t("下载失败，可重试：","Download failed; retry: ")+(e.message ?: "")}
+            finally {updateBusy=false}
+        }
+    }
+    fun installAppUpdate() {
+        val file=updateFile ?: return;val value=availableUpdate ?: return
+        try {if(!updates.install(getApplication(),file,value))updateMessage=t("请允许此 App 安装应用，返回后再次点击安装更新","Allow app installs, return, then tap Install update again")}
+        catch(e:Exception) {updateFile=null;updateMessage=t("安装失败，请重新下载：","Install failed; download again: ")+(e.message ?: "")}
+    }
     val store = AppStore(app)
+    var appNotifications by mutableStateOf(store.get("appNotifications")=="true"); private set
+    fun enableAppNotifications(enabled:Boolean) {
+        if(enabled && !LiveNotifications.permitted(getApplication())) {error=t("请允许 App 通知","Allow app notifications first");return}
+        if(enabled && !appNotifications)selected?.let {connection->
+            // Seed from already observed activity, so a task finishing just after
+            // backgrounding is detected without replaying historical completions.
+            val baseline=activities.mapValues {NoticeState(it.value.token)}
+            store.put("notice:${connection.id}",json.encodeToString(baseline))
+        }
+        store.put("appNotifications",enabled.toString());appNotifications=enabled
+        if(enabled) {startListPolling();startReminders()} else LiveNotifications.stop(getApplication())
+    }
+    fun testAppNotification()=LiveNotifications.post(getApplication(),selected,t("测试通知","Test notification"),"test")
+    private fun startReminders() {
+        if(appNotifications && foreground && authenticated && screen in listOf("sessions","chat"))selected?.let {
+            try {LiveNotifications.start(getApplication(),it)} catch(e:Exception) {error=t("后台提醒启动失败：","Could not start reminders: ")+(e.message ?: "")}
+        }
+    }
+    private fun visibleChat() {LiveNotifications.visible=if(foreground && screen=="chat")target?.key else null}
+    private fun notifyRows(rows:List<JsonObject>) {
+        selected?.let {connection->LiveNotifications.accept(getApplication(),store,connection,rows)}
+    }
     var connections by mutableStateOf(store.connections()); private set
     var selected by mutableStateOf<Connection?>(null); private set
     var authenticated by mutableStateOf(false); private set
@@ -26,6 +79,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     var error by mutableStateOf(""); private set
     var notice by mutableStateOf(""); private set
     var sessions by mutableStateOf(emptyList<JsonObject>()); private set
+    var activities by mutableStateOf(emptyMap<String,SessionActivity>()); private set
     var hostErrors by mutableStateOf(emptyList<JsonObject>()); private set
     var search by mutableStateOf("")
     var archived by mutableStateOf(false)
@@ -100,13 +154,15 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         polling = null; listPolling = null; busy = false; toolLoading = false; historyBusy = false
     }
     private fun disconnect() {
+        LiveNotifications.stop(getApplication());LiveNotifications.visible=null
         cancelScope(); api = null; authenticated = false; target = null; tool = null; timeline = TimelineState()
-        sessions = emptyList(); hostErrors = emptyList(); details = emptyMap(); draft = Draft(); attachments = emptyList(); screen = "connections"; error = ""
+        sessions = emptyList(); activities=emptyMap(); hostErrors = emptyList(); details = emptyMap(); draft = Draft(); attachments = emptyList(); screen = "connections"; error = ""
     }
     fun select(row: Connection, pairingToken: String? = null) {
         disconnect()
         selected = row.copy(lastUsed=System.currentTimeMillis())
         connections = connections.map { if(it.id == row.id) selected!! else it }; store.saveConnections(connections); store.put("selected",row.id)
+        activities=store.get("activity:${row.id}")?.let {runCatching {json.decodeFromString<Map<String,SessionActivity>>(it)}.getOrNull()}?.mapValues {it.value.copy(offline=true)} ?: emptyMap()
         api = gatewayFactory(selected!!); screen = "login"; busy = true
         val gateway = api!!; val gen = generation
         scope.launch {
@@ -120,12 +176,12 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun resume() {
-        foreground = true
+        foreground = true;LiveNotifications.foreground=true;visibleChat();appNotifications=store.get("appNotifications")=="true"
         if(selected != null && api == null) select(selected!!)
-        else if(authenticated) { if(target != null) startPolling() else startListPolling() }
+        else if(authenticated) { if(target != null) startPolling(); startListPolling();startReminders() }
     }
     fun pause() {
-        foreground = false; polling?.cancel(); listPolling?.cancel(); api?.cancel()
+        foreground = false;LiveNotifications.foreground=false;LiveNotifications.visible=null; polling?.cancel(); listPolling?.cancel(); api?.cancel()
         saveDraft(); busy = false
     }
     fun login(username: String,password: String) = action {
@@ -143,20 +199,18 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     }
     private suspend fun enter() {
         authenticated = true; screen = "sessions"; refreshListNow()
-        val old = selected?.id?.let { store.get("last:$it") }?.let { runCatching { json.parseToJsonElement(it) as JsonObject }.getOrNull() }
-        if(old != null && sessions.any { it.str("id") == old.str("id") && it.str("host","local") == old.str("host","local") })
-            openChat(old.str("id"),old.str("host","local"))
-        else startListPolling()
+        startListPolling();startReminders()
     }
-    fun showConnections() { saveDraft(); cancelScope(); tool = null; screen = "connections"; target = null }
-    fun showSessions() { saveDraft(); cancelScope(); tool = null; target = null; timeline = TimelineState(); screen = "sessions"; refreshList() }
+    fun showConnections() { LiveNotifications.stop(getApplication());LiveNotifications.visible=null;saveDraft(); cancelScope(); tool = null; screen = "connections"; target = null }
+    fun showSessions() { LiveNotifications.visible=null;saveDraft(); cancelScope(); tool = null; target = null; timeline = TimelineState(); screen = "sessions"; refreshList() }
     fun logout() = action {
-        api!!.api("/api/logout",payload()); api!!.clearSession(); authenticated = false; target = null
+        LiveNotifications.stop(getApplication())
+        api!!.api("/api/logout",payload()); api!!.clearSession(); selected?.let {store.put("activity:${it.id}",null)}; activities=emptyMap(); authenticated = false; target = null
         polling?.cancel(); listPolling?.cancel(); screen = "login"; sessions = emptyList(); tool = null
     }
     private fun failure(e: Exception) {
         error = e.message ?: t("请求失败","Request failed")
-        if(e is GatewayError && e.status == 401) { authenticated = false; screen = "login"; tool = null; polling?.cancel(); listPolling?.cancel() }
+        if(e is GatewayError && e.status == 401) { LiveNotifications.stop(getApplication());authenticated = false; screen = "login"; tool = null; polling?.cancel(); listPolling?.cancel() }
     }
     private fun action(block: suspend () -> Unit) {
         if(busy || api == null) return
@@ -175,25 +229,45 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         if(gen != listGeneration) return
         val rows = value.rows("sessions")
         sessions = if(more) (sessions+rows).distinctBy { it.str("host")+"|"+it.str("id") } else rows
+        store.put("noticeRows:${selected!!.id}",JsonArray(sessions).toString())
         hostErrors = value.rows("unavailableHosts"); listOffset = sessions.size; listHasMore = rows.size >= 100
     }
     fun refreshList(more: Boolean = false) = action { refreshListNow(more); startListPolling() }
+    private fun saveActivities(value: Map<String,SessionActivity>) {
+        if(value==activities)return
+        activities=value;selected?.let {store.put("activity:${it.id}",json.encodeToString(value))}
+    }
     private fun startListPolling() {
-        listPolling?.cancel(); if(!foreground || !authenticated || target != null || screen != "sessions") return
-        val gen = generation
+        listPolling?.cancel(); if(!foreground || !authenticated || screen !in listOf("sessions","chat")) return
+        val gen = generation;val gateway=api ?: return
         listPolling = scope.launch {
+            var warmup=0
             while(isActive && gen == generation) {
-                delay(5000)
+                var awaitingConnection=false
+                val listGen=listGeneration
                 try {
                     val hosts = sessions.groupBy { it.str("host","local") }.mapValues { (_,rows) -> JsonArray(rows.map { JsonPrimitive(it.str("id")) }) }
                     if(hosts.isNotEmpty()) {
-                        val rows = api!!.api("/api/activity",payload("hosts" to JsonObject(hosts))).rows("sessions")
-                        if(gen == generation) sessions = sessions.map { old ->
-                            val status = rows.find { it.str("id") == old.str("id") && it.str("host") == old.str("host") }
-                            if(status != null) JsonObject(old+status) else old
+                        // Query immediately, including after refresh and foreground resume.
+                        val rows = gateway.api("/api/activity",payload("hosts" to JsonObject(hosts))).rows("sessions")
+                        if(gen == generation && listGen==listGeneration) {
+                            saveActivities(updateActivities(activities,rows,target?.let {it.host+"|"+it.id}))
+                            notifyRows(rows.map {row->JsonObject(row+payload("title" to (sessions.find {activityKey(it)==activityKey(row)}?.str("title") ?: "Codex")))})
+                            sessions = sessions.map { old ->
+                                val status=rows.find {activityKey(it)==activityKey(old)}
+                                if(status!=null)JsonObject(old+status+payload("recency" to maxOf(old.num("recency"),status.num("recency")))) else old
+                            }.sortedByDescending {it.num("recency")}
+                            awaitingConnection=rows.any {!it.bool("connected")}
                         }
                     }
-                } catch(e: CancellationException) { throw e } catch(e: Exception) { if(e is GatewayError && e.status == 401) { failure(e); break } }
+                } catch(e: CancellationException) { throw e } catch(e: Exception) {
+                    if(gen!=generation)break
+                    saveActivities(activities.mapValues {it.value.copy(offline=true)})
+                    if(e is GatewayError && e.status == 401) { failure(e); break }
+                }
+                // Cold subscriptions attach asynchronously. Allow three short checks,
+                // then use the same five-second cadence as the HTML client.
+                delay(if(awaitingConnection && warmup++<3)500 else 5000)
             }
         }
     }
@@ -206,9 +280,11 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         attachments = store.get("attachments:${row.key}")?.let { runCatching { json.decodeFromString<List<Attachment>>(it) }.getOrNull() }?.map {
             if(it.status == "uploading" || it.status == "pending") it.copy(status="failed",error=t("请重试上传","Retry upload")) else it
         } ?: emptyList()
+        saveActivities(activities.mapValues {if(it.key==host+"|"+id)it.value.copy(pending=null) else it.value})
+        store.put("noticeChat:${selected!!.id}",host+"|"+id)
         store.put("last:${selected!!.id}",payload("id" to id,"host" to host).toString()); screen = "chat"
         scope.launch { try { api!!.api(row.route("reconnect"),payload("activate" to true)) } catch(e: CancellationException) { throw e } catch(_: Exception) {} }
-        startPolling()
+        visibleChat();startPolling(); startListPolling()
     }
     private fun startPolling() {
         polling?.cancel(); val row = target ?: return; if(!foreground || !authenticated) return
@@ -222,6 +298,11 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
                     if(gen != generation || target != row) break
                     if(previous.revision != timeline.revision && previous.sequence >= 0) continue
                     timeline = timeline.apply(page)
+                    val latestTurn=timeline.messages.lastOrNull {it.str("turnId").isNotBlank() && it.str("turnStatus").isNotBlank()}
+                    val activityRow=JsonObject(timeline.meta+payload("id" to row.id,"host" to row.host)+
+                        (latestTurn?.let {payload("turnId" to it.str("turnId"),"turnStatus" to it.str("turnStatus"))} ?: payload()))
+                    saveActivities(updateActivities(activities,listOf(activityRow),row.host+"|"+row.id))
+                    notifyRows(listOf(activityRow))
                     if(previous.sequence < 0 && draft.anchor.isNotEmpty() && !draft.following) {
                         historyBusy=true
                         try { while(timeline.hasMore && timeline.messages.none { it.str("key") == draft.anchor }) {
@@ -331,6 +412,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun openTool(name: String, data: JsonObject = payload()) {
         tool = name; toolData = data; error = ""
+        if(name=="app-notifications")appNotifications=store.get("appNotifications")=="true"
         if(name == "message" && target != null) {
             val fallback = store.get("editFallback:${target!!.key}")?.let {runCatching{json.parseToJsonElement(it) as JsonObject}.getOrNull()}
             val saved = store.get("editDraft:${target!!.key}:${data.str("key")}")
@@ -445,5 +527,5 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
             getApplication<Application>().contentResolver.openOutputStream(uri)!!.use { output -> gateway.file(row.route("files/${file.str("id")}"),output) }
         }; notice = t("文件已保存","File saved") }
     }
-    override fun onCleared() { saveDraft(); scope.cancel(); api?.cancel(); super.onCleared() }
+    override fun onCleared() { updates.cancel(); saveDraft(); scope.cancel(); api?.cancel(); super.onCleared() }
 }

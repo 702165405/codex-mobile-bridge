@@ -17,6 +17,10 @@ class MainActivity : ComponentActivity() {
         if(savedInstanceState == null) importSharedLink(intent)
     }
     private fun importSharedLink(value: Intent) {
+        if(value.action==LiveNotifications.OPEN) {
+            val id=value.getStringExtra("noticeConnection")
+            bridge.connections.find {it.id==id}?.let {bridge.select(it)}
+        }
         if(value.action == Intent.ACTION_SEND) value.getStringExtra(Intent.EXTRA_TEXT)?.let(bridge::importLink)
     }
     override fun onNewIntent(intent: Intent) {

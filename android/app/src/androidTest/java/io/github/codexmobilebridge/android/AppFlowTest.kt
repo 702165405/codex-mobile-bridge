@@ -24,6 +24,9 @@ class AppFlowTest {
     private var failUpload=false
     private var offline=false
     private var expired=false
+    @Volatile private var activityStatus="idle"
+    private var coldActivity=false
+    private val activityRequests=java.util.concurrent.atomic.AtomicInteger(0)
     private var paging=false
     private var askQuestion=false
     private val chatId="11111111-1111-4111-8111-111111111111"
@@ -49,6 +52,10 @@ class AppFlowTest {
                 path=="/api/auth" -> payload("authenticated" to (request.getHeader("Cookie")?.contains("session=$label")==true),"csrf" to "csrf-$label","notifications" to true)
                 path=="/api/login" -> payload("csrf" to "csrf-$label")
                 path=="/api/sessions" && request.method=="GET" -> payload("sessions" to JsonArray(listOf(payload("id" to chatId,"host" to "local","title" to "$label chat","projectName" to "project"))))
+                path=="/api/activity" -> {
+                    val cold=coldActivity && activityRequests.incrementAndGet()==1
+                    payload("sessions" to JsonArray(listOf(payload("id" to chatId,"host" to "local","connected" to !cold,"status" to if(cold)"unknown" else activityStatus,"turnId" to "test-turn","turnStatus" to if(activityStatus=="active")"inProgress" else "completed","recency" to 123))))
+                }
                 path.endsWith("/timeline") && request.requestUrl?.queryParameter("before")!=null -> payload("epoch" to label,"sequence" to 1,"rows" to JsonArray(listOf(payload("key" to "older","order" to -1,"version" to "v1","role" to "assistant","text" to "Earlier history"))),"meta" to meta,"hasMore" to false,"before" to "$label.older")
                 path.endsWith("/timeline") || path.endsWith("/changes") -> payload("epoch" to label,"sequence" to 1,"rows" to JsonArray(listOf(payload("key" to "message","order" to 0,"version" to "v1","role" to "assistant","text" to "Hello $label\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n\$\$x^2\$\$","editable" to false))),"meta" to meta).let{if(path.endsWith("/timeline"))JsonObject(it+payload("hasMore" to paging,"before" to "$label.message"))else it}
                 path.endsWith("/send") -> payload("status" to if(unknownSend)"unknown" else "sent")
@@ -77,17 +84,35 @@ class AppFlowTest {
         ui.runOnIdle{vm.select(row)};ui.waitUntil(10000){!vm.busy}
         if(!vm.authenticated){ui.onNodeWithText("Username").performTextReplacement("admin");ui.onNodeWithText("Password").performTextReplacement("test");ui.onNodeWithText("Connect",useUnmergedTree=true).performClick()}
         ui.waitUntil(10000){vm.authenticated && !vm.busy}
+        assertEquals("sessions",vm.screen);assertNull(vm.target)
     }
-    @Test fun twoComputersKeepLoginDraftAndLastChatSeparate() {
+    @Test fun listActivityStartsImmediatelyWarmsUpAndHidesProtocolStatuses() {
+        coldActivity=true;activityStatus="active"
+        val a=computer("Alpha");ui.setContent{BridgeApp(vm)};connect(a)
+        ui.waitUntil(4000){activityRequests.get()>=2 && vm.activities["local|$chatId"]?.indicator=="running"}
+        ui.onNodeWithContentDescription("Running").assertExists()
+        ui.onNodeWithText("unknown").assertDoesNotExist();ui.onNodeWithText("idle").assertDoesNotExist()
+        activityStatus="idle";ui.runOnIdle{vm.refreshList()}
+        ui.waitUntil(4000){!vm.busy && vm.activities["local|$chatId"]?.indicator=="completed"}
+        ui.onNodeWithContentDescription("Completed, unread").assertExists()
+        ui.onNodeWithText("idle").assertDoesNotExist()
+        val before=activityRequests.get();ui.runOnIdle{vm.pause();vm.resume()}
+        ui.waitUntil(4000){activityRequests.get()>before}
+        ui.runOnIdle{vm.openChat(chatId)}
+        ui.waitUntil(10000){vm.timeline.sequence>=0};assertNull(vm.activities["local|$chatId"]?.pending)
+        ui.runOnIdle{vm.showSessions()};ui.waitUntil(10000){!vm.busy}
+        ui.onNodeWithContentDescription("Completed, unread").assertDoesNotExist()
+    }
+    @Test fun twoComputersStartOnListAndRestoreDraftOnlyWhenOpened() {
         val a=computer("Alpha");val b=computer("Beta");ui.setContent{BridgeApp(vm)}
         connect(a);ui.runOnIdle{vm.openChat(chatId)};ui.waitUntil(10000){vm.timeline.sequence>=0}
         ui.runOnIdle{vm.editDraft(Draft(text="Alpha draft"))}
         connect(b);ui.runOnIdle{vm.openChat(chatId)};ui.waitUntil(10000){vm.timeline.sequence>=0}
         assertEquals("",vm.draft.text);ui.runOnIdle{vm.editDraft(Draft(text="Beta draft"))}
-        connect(a);ui.waitUntil(10000){vm.target!=null && vm.timeline.sequence>=0};assertEquals("Alpha draft",vm.draft.text)
+        connect(a);ui.onNodeWithText("Alpha chat").performClick();ui.waitUntil(10000){vm.target!=null && vm.timeline.sequence>=0};assertEquals("Alpha draft",vm.draft.text)
         ui.onNodeWithContentDescription("Send message").performClick();ui.waitUntil(10000){vm.draft.text.isEmpty()}
         val sent=calls.last{it.second.path!!.contains("/send")};assertEquals("Alpha",sent.first);assertEquals("csrf-Alpha",sent.second.getHeader("X-CSRF-Token"));assertEquals("session=Alpha",sent.second.getHeader("Cookie"))
-        connect(b);ui.waitUntil(10000){vm.target?.connection==b.id && vm.timeline.sequence>=0};assertEquals("Beta draft",vm.draft.text)
+        connect(b);ui.onNodeWithText("Beta chat").performClick();ui.waitUntil(10000){vm.target?.connection==b.id && vm.timeline.sequence>=0};assertEquals("Beta draft",vm.draft.text)
         assertEquals(1,calls.count{it.first=="Alpha" && it.second.path=="/api/login"})
         ui.runOnIdle{vm.logout()};ui.waitUntil(10000){!vm.authenticated};assertNotNull(vm.store.get("cookies:${a.id}"))
     }
@@ -130,7 +155,7 @@ class AppFlowTest {
         ui.runOnIdle{vm.openChat(chatId)};ui.waitUntil(10000){vm.timeline.sequence>=0};ui.runOnIdle{vm.editDraft(Draft(text="preserved draft"))}
         offline=true;ui.waitUntil(10000){vm.error=="offline"};ui.onNodeWithText("Retry connection").assertExists();assertEquals("preserved draft",vm.draft.text);assertTrue(vm.authenticated)
         offline=false;expired=true;ui.waitUntil(12000){!vm.authenticated};assertEquals("preserved draft",vm.store.draft(ChatTarget(a.id,chatId).key).text)
-        assertNotNull(vm.store.get("cookies:${b.id}"));expired=false;connect(a);ui.waitUntil(10000){vm.target?.connection==a.id && vm.timeline.sequence>=0};assertEquals("preserved draft",vm.draft.text)
+        assertNotNull(vm.store.get("cookies:${b.id}"));expired=false;connect(a);ui.onNodeWithText("Alpha chat").performClick();ui.waitUntil(10000){vm.target?.connection==a.id && vm.timeline.sequence>=0};assertEquals("preserved draft",vm.draft.text)
     }
 
     @Test fun nativeQuestionReplyAndHistoryPaginationRemainStable() {
@@ -144,7 +169,7 @@ class AppFlowTest {
         assertEquals(listOf("older","message"),vm.timeline.messages.map{it.str("key")});assertFalse(vm.timeline.hasMore)
         val count=calls.size;ui.waitUntil(10000){calls.size>count};assertEquals(2,vm.timeline.messages.size)
         ui.runOnIdle{vm.scrollPosition(0,12,"older",false)}
-        connect(a);ui.waitUntil(10000){vm.target!=null && vm.timeline.messages.any{it.str("key")=="older"}}
+        connect(a);ui.onNodeWithText("Alpha chat").performClick();ui.waitUntil(10000){vm.target!=null && vm.timeline.messages.any{it.str("key")=="older"}}
         assertEquals("older",vm.draft.anchor)
     }
 

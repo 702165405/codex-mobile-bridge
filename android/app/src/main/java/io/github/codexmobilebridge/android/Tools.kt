@@ -1,6 +1,11 @@
 @file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package io.github.codexmobilebridge.android
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -44,6 +49,37 @@ import kotlinx.serialization.json.*
             Toggle(vm.t("显示执行过程","Show execution"),vm.showProcess){vm.preference("process",it.toString())}
             Toggle(vm.t("紧凑布局","Compact layout"),vm.compact){vm.preference("compact",it.toString())}
             Text(vm.t("字号","Font size"));Slider(vm.fontScale,{vm.preference("fontScale",it.toString())},valueRange=.8f..1.5f)
+            HorizontalDivider()
+            TextButton(onClick={vm.openTool("app-notifications")}) {Text(vm.t("App 通知","App notifications"))}
+            Text("Codex Mobile Bridge ${BuildConfig.VERSION_NAME}")
+            TextButton(onClick={vm.openTool("updates")}) {Text(vm.t("版本与更新","Version & updates"))}
+        }
+        "app-notifications" -> {
+            val context=LocalContext.current
+            val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {granted->if(granted)vm.enableAppNotifications(true)}
+            Text(vm.t("App 通知","App notifications"),style=MaterialTheme.typography.titleMedium)
+            Text(vm.t("提醒当前电脑的任务完成、失败和等待回应。退到后台时，通过常驻通知保持连接；停止提醒或强制关闭后不再监测。","Reminds you when tasks finish, fail or need a response on the current computer. A persistent notification maintains the background connection. Monitoring stops when disabled or force-stopped."))
+            Toggle(vm.t("开启 App 通知","Enable app notifications"),vm.appNotifications) {enabled->
+                if(enabled && Build.VERSION.SDK_INT>=33 && !LiveNotifications.permitted(context))permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                else vm.enableAppNotifications(enabled)
+            }
+            if(!LiveNotifications.permitted(context))TextButton(onClick={context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,context.packageName))}) {Text(vm.t("打开系统通知设置","Open system notification settings"))}
+            OutlinedButton(onClick=vm::testAppNotification,enabled=LiveNotifications.permitted(context)) {Text(vm.t("发送测试通知","Send test notification"))}
+            Text(vm.t("点击提醒后进入对应电脑的聊天列表。","Tap a reminder to open that computer's chat list."))
+        }
+        "updates" -> {
+            Text(vm.t("版本与更新","Version & updates"),style=MaterialTheme.typography.titleMedium)
+            Text("Codex Mobile Bridge ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            Text(vm.t("更新地址：","Update source: ")+UPDATE_MANIFEST_URL,style=MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick=vm::checkAppUpdate,enabled=!vm.updateBusy) {Text(vm.t("检查更新","Check for updates"))}
+            if(vm.updateBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(vm.updateMessage.isNotBlank())Text(vm.updateMessage)
+            vm.availableUpdate?.takeIf {it.code>BuildConfig.VERSION_CODE}?.let { update ->
+                Text(vm.t("新版本：","New version: ")+update.version)
+                if(update.notes.isNotBlank())Text(update.notes)
+                Button(onClick={if(vm.updateFile==null)vm.downloadAppUpdate() else vm.installAppUpdate()},enabled=!vm.updateBusy) {Text(if(vm.updateFile==null)vm.t("下载更新","Download update") else vm.t("安装更新","Install update"))}
+            }
+
         }
         "logout" -> {Text(vm.t("退出当前电脑的登录？其他电脑不受影响。","Sign out of this computer? Other computers keep their sessions."));Button(onClick=vm::logout,enabled=ready){Text(vm.t("退出登录","Sign out"))}}
         "details" -> {

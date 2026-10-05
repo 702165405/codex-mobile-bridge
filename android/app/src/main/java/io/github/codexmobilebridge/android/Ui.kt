@@ -12,6 +12,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -84,6 +86,7 @@ val EmptyObject = JsonObject(emptyMap())
                                 DropdownMenuItem(text={ Text(vm.t("PushPlus 通知","PushPlus notifications")) },onClick={ menu=false;vm.openTool("pushplus") })
                                 DropdownMenuItem(text={ Text(vm.t("默认提醒设置","Default reminders")) },onClick={ menu=false;vm.openTool("defaults") })
                             }
+                            DropdownMenuItem(text={ Text(vm.t("App 通知","App notifications")) },onClick={menu=false;vm.openTool("app-notifications")})
                             DropdownMenuItem(text={ Text(vm.t("显示设置","Appearance")) },onClick={ menu=false;vm.openTool("appearance") })
                             DropdownMenuItem(text={ Text(vm.t("退出此电脑登录","Sign out of this computer")) },onClick={ menu=false;vm.openTool("logout") })
                         }
@@ -201,9 +204,21 @@ val EmptyObject = JsonObject(emptyMap())
                 items(rows,key={it.str("host")+"|"+it.str("id")}) { row ->
                     Card(onClick={vm.openChat(row.str("id"),row.str("host","local"))},Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
-                            Text(row.str("title",vm.t("未命名聊天","Untitled chat")),style=MaterialTheme.typography.titleMedium,maxLines=2)
+                            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                vm.activities[activityKey(row)]?.indicator?.let { indicator ->
+                                    val label=when(indicator) {
+                                        "running" -> vm.t("运行中","Running")
+                                        "completed" -> vm.t("已完成，未查看","Completed, unread")
+                                        "failed" -> vm.t("运行失败，未查看","Failed, unread")
+                                        "ended" -> vm.t("已停止，未查看","Stopped, unread")
+                                        else -> vm.t("运行状态暂不可用","Running status unavailable")
+                                    }
+                                    val color=when(indicator) {"running" -> Color(0xFF22C55E);"completed" -> Color(0xFF3B82F6);"failed","ended" -> MaterialTheme.colorScheme.error;else -> MaterialTheme.colorScheme.outline}
+                                    Box(Modifier.size(8.dp).background(color,CircleShape).semantics { contentDescription=label })
+                                }
+                                Text(row.str("title",vm.t("未命名聊天","Untitled chat")),modifier=Modifier.weight(1f),style=MaterialTheme.typography.titleMedium,maxLines=2)
+                            }
                             Text(listOf(row.str("projectName"),row.str("hostLabel",row.str("host"))).filter {it.isNotBlank()}.joinToString(" · "),style=MaterialTheme.typography.bodySmall)
-                            if(row.str("status").isNotBlank()) Text(row.str("status"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
