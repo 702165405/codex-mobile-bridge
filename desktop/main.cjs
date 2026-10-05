@@ -3,7 +3,7 @@ const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,Tray,Menu,net}=require('
 const path=require('node:path');
 const fs=require('node:fs');
 const {pathToFileURL}=require('node:url');
-const {runWorker,workerFor}=require('./controller.cjs');
+const {runWorker,workerFor,createSnapshotWorker}=require('./controller.cjs');
 const {pairingImage}=require('./qr.cjs');
 const {createTray}=require('./tray.cjs');
 const {normalize,translate}=require('./i18n.js');
@@ -19,8 +19,9 @@ const root=path.resolve(__dirname,'..');
 if(process.env.CMB_DATA_DIR)app.setPath('userData',path.join(path.resolve(process.env.CMB_DATA_DIR),'desktop-runtime'));
 let window,dataDir,tray,quitting=false,snapshotPending,lastSnapshot,updateQuitting=false;
 let installPending,installStatus={},updater,workerWrites=0;
+const snapshotWorker=createSnapshotWorker();
 const entry=pathToFileURL(path.join(__dirname,'index.html')).href;
-function releaseTray(){quitting=true;tray?.dispose();tray=null;}
+function releaseTray(){snapshotWorker.close();quitting=true;tray?.dispose();tray=null;}
 function loadDataDir(){
   if(process.env.CMB_UPDATE_DATA_DIR)return path.resolve(process.env.CMB_UPDATE_DATA_DIR);
   if(process.env.CMB_DATA_DIR)return path.resolve(process.env.CMB_DATA_DIR);
@@ -45,11 +46,13 @@ function worker(action,payload){
   if(writes&&updater?.busy)return Promise.reject(Error('正在更新应用，请稍候。'));
   if(writes)workerWrites++;
   if(action==='snapshot'&&snapshotPending)return snapshotPending;
-  const result=runWorker(workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir}),action,payload).then(value=>['snapshot','save'].includes(action)?{...value,networkInterfaces:interfaces(),cloudflaredInstall:installStatus,update:updater?.status(),updateResult:updateResult(),updateManaged:updateManaged()}:value).finally(()=>{if(writes)workerWrites--;});
+  const options=workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir});
+  const result=(action==='snapshot'&&!updater?.busy?snapshotWorker.read(options):runWorker(options,action,payload)).then(value=>['snapshot','save'].includes(action)?{...value,networkInterfaces:interfaces(),cloudflaredInstall:installStatus,update:updater?.status(),updateResult:updateResult(),updateManaged:updateManaged()}:value).finally(()=>{if(writes)workerWrites--;});
   if(action==='snapshot')snapshotPending=result.then(value=>{lastSnapshot=value;return value;}).finally(()=>{snapshotPending=null;});
   return action==='snapshot'?snapshotPending:result;
 }
 async function installUpdate(candidate){
+  snapshotWorker.close();
   const target=process.platform==='darwin'?path.resolve(process.execPath,'../../..'):path.dirname(process.execPath);
   const token=randomUUID();
   const prepared=await worker('update-prepare',{archive:candidate.archive,sha256:candidate.asset.sha256,version:candidate.version,
@@ -70,7 +73,7 @@ async function installUpdate(candidate){
     if(spawnError)throw spawnError;
     if(child.exitCode!==null)throw Error('无法启动应用更新进程。');
     try{if(JSON.parse(fs.readFileSync(ready,'utf8')).token===token){
-      updateQuitting=true;if(snapshotPending)await snapshotPending;
+      updateQuitting=true;if(snapshotPending)await snapshotPending;snapshotWorker.close();
       setTimeout(()=>app.quit(),300);
       // Some macOS window/extension states can keep a graceful quit alive.
       // The helper owns the gateway and waits for this PID, so force exit well
@@ -107,7 +110,7 @@ function register(){
     if(!['zh-CN','en'].includes(value))throw Error('Unsupported language');
     const directory=app.getPath('userData');fs.mkdirSync(directory,{recursive:true});
     fs.writeFileSync(path.join(directory,'language.json'),JSON.stringify({language:value}));
-    language=value;window.setTitle(t('Codex 手机网关'));tray?.relabel();return language;
+    language=value;const title=t('Codex 手机网关');if(window.getTitle()!==title)window.setTitle(title);tray?.relabel();return language;
   });
   for(const action of ['snapshot','save','start','stop','logs','test-notification','check-entry','devices','account', 'accounts','notification-watches'])ipcMain.handle('bridge:'+action,async(event,payload)=>{
     authorize(event);
@@ -197,7 +200,9 @@ function register(){
   });
 }
 function createWindow(){
-  window=new BrowserWindow({width:1100,height:850,minWidth:820,minHeight:640,title:'Codex 手机网关',icon:path.join(__dirname,'assets/icon.png'),backgroundColor:'#f6f7f9',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  window=new BrowserWindow({width:1100,height:850,minWidth:820,minHeight:640,title:t('Codex 手机网关'),icon:path.join(__dirname,'assets/icon.png'),backgroundColor:'#f6f7f9',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  // The native title is owned by the main process, including locale changes.
+  window.on('page-title-updated',event=>event.preventDefault());
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate',event=>event.preventDefault());
   window.webContents.once('did-finish-load',async()=>{

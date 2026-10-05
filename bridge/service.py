@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .ipc import DesktopIPC, IPCError
 from .transport import ipc_endpoint
-from .model import apply_patches, computer_use_approval, items_array, normalize_state, normalize_request, ordered_turns, async_requests, request_id, user_display_text
+from .model import apply_patches, computer_use_approval, items_array, normalize_state, normalize_request, ordered_turns, pending_requests, async_requests, request_id, user_display_text
 from .store import SessionStore, StoreUnavailable
 from .files import artifact_paths
 from .catalog import Catalog
@@ -45,6 +45,7 @@ class LiveSession:
         self.error = None
         self.viewers = 0
         self.watched = False
+        self.notification_probe_until = 0
         self.activity_only = False
         self.touched = time.monotonic()
         self.condition = threading.Condition(threading.RLock())
@@ -94,6 +95,11 @@ class Bridge:
         self.host_errors = []
         self.listed = set()
         self.activity_following = False
+        self.notification_cursor = 0
+        self.notification_client_id = None
+        self.notification_dirty = set()
+        self.notification_boundary = set()
+        self.notification_event = threading.Event()
         self.store = RemoteStore(alias) if alias else SessionStore(codex_home)
         self.catalog_reader = RemoteCatalog(alias) if alias else Catalog(codex_home, codex_bin)
         self.uploads = Uploads(data_dir, (lambda *args: upload_file(alias, *args)) if alias else None)
@@ -609,16 +615,70 @@ class Bridge:
         return rows
 
     def notification_candidates(self):
+        sources = [self]
+        if self.host == 'local':
+            sources.extend(self.for_host(host) for host in self.hosts.hosts())
         rows = []
-        for archived in (False, True):
-            offset = 0
-            while True:
-                page = self.list(limit=500, offset=offset, archived=archived)
-                rows.extend({'id': r['id'], 'host': r['host']} for r in page)
-                if len(page) < 500:
-                    break
-                offset += len(page)
+        for source in sources:
+            source.notification_event = self.notification_event
+            try:
+                # A new IPC connection needs one fresh discovery, even if the
+                # desktop resumed a task without changing its saved metadata.
+                source.ipc.connect()
+                if source.notification_client_id != source.ipc.client_id:
+                    source.notification_cursor = 0
+                    source.notification_boundary.clear()
+                    source.notification_client_id = source.ipc.client_id
+                changes = source.store.notification_changes(source.notification_cursor)
+                cursor = max([source.notification_cursor] + [r['changed_at'] for r in changes])
+                for row in changes:
+                    if row['changed_at'] > source.notification_cursor or row['id'] not in source.notification_boundary:
+                        rows.append({'id': row['id'], 'host': source.host})
+                source.notification_boundary = {r['id'] for r in changes if r['changed_at'] == cursor}
+                source.notification_cursor = cursor
+            except (IPCError, RemoteUnavailable, StoreUnavailable):
+                pass  # Preserve the cursor so the next discovery can recover.
         return rows
+
+    def notification_updates(self):
+        sources = [self] + list(self.remote_bridges.values()) if self.host == 'local' else [self]
+        rows = []
+        for source in sources:
+            with source.lock:
+                identifiers = source.notification_dirty
+                source.notification_dirty = set()
+                sessions = [source.live[i] for i in identifiers if i in source.live]
+            for session in sessions:
+                with session.condition:
+                    state = session.state or {}
+                    if session.connected and (session.watched or state.get('threadRuntimeStatus', {}).get('type') == 'active' or
+                            any(t.get('status') == 'inProgress' for t in ordered_turns(state)) or pending_requests(state)):
+                        rows.append({'id': session.id, 'host': source.host})
+        return rows
+
+    def release_notification_session(self, session):
+        # A follow may be waiting for a snapshot. Never invert its lock order
+        # against the notification worker holding session.condition.
+        if not session.attach_lock.acquire(blocking=False):
+            return False
+        try:
+            session.watched = False
+            with self.submit_lock:
+                queued = any(k.startswith(session.id + ':') and v['status'] == 'queued' for k, v in self.submissions.items())
+            with session.condition:
+                if session.viewers or queued or not session.activity_only:
+                    return True
+                if session.connected or session.discovering:
+                    try:
+                        self.ipc.follow(session.id, session.owner, False, host=self.host)
+                    except IPCError:
+                        pass
+                session.connected = False
+                session.discovering = False
+                session.revision = None
+            return True
+        finally:
+            session.attach_lock.release()
 
     def notification_session(self, thread_id):
         # Follow only; never parse saved history or activate an unloaded owner.
@@ -627,6 +687,8 @@ class Bridge:
             if session is None:
                 session = self.live[thread_id] = LiveSession(thread_id)
                 session.activity_only = True
+        if not session.watched:
+            session.notification_probe_until = time.monotonic() + 10
         session.watched = True
         if not session.connected and time.monotonic() >= session.retry_at:
             session.retry_at = time.monotonic() + 15
@@ -782,6 +844,10 @@ class Bridge:
                 for session in sessions:
                     if session.owner == params.get("clientId"):
                         self._invalidate(session, "桌面会话连接已断开，正在等待重连")
+            # Owner changes can make previously unanswered probes available.
+            self.notification_cursor = 0
+            self.notification_boundary.clear()
+            self.notification_event.set()
             return
         if message.get("method") != "thread-stream-state-changed":
             return
@@ -818,6 +884,9 @@ class Bridge:
                 session.connected = True
                 session.error = None
                 session.changed()
+                with self.lock:
+                    self.notification_dirty.add(session.id)
+                self.notification_event.set()
             except (ValueError, KeyError, IndexError, TypeError):
                 session.connected = False
                 session.revision = None
@@ -832,6 +901,9 @@ class Bridge:
             session.changed()
 
     def _disconnected(self):
+        self.notification_cursor = 0
+        self.notification_boundary.clear()
+        self.notification_event.set()
         with self.lock:
             sessions = list(self.live.values())
         for session in sessions:
