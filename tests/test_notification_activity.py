@@ -1,4 +1,5 @@
 import json
+from contextlib import closing
 import sqlite3
 import tempfile
 import time
@@ -147,11 +148,11 @@ class DiscoveryTests(unittest.TestCase):
         first = self.bridge.notification_candidates()
         self.assertIn(support.THREAD, [r['id'] for r in first])
         self.assertEqual(self.bridge.notification_candidates(), [])
-        with sqlite3.connect(self.root/'state_5.sqlite') as db:
+        with closing(sqlite3.connect(self.root/'state_5.sqlite')) as db, db:
             db.execute('UPDATE threads SET updated_at=updated_at+1 WHERE id=?', (support.THREAD,))
         self.assertEqual(len(self.bridge.notification_candidates()), 1)
         self.assertEqual(self.bridge.notification_candidates(), [])
-        with sqlite3.connect(self.root/'state_5.sqlite') as db:
+        with closing(sqlite3.connect(self.root/'state_5.sqlite')) as db, db:
             db.execute('INSERT INTO threads SELECT ?,title,cwd,updated_at,1,originator,source,rollout_path FROM threads WHERE id=?', (THREAD, support.THREAD))
         self.assertEqual(self.bridge.notification_candidates(), [{'id': THREAD, 'host': 'local'}])
 
