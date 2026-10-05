@@ -56,6 +56,9 @@ class RemoteStore:
             self.cache[key] = (time.monotonic(), rows)
             return rows
 
+    def notification_changes(self, since=0):
+        return self.call('notification_changes', {'since': since})
+
     def get(self, thread_id):
         return self.call('get', {'thread_id': thread_id})
 

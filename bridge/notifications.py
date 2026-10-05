@@ -196,6 +196,9 @@ class Notifications:
         self.candidates = {}
         self.discovery_at = 0
         self.attached = {}
+        self.dormant = set()
+        self.target_signature = None
+        self.wakeup = getattr(bridge, 'notification_event', threading.Event())
         self.worker = None
 
     def start(self):
@@ -204,6 +207,7 @@ class Notifications:
 
     def close(self):
         self.closed.set()
+        self.wakeup.set()
         if self.worker:
             self.worker.join(timeout=2)
         for session in self.attached.values():
@@ -222,6 +226,9 @@ class Notifications:
             if value is not None:
                 if not isinstance(value, dict) or set(value) != {'requests', 'completion'} or any(type(v) is not bool for v in value.values()):
                     raise ValueError('通知开关格式不正确')
+                self.candidates.update({key: {'host': key[0], 'id': key[1]} for key in self.dormant})
+                self.dormant.clear()
+                self.wakeup.set()
                 policies.update(value)
                 write_json(self.data_dir/'notification-policies.json', policies)
             return {key: policies[key] for key in ('requests', 'completion')}
@@ -245,6 +252,8 @@ class Notifications:
                     raise ValueError('聊天通知设置格式不正确')
                 if self.bridge is not None:
                     self.bridge.for_host(host).store.get(thread_id)
+                self.dormant.discard((host, thread_id))
+                self.wakeup.set()
                 policies.setdefault('chats', {})[host + '|' + thread_id] = value
                 self._clear_completion(host, thread_id)
                 write_json(self.data_dir/'notification-completions.json', self.completions)
@@ -283,6 +292,8 @@ class Notifications:
             if enabled is False:
                 completion = False
             if enabled is not None or notify_on_completion is not None:
+                self.dormant.discard((host, thread_id))
+                self.wakeup.set()
                 if selected and not targets and not existing_only:
                     raise ValueError('请先配置并开启 PushPlus、Bark 或 ntfy 通知')
                 if not selected and completion:
@@ -354,6 +365,7 @@ class Notifications:
                 return []
             previous = self.completions.get(key)
             current = self._completion_baseline(turns)
+            current['title'] = row.get('title') or (previous or {}).get('title') or '聊天'
             if previous is not None:
                 # Only turns after the last live boundary (or observed running) are new.
                 # Older pages loaded into a snapshot must never become completion alerts.
@@ -387,24 +399,75 @@ class Notifications:
             base = next((o for o in origins if urlsplit(o).hostname not in ('127.0.0.1', 'localhost')), '')
         return base.rstrip('/') + '/#' + thread_id + '~' + quote(host, safe='') if base else ''
 
+    def _send_keys(self, config, row, title, channel, target, keys, completed):
+        now = time.time()
+        pending = [k for k in keys if not self.ledger.get(k, {}).get('delivered') and now >= self.ledger.get(k, {}).get('next', 0)]
+        if not pending:
+            return False
+        current = self._effective(row)
+        if not current['notifyOnCompletion' if completed else 'notifyOnRequest']:
+            return False
+        heading = 'Codex 运行已完成' if completed else 'Codex 需要你的确认'
+        body = f'有 {len(pending)} 次运行已完成，请打开聊天查看。' if completed else f'有 {len(pending)} 项请求等待处理，请打开聊天查看。'
+        if config['includeTitle']:
+            body = title[:120] + '\n' + body
+        try:
+            sender = {'ntfy': publish, 'bark': publish_bark, 'pushplus': publish_pushplus}[channel]
+            sender(config, heading, body, self.click_url(config, row['id'], row['host']))
+            for key in pending:
+                self.ledger[key] = {'delivered': True, 'time': now}
+            self._status(channel, lastSent=now, error='')
+        except Exception:
+            for key in pending:
+                attempts = self.ledger.get(key, {}).get('attempts', 0) + 1
+                self.ledger[key] = {'delivered': False, 'attempts': attempts, 'next': now + min(300, 5 * 2 ** min(attempts, 6)), 'time': now}
+            self._status(channel, error='发送失败，将在提醒仍开启时重试完成通知；待确认通知仅在请求仍待处理时重试。请检查服务地址、认证和网络。')
+        return True
+
     def scan(self):
         config = settings(self.data_dir)
         targets = channels(config)
+        signature = tuple(sorted(targets.items()))
+        if signature != self.target_signature:
+            self.candidates.update({key: {'host': key[0], 'id': key[1]} for key in self.dormant})
+            self.dormant.clear()
+            self.target_signature = signature
+        if targets and hasattr(self.bridge, 'notification_updates'):
+            for row in self.bridge.notification_updates():
+                key = (row['host'], row['id'])
+                self.candidates[key] = row
+                self.dormant.discard(key)
         if targets and time.monotonic() >= self.discovery_at and hasattr(self.bridge, 'notification_candidates'):
-            self.discovery_at = time.monotonic() + 15
-            if any(self.defaults().values()):
-                for row in self.bridge.notification_candidates():
-                    self.candidates[(row['host'], row['id'])] = row
+            self.discovery_at = time.monotonic() + 30
+            # Explicit watches also need to discover a new run after going idle.
+            for row in self.bridge.notification_candidates():
+                key = (row['host'], row['id'])
+                self.candidates[key] = row
+                self.dormant.discard(key)
         with self.lock:
-            watches = self._selected() if targets else []
-            tracked = {self._completion_key(r['host'], r['id'], target) for r in watches if r.get('notifyOnCompletion') for target in targets.values()}
-            if set(self.completions) - tracked:
-                self.completions = {k: v for k, v in self.completions.items() if k in tracked}
-                write_json(self.data_dir/'notification-completions.json', self.completions)
+            watches = [r for r in self._selected() if (r['host'], r['id']) not in self.dormant] if targets else []
+            changed = False
+            policies, legacy_rows = self.policies(), self.watches()
+            for key, record in list(self.completions.items()):
+                host, identifier, target = json.loads(key)
+                row = {'host': host, 'id': identifier}
+                if target not in targets.values() or not self._effective(row, policies, legacy_rows)['notifyOnCompletion']:
+                    del self.completions[key]
+                    write_json(self.data_dir/'notification-completions.json', self.completions)
+                    continue
+                channel = next(c for c, t in targets.items() if t == target)
+                keys = [self._delivery_key(row, turn, completion=True, target=target) for turn in record['pending']]
+                changed = self._send_keys(config, row, record.get('title') or '聊天', channel, target, keys, True) or changed
         selected = {(r['host'], r['id']) for r in watches}
         for key in set(self.attached) - selected:
-            self.attached.pop(key).watched = False
-        changed = False
+            session = self.attached[key]
+            source = self.bridge.for_host(key[0])
+            if hasattr(source, 'release_notification_session'):
+                if not source.release_notification_session(session):
+                    continue
+            else:
+                session.watched = False
+            self.attached.pop(key, None)
         self._status(error='')
         for channel, target in targets.items():
             self._status(channel, target=target)
@@ -426,37 +489,34 @@ class Notifications:
                             write_json(self.data_dir/'notification-watches.json', rows)
                         current = self._effective(row)
                         if not session.connected:
+                            # Allow an asynchronous initial snapshot to arrive, then
+                            # retire unanswered probes until a later discovery.
+                            if hasattr(source, 'release_notification_session') and time.monotonic() >= session.notification_probe_until and source.release_notification_session(session):
+                                key = (row['host'], row['id'])
+                                self.dormant.add(key)
+                                self.candidates.pop(key, None)
+                                self.attached.pop(key, None)
                             continue  # Saved history is not a live pending approval.
                         requests = pending_requests(session.state)
                         title = session.state.get('title') or '聊天'
                         turns = [{'turnId': t.get('turnId'), 'status': t.get('status')} for t in ordered_turns(session.state)]
-                    completed_keys = {channel: self._completion_pending(current, turns, target) if current.get('notifyOnCompletion') else [] for channel, target in targets.items()}
+                    completed_keys = {channel: self._completion_pending({**current, 'title': title}, turns, target) if current.get('notifyOnCompletion') else [] for channel, target in targets.items()}
                 for channel, target in targets.items():
                     with self.lock:
-                        current = self._effective(row)
-                        now = time.time()
                         for completed, keys in ((False, [self._delivery_key(row, r['id'], target=target) for r in requests]), (True, completed_keys[channel])):
-                            if not current['notifyOnCompletion' if completed else 'notifyOnRequest']:
-                                continue
-                            pending = [k for k in keys if not self.ledger.get(k, {}).get('delivered') and now >= self.ledger.get(k, {}).get('next', 0)]
-                            if not pending:
-                                continue
-                            heading = 'Codex 运行已完成' if completed else 'Codex 需要你的确认'
-                            body = f'有 {len(pending)} 次运行已完成，请打开聊天查看。' if completed else f'有 {len(pending)} 项请求等待处理，请打开聊天查看。'
-                            if config['includeTitle']:
-                                body = title[:120] + '\n' + body
-                            try:
-                                sender = {'ntfy': publish, 'bark': publish_bark, 'pushplus': publish_pushplus}[channel]
-                                sender(config, heading, body, self.click_url(config, row['id'], row['host']))
-                                for key in pending:
-                                    self.ledger[key] = {'delivered': True, 'time': now}
-                                self._status(channel, lastSent=now, error='')
-                            except Exception:
-                                for key in pending:
-                                    attempts = self.ledger.get(key, {}).get('attempts', 0) + 1
-                                    self.ledger[key] = {'delivered': False, 'attempts': attempts, 'next': now + min(300, 5 * 2 ** min(attempts, 6)), 'time': now}
-                                self._status(channel, error='发送失败，将在提醒仍开启时重试完成通知；待确认通知仅在请求仍待处理时重试。请检查服务地址、认证和网络。')
-                            changed = True
+                            changed = self._send_keys(config, row, title, channel, target, keys, completed) or changed
+                if hasattr(source, 'release_notification_session'):
+                    # Keep only live tasks and approvals attached. Completion retry
+                    # records above are independent of the thread subscription.
+                    with session.condition:
+                        state = session.state or {}
+                        runtime = state.get('threadRuntimeStatus', {}).get('type')
+                        active = bool(pending_requests(state)) or runtime == 'active' or any(t.get('status') == 'inProgress' for t in ordered_turns(state))
+                        if not active and source.release_notification_session(session):
+                            key = (row['host'], row['id'])
+                            self.dormant.add(key)
+                            self.candidates.pop(key, None)
+                            self.attached.pop(key, None)
             except Exception:
                 self._status(error='部分关注聊天暂时无法连接，请检查电脑 App 或 SSH 连接。')
         if changed:
@@ -483,4 +543,7 @@ class Notifications:
                 self.scan()
             except Exception:
                 self._status(error='通知配置读取失败，请在电脑启动器重新保存配置。')
-            self.closed.wait(3)
+            self.wakeup.wait(3)
+            self.wakeup.clear()
+            # Coalesce a burst of stream patches rather than scan per token.
+            self.closed.wait(1)

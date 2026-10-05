@@ -81,6 +81,22 @@ class SessionStore:
             rows = conn.execute("SELECT " + ",".join(fields) + " FROM threads WHERE " + " AND ".join(where) + " ORDER BY " + recency + " DESC, id DESC LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
             return [dict(row) for row in rows]
 
+    def notification_changes(self, since=0):
+        """Only metadata changed since discovery; never read rollout history."""
+        with self._connect() as conn:
+            columns = {r[1] for r in conn.execute('PRAGMA table_info(threads)')}
+            clocks = [name + ('' if name.endswith('_ms') else ' * 1000')
+                      for name in ('updated_at', 'updated_at_ms', 'recency_at', 'recency_at_ms') if name in columns]
+            clock = 'MAX(' + ','.join('COALESCE(' + c + ',0)' for c in clocks) + ',0)'
+            owner = "(originator IN ('Codex Desktop', 'codex_work_desktop', 'codex_mobile_bridge') OR (originator IS NULL AND source = 'vscode'))" if 'originator' in columns else '1'
+            filters = [owner, clock + ' >= ?']
+            if 'thread_source' in columns:
+                filters.append("COALESCE(thread_source, '') != 'subagent'")
+            if 'source' in columns:
+                filters.append("COALESCE(source, '') NOT LIKE '%\"subagent\"%'")
+            return [dict(row) for row in conn.execute('SELECT id, ' + clock +
+                    ' AS changed_at FROM threads WHERE ' + ' AND '.join(filters), (since,))]
+
     def recencies(self, identifiers):
         if not identifiers:
             return {}

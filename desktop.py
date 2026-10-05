@@ -10,11 +10,22 @@ def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stdin.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'deployment', 'export-deployment', 'check-entry', 'devices', 'pairing', 'account', 'accounts', 'notification-watches', 'serve', 'update-prepare', 'update-apply'])
+    parser.add_argument('action', choices=['snapshot-stream', 'snapshot', 'save', 'start', 'stop', 'logs', 'test-notification', 'deployment', 'export-deployment', 'check-entry', 'devices', 'pairing', 'account', 'accounts', 'notification-watches', 'serve', 'update-prepare', 'update-apply'])
     parser.add_argument('--data-dir', required=True)
     parser.add_argument('--plan')
     args = parser.parse_args()
     desktop = Desktop(args.data_dir)
+    if args.action == 'snapshot-stream':
+        # Private stdio only; no new network or management endpoint.
+        for line in sys.stdin:
+            try:
+                if json.loads(line) != {'action': 'snapshot'}:
+                    raise ValueError('不支持的状态查询')
+                result = {'ok': True, 'result': desktop.snapshot()}
+            except Exception as exc:
+                result = {'ok': False, 'error': str(exc)}
+            print(json.dumps(result, ensure_ascii=False), flush=True)
+        return
     if args.action == 'serve':
         import run
         sys.argv = [sys.argv[0], *desktop.argv()]
