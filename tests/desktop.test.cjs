@@ -82,8 +82,8 @@ async function renderer(initialLanguage='zh-CN'){
   const api={account:async()=>({visible:false}),language:async()=>initialLanguage,setLanguage:async value=>value,snapshot:async()=>structuredClone(value),start:async()=>({started:true,message:'正在启动网关'}),
     save:async payload=>{value.preferences={...value.preferences,...payload.preferences};return structuredClone(value);},logs:async()=>({text:''})};
   const context=vm.createContext({window:{bridgeDesktop:api},
-    localStorage:{getItem(){return null;},setItem(){}},document:{documentElement:{},getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
-    URL,Date:class extends Date{static now(){return now;}},setTimeout(){},clearTimeout(){},setInterval:(callback,ms)=>{if(callback.name==='refresh')poll=callback;}});
+    localStorage:{getItem(){return null;},setItem(){}},document:{hidden:false,addEventListener(name,fn){this[name]=fn;},documentElement:{},getElementById:id=>nodes.get(id),createElement:node,querySelectorAll:()=>[]},
+    URL,Date:class extends Date{static now(){return now;}},setTimeout(){},clearTimeout(){},clearInterval(){},setInterval:(callback,ms)=>{if(callback.name==='refresh')poll=callback;}});
   for(const name of ['web/i18n.js','desktop/connections.js','desktop/pairing.js','web/account.js','desktop/watches.js','desktop/renderer.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',name),'utf8'),context);
   await new Promise(setImmediate);
   return {nodes,value,context,api,run:code=>vm.runInContext(code,context),poll:()=>poll(),advance:ms=>{now+=ms;},start:()=>nodes.get('start').onclick()};
@@ -472,4 +472,51 @@ test('entry notification preference, current-link test and update readiness stay
   const config=ui.run('collect()');
   assert.equal(config.notifications.addressEnabled,true);
   assert.equal(config.notifications.addressName,'Home computer');
+});
+
+
+test('hidden controller pauses snapshots and unchanged state does not rebuild address cards',async()=>{
+ const ui=await renderer();let reads=0,paints=0;
+ ui.api.snapshot=async()=>{reads++;return structuredClone(ui.value);};
+ ui.nodes.get('addresses').replaceChildren=()=>paints++;
+ await ui.poll();await ui.poll();assert.equal(paints,0);
+ ui.value.runtime.running=true;await ui.poll();assert.equal(paints,1);
+ ui.context.document.hidden=true;await ui.context.document.visibilitychange();await ui.poll();assert.equal(reads,3);
+ ui.context.document.hidden=false;await ui.context.document.visibilitychange();await new Promise(setImmediate);assert.equal(reads,4);
+});
+
+test('snapshot worker reuses a process and isolates data directory changes',async()=>{
+ const {createSnapshotWorker}=require('../desktop/controller.cjs'),{EventEmitter}=require('node:events');
+ let spawned=0;const children=[];
+ const launch=()=>{spawned++;const child=new EventEmitter();child.stdout=new EventEmitter();child.stdout.setEncoding=()=>{};child.stderr=new EventEmitter();child.stdin=new EventEmitter();child.kill=()=>{child.killed=true;};child.stdin.write=()=>setImmediate(()=>child.stdout.emit('data',JSON.stringify({ok:true,result:{value:spawned}})+'\n'));children.push(child);return child;};
+ const worker=createSnapshotWorker({launch}),a={executable:'fixture',dataDir:'a'};
+ try{assert.equal((await worker.read(a)).value,1);await worker.read(a);assert.equal(spawned,1);
+  assert.equal((await worker.read({...a,dataDir:'b'})).value,2);assert.ok(children[0].killed);
+  children[1].emit('close');assert.equal((await worker.read(a)).value,3);
+ }finally{worker.close();}assert.ok(children[2].killed);
+});
+
+
+test('native window title ignores page changes and only updates when locale changes',()=>{
+  const fs=require('node:fs'),vm=require('node:vm'),requireMain=require('node:module').createRequire(path.resolve(__dirname,'../desktop/main.cjs'));
+  const handlers={},events={};let instance,changes=0;
+  class Window {
+    constructor(options){instance=this;this.title=options.title;this.webContents={mainFrame:{url:require('node:url').pathToFileURL(path.resolve(__dirname,'../desktop/index.html')).href},setWindowOpenHandler(){},on(){},once(){}};}
+    on(name,handler){events[name]=handler;}loadFile(){}getTitle(){return this.title;}setTitle(value){changes++;this.title=value;}
+  }
+  const context=vm.createContext({__dirname:path.resolve(__dirname,'../desktop'),process:{env:{},platform:'darwin'},require(name){
+    if(name==='electron')return {app:{requestSingleInstanceLock:()=>true,whenReady:()=>({then(){}}),on(){},getPath:()=>'.tmp'},BrowserWindow:Window,ipcMain:{handle:(name,handler)=>handlers[name]=handler}};
+    if(name==='node:fs')return {...fs,mkdirSync(){},writeFileSync(){}};
+    if(name==='./qr.cjs')return {};
+    return requireMain(name);
+  }});
+  vm.runInContext(fs.readFileSync(path.resolve(__dirname,'../desktop/main.cjs'),'utf8'),context);
+  context.createWindow();context.register();
+  assert.equal(instance.title,'Codex 手机网关');
+  let prevented=0;events['page-title-updated']({preventDefault(){prevented++;}},'Different page title');
+  assert.equal(prevented,1);assert.equal(instance.title,'Codex 手机网关');
+  const event={sender:instance.webContents,senderFrame:instance.webContents.mainFrame};
+  handlers['bridge:set-language'](event,'zh-CN');assert.equal(changes,0);
+  handlers['bridge:set-language'](event,'en');assert.equal(changes,1);
+  handlers['bridge:set-language'](event,'en');assert.equal(changes,1);
 });

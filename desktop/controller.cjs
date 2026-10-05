@@ -19,4 +19,43 @@ function workerFor({packaged,resources,root,dataDir}){
   return packaged?{executable:path.join(resources,'gateway',process.platform==='win32'?'codex-mobile-gateway.exe':'codex-mobile-gateway'),dataDir}:
     {executable:process.env.CMB_PYTHON||(process.platform==='win32'?'python':'python3'),prefix:['-B',path.join(root,'desktop.py')],dataDir};
 }
-module.exports={runWorker,workerFor};
+// One private read-only worker per controller. Writes remain one-shot commands.
+function createSnapshotWorker({launch=spawn,timeout=25000}={}){
+  let child,key,pending,buffer='';
+  function close(error=Error('状态查询已关闭')){
+    const old=child;child=null;key=null;buffer='';
+    if(pending){clearTimeout(pending.timer);pending.reject(error);pending=null;}
+    old?.kill();
+  }
+  function read(options){
+    const next=JSON.stringify(options);
+    if(child&&key!==next)close();
+    if(pending)return pending.promise;
+    if(!child){
+      child=launch(options.executable,[...(options.prefix||[]),'snapshot-stream','--data-dir',options.dataDir],{stdio:['pipe','pipe','pipe'],windowsHide:true});
+      key=next;const current=child;
+      const failed=error=>{if(child===current)close(error);};
+      current.on('error',failed);current.on('close',()=>failed(Error('状态查询进程已退出')));
+      current.stdin.on('error',failed);current.stderr.on('data',()=>{});
+      current.stdout.setEncoding('utf8');
+      current.stdout.on('data',data=>{
+        if(child!==current)return;
+        buffer+=data;let end;
+        while((end=buffer.indexOf('\n'))!==-1){
+          const line=buffer.slice(0,end);buffer=buffer.slice(end+1);
+          if(!pending)continue;
+          const request=pending;pending=null;clearTimeout(request.timer);
+          try{const value=JSON.parse(line);if(!value.ok)throw Error(value.error);request.resolve(value.result);}
+          catch(error){request.reject(error);}
+        }
+      });
+    }
+    let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});
+    pending={promise,resolve,reject,timer:setTimeout(()=>close(Error('状态查询超时')),timeout)};
+    child.stdin.write(JSON.stringify({action:'snapshot'})+'\n');
+    return promise;
+  }
+  return {read,close};
+}
+
+module.exports={runWorker,workerFor,createSnapshotWorker};
