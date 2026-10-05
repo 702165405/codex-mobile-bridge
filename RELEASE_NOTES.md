@@ -1,11 +1,9 @@
-## v1.3.3 · 通知监控与桌面刷新优化
+## v1.3.3 · 能耗与通知优化
 
 - **按需监控会话**：持续监听运行中和等待处理的会话，结束后解除通知订阅；通过实时事件和每 30 秒的变更元数据检查发现新任务，减少反复读取历史会话。
 - **通知重试更独立**：完成通知发送失败时保留重试记录，不必持续订阅已结束会话。补齐会话再次运行、断线恢复、通知开关变化及完成状态先后到达的处理。
-- **减少桌面后台开销**：状态查询复用进程；窗口隐藏时暂停刷新，状态不变时不重绘界面。
+- **优化能耗**：状态查询复用进程；窗口隐藏时暂停刷新，状态不变时不重绘界面。
 - **稳定窗口标题**：统一管理原生窗口标题，避免页面标题反复覆盖；切换语言时按需更新。
-
-本地 30 次状态查询对照中，该查询环节的 CPU 时间约减少 87%；这不是整个 App 的能耗降幅，实际效果随使用情况变化。
 
 Mac / Windows v1.1.0 及后续版本可在“应用更新”选择“更新并重启”。保留数据目录即可保留登录、网络和通知设置。通过临时 HTTPS 远程升级前，请确认 v1.3.2 引入的“网关启动与入口通知”已开启且手机能够收到。Linux 仍为实验性支持，请停止网关并退出 App 后手动安装新版。
 
@@ -21,8 +19,6 @@ Mac / Windows v1.1.0 及后续版本可在“应用更新”选择“更新并�
 - Retry failed completion alerts independently of subscriptions. Handle resumed chats, reconnection, notification preference changes, and completion updates arriving in separate steps.
 - Reuse the desktop status worker, pause refreshes while the window is hidden, and skip unchanged UI renders.
 - Keep the native window title stable and update it only when the language changes.
-
-A local comparison of 30 status queries used about 87% less CPU time for this query path. This is not a measurement of total App energy savings.
 
 **Upgrade:** Mac / Windows v1.1.0 and later support App updates → Update and restart. Retain the data directory to preserve settings. Before a remote update over temporary HTTPS, enable and test the startup and entry notifications introduced in v1.3.2. Linux remains experimental and requires a manual upgrade after stopping the gateway and quitting the App.
 
