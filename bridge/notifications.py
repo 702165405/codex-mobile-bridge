@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit
-from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPSHandler
+from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPSHandler, ProxyHandler
 
 from .model import pending_requests, ordered_turns
 from .tls import client_context
@@ -124,8 +124,12 @@ def publish_bark(config, title, body, click=''):
         payload['url'] = click
     request = Request(server + '/push', data=json.dumps(payload, ensure_ascii=False).encode(),
                       headers={'Content-Type': 'application/json'})
+    handlers = [NoRedirect(), HTTPSHandler(context=client_context())]
+    # A local Bark gateway must not receive a private device key through a system proxy.
+    if urlsplit(server).hostname in ('localhost', '127.0.0.1', '::1'):
+        handlers.insert(0, ProxyHandler({}))
     try:
-        with build_opener(NoRedirect(), HTTPSHandler(context=client_context())).open(request, timeout=8) as response:
+        with build_opener(*handlers).open(request, timeout=8) as response:
             result = json.loads(response.read(65536))
             if not 200 <= response.status < 300 or not isinstance(result, dict) or result.get('code') != 200:
                 raise ValueError('Rejected')

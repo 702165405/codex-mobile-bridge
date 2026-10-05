@@ -229,6 +229,35 @@ class UploadActivityTests(unittest.TestCase):
         self.assertEqual(Path(resolved['path']), image.resolve())
         self.assertTrue(resolved['image'])
 
+    def test_model_markdown_cannot_leave_roots_but_imageview_can(self):
+        import tempfile
+        from bridge.files import artifact_paths
+        with tempfile.TemporaryDirectory(dir=self.root.parent) as directory:
+            outside = Path(directory) / 'desktop-evidence.png'
+            outside.write_bytes(PNG)
+            workspace = self.root / 'workspace';workspace.mkdir(exist_ok=True)
+            codex_home = self.root / 'codex-home';codex_home.mkdir(exist_ok=True)
+            markdown = {'cwd': str(workspace), 'turns': [{'items': [
+                {'type': 'agentMessage', 'text': f'![outside]({outside})'}]}]}
+            self.assertEqual(artifact_paths(markdown, codex_home), {})
+            evidence = {'cwd': str(workspace), 'turns': [{'items': [
+                {'type': 'agentMessage', 'text': f'![outside]({outside})'},
+                {'type': 'ImageView', 'path': outside.as_uri()}]}]}
+            rows = artifact_paths(evidence, codex_home)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(next(iter(rows.values()))['path'], outside.resolve())
+
+            session = self.bridge.session(THREAD)
+            markdown_only = {'turns': [{'items': [{'type': 'agentMessage', 'text': f'![outside]({outside})'}]}]}
+            with session.condition:
+                session.state = markdown_only;session.changed()
+            image_id = hashlib.sha256(str(outside.resolve()).encode('utf-8')).hexdigest()
+            with self.assertRaises(KeyError):self.bridge.desktop_image_preview(THREAD, image_id)
+            evidence_state = {'turns': [{'items': [{'type': 'ImageView', 'path': outside.as_uri()}]}]}
+            with session.condition:
+                session.state = evidence_state;session.changed()
+            self.assertEqual(Path(self.bridge.desktop_image_preview(THREAD, image_id)[0]['previewPath']), outside.resolve())
+
     def test_timeline_annotates_only_ledger_image_attachments(self):
         image = self.upload('photo.png', PNG)
         stored = self.bridge.uploads.get(THREAD, image['id'])

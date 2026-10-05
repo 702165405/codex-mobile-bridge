@@ -1,3 +1,18 @@
+## v1.3.4 修复验证（2026-10-05）
+
+- Quick Tunnel：排除 Cloudflare API 域名误识别；cloudflared 仍在重试时保持 connecting，不再提前失败或重启存活进程。真实包内隧道冒烟通过，本机与外网 HTTP 均为 200。
+- 更新链路：官方直连优先、受限镜像兜底；签名与包哈希不放松。检查按钮立即进入忙碌态，更新助手重试自有网关停止确认，保留启动输出/控制错误并持久化更新结果日志。本机 Bark 测试请求不再经过系统代理，避免设备 Key 泄露给代理。
+- 图片预览：本机会话可渲染模型 Markdown 本地图片和运行时 `ImageView` 证据；模型 Markdown 仍限制在 workspace/visualizations，只有 `ImageView` 允许桌面截图特例。兼容 `ImageView` / `imageView`，空正文不占位，路径不跨会话暴露，仍需登录与图片类型校验。
+- 模型目录：自定义 provider 优先读取运行时 `model/list`，仅在无原生目录时回退 OpenAI-compatible `/models`；目录携带当前 effort，手机端可加载 3 个 GLM 模型与 low–ultra 强度，且不向其他端点转发凭据。
+- 独立加载：进入会话时 `catalog?kind=models` 与 `catalog?kind=skills` 并行请求，分别缓存；模型读取不被 Skill 扫描阻塞。Skill 默认 200 条、最大 500 条分页，搜索 200ms debounce，虚拟列表每次仅渲染约 30 条；重复打开等待同一 pending 请求，不重复触发 runtime。
+- Skill 一致性：用户自装 Skill 权威目录为 `~/.codex/skills`，符号链接逃出 `~/.codex` 时不触发 runtime 扫描；SQLite 按 `CODEX_HOME + cwd` 分桶，WAL/0600/原子写入，5000 条目录分页和搜索通过。发送前校验路径边界、文件大小、mtime 和 SHA-256，失效选择不允许静默发送。远端 SSH 在远端主机读取和校验，不把远端 metadata 写入本机。
+- 竞态与滚动：搜索或显式刷新会递增 Skill 请求代际并重置滚动位置；延迟 append 返回时若查询已变化则丢弃，不覆盖新搜索结果。
+- 最终回归：Python 428 项通过、4 项平台条件跳过；Desktop/Web Node 140 项通过。包含与 main 新增通知监控/能耗优化合并后的完整套件。
+- macOS arm64 v1.3.4 包通过深度严格签名、架构、内置运行时、公网 HTTPS 和打包 App 隔离启动冒烟校验。
+
+---
+
+
 # 验证记录
 
 ## v1.3.3 发布准备（2026-10-05）

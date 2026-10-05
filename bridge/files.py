@@ -45,8 +45,13 @@ def reference_path(value):
         return None
 
 
-def referenced_model_images(state):
-    """Map image paths explicitly shown or embedded by model output for this thread."""
+def referenced_model_images(state, image_views_only=False):
+    """Map image paths shown by the runtime or embedded in model output.
+
+    ImageView rows are runtime-generated evidence and may point at desktop-side
+    screenshots outside a workspace. Markdown image links are model-authored
+    text and must not grant that broader filesystem trust.
+    """
     result = {}
     def add(value, reference):
         # Remove an editor line suffix without changing the reference shown by
@@ -63,7 +68,7 @@ def referenced_model_images(state):
             kind = item.get('type')
             if kind in ('ImageView', 'imageView'):
                 add(item.get('path'), item.get('path'))
-            elif kind in AGENT_KINDS:
+            elif kind in AGENT_KINDS and not image_views_only:
                 text = item.get('text', '')
                 if isinstance(text, str):
                     for match in IMAGE_MARKDOWN_PATH.finditer(text):
@@ -90,17 +95,17 @@ def artifact_paths(state, codex_home):
                         candidates.add(value)
     result = {}
     model_images = referenced_model_images(state)
+    trusted_views = referenced_model_images(state, image_views_only=True)
     for raw in candidates:
-        # Preserve the displayed link while removing an editor line suffix from the path.
+        # Model-authored Markdown and response attachments remain bound to the
+        # workspace/visualization roots even when they name an image suffix.
         value = re.sub(r':\d+$', '', raw)
         path = reference_path(value)
         if not path:
             continue
         try:
             path = path.resolve(strict=True)
-            is_model_image = path in model_images and path.suffix.lower() in IMAGE_SUFFIXES
-            if ((not is_model_image and not any(root in path.parents for root in roots))
-                    or not path.is_file() or path.stat().st_size > 50 * 1024 * 1024):
+            if not any(root in path.parents for root in roots) or not path.is_file() or path.stat().st_size > 50 * 1024 * 1024:
                 continue
         except OSError:
             continue
@@ -108,9 +113,12 @@ def artifact_paths(state, codex_home):
         result[key] = {'path': path, 'reference': raw, 'name': path.name,
                        'image': path.suffix.lower() in IMAGE_SUFFIXES}
     # A path can be shown once as ImageView and embedded later with another text
-    # form (usually a plain absolute path versus file://). Prefer the exact
-    # Markdown reference so renderMarkdown can resolve it to this artifact ID.
+    # form (usually a plain absolute path versus file://). Only the runtime view
+    # grants the outside-workspace exception; collect all references so Markdown
+    # can still resolve to the same authenticated artifact ID.
     for path, references in model_images.items():
+        if path not in trusted_views:
+            continue
         try:
             if not path.is_file() or path.stat().st_size > 50 * 1024 * 1024:
                 continue

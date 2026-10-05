@@ -407,7 +407,19 @@ class Handler(BaseHTTPRequestHandler):
                 if action is None:
                     return self.output(200, bridge.view(thread_id, background=True))
                 if action == "catalog":
-                    return self.output(200, bridge.catalog(thread_id, refresh=query.get("refresh") == ["true"]))
+                    kind = query.get("kind", [None])[0]
+                    try:
+                        offset = max(0, int(query.get("offset", ["0"])[0]))
+                        limit = min(500, max(1, int(query.get("limit", ["200"])[0])))
+                    except ValueError:
+                        raise ValueError("Skill 分页参数无效") from None
+                    requested_ids = [value for value in query.get("id", []) if value]
+                    if len(requested_ids) > 8:
+                        raise ValueError("最多关联 8 个已选 Skill")
+                    ids = list(dict.fromkeys(requested_ids))
+                    return self.output(200, bridge.catalog(
+                        thread_id, refresh=query.get("refresh") == ["true"], kind=kind,
+                        query=query.get("q", [""])[0][:200], offset=offset, limit=limit, ids=ids))
                 if action == "poll":
                     return self.poll(bridge, thread_id, int(query.get("after", ["-1"])[0]))
                 if action == "events":

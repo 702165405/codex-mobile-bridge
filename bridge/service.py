@@ -1141,7 +1141,7 @@ class Bridge:
                         path = attachment.get('path')
                         if isinstance(path, str) and path:
                             paths.append(Path(path))
-            paths.extend(referenced_model_images(session.state or {}))
+            paths.extend(referenced_model_images(session.state or {}, image_views_only=True))
         for path in paths:
             try:
                 resolved = path.resolve()
@@ -1240,18 +1240,25 @@ class Bridge:
             result['meta']['forkedFrom'] = self._fork_origin(thread_id)
         return result
 
-    @operation
-    def catalog(self, thread_id, refresh=False):
+    def catalog(self, thread_id, refresh=False, kind=None, query='', offset=0, limit=200, ids=None):
         session = self.session(thread_id)
         with session.condition:
             cwd = session.state.get("cwd")
             model = session.state.get("latestModel")
             effort = session.state.get("latestReasoningEffort") or (session.state.get("latestThreadSettings") or {}).get("effort")
             provider = session.view().get('provider')
+        if kind in ('models', 'skills'):
+            value = self.catalog_reader.get_kind(kind, cwd, refresh=refresh, provider=provider,
+                                                 query=query, offset=offset, limit=limit, ids=ids)
+            if kind == 'models':
+                return {**value, 'kind': 'models', 'currentModel': model or value.get('currentModel'),
+                        'currentEffort': effort or value.get('currentEffort')}
+            return {**value, 'kind': 'skills'}
         catalog = self.catalog_reader.get(cwd, refresh=refresh, provider=provider)
         with session.condition:
             view = session.view()
-        return {**catalog, "currentModel": model, "currentEffort": effort,
+        return {**catalog, "currentModel": model or catalog.get("currentModel"),
+                "currentEffort": effort or catalog.get("currentEffort"),
                 'fastMode': {**catalog.get('fastMode', {}), 'allowed': view.get('provider') == 'openai' and catalog.get('fastMode', {}).get('allowed') is True},
                 **({'currentServiceTier': view['serviceTier']} if 'serviceTier' in view else {})}
 
@@ -1260,12 +1267,18 @@ class Bridge:
             raise ValueError("最多选择 8 个 Skill")
         if not skills:
             return []
-        catalog = self.catalog(session.id)
-        by_id = {s["id"]: s for s in catalog["skills"]}
+        with session.condition:
+            cwd = session.state.get("cwd") or str(self.codex_home)
+        identifiers = sorted(set(skills))
+        try:
+            rows = self.catalog_reader.validate_skills(cwd, identifiers)
+        except ValueError:
+            rows = self.catalog_reader.validate_skills(cwd, identifiers, refresh=True)
+        by_id = {row["id"]: row for row in rows}
         selected = []
-        for key in sorted(set(skills)):
+        for key in identifiers:
             skill = by_id.get(key)
-            if not skill or (self.host == "local" and not Path(skill["path"]).is_file()):
+            if not skill:
                 raise ValueError("Skill 不可用，请刷新列表")
             selected.append({"id": key, "name": skill["name"], "path": skill["path"]})
         return selected

@@ -457,7 +457,9 @@ class IntegrationTests(unittest.TestCase):
     def test_explicit_skill_input_and_dedup(self):
         path = self.root / 'SKILL.md'
         path.write_text('---\nname: sample\n---\nSample')
-        self.bridge.catalog_reader.get = lambda *a, **k: {'models': [], 'skills': [{'id': 'sample-id', 'name': 'sample', 'path': str(path)}]}
+        skill = {'id': 'sample-id', 'name': 'sample', 'path': str(path)}
+        self.bridge.catalog_reader.get_kind = lambda kind, *a, **k: {'skills': [skill]}
+        self.bridge.catalog_reader.validate_skills = lambda cwd, ids, refresh=False: ([skill] if set(ids) == {'sample-id'} else [])
         message_id = str(uuid.uuid4())
         self.bridge.send(THREAD, 'Use this skill', message_id, skills=['sample-id'])
         request = self.fixture.requests[-1]['params']['turnStart']['request']
@@ -470,7 +472,8 @@ class IntegrationTests(unittest.TestCase):
     def test_remote_host_routes_send_settings_and_approval_to_mac_owner(self):
         host = 'remote-ssh-discovered:fixture'
         self.bridge.host = self.fixture.host = host
-        self.bridge.catalog_reader.get = lambda *a, **k: {'models': [], 'skills': []}
+        self.bridge.catalog_reader.get = lambda *a, **k: {'models': [], 'skills': [], 'fastMode': {'allowed': False}}
+        self.bridge.catalog_reader.get_kind = lambda kind, *a, **k: {'skills': []}
         self.fixture.state['requests'] = [{'id': 7, 'method': 'item/commandExecution/requestApproval', 'params': {}}]
         self.assertTrue(self.bridge.view(THREAD)['connected'])
         self.bridge.send(THREAD, 'remote', str(uuid.uuid4()))
@@ -692,6 +695,23 @@ class HttpTests(unittest.TestCase):
         self.server.bridge.for_host.assert_called_once_with('remote')
         remote.rename.assert_called_once_with(THREAD, 'New')
 
+    def test_skill_catalog_route_paginates_searches_and_hydrates_selection(self):
+        from unittest.mock import Mock
+        headers = self.login()
+        catalog = self.server.bridge.catalog = Mock()
+        catalog.return_value = {'kind': 'skills', 'skills': [], 'selectedSkills': [], 'total': 0}
+        path = ('/api/sessions/' + THREAD + '/catalog?kind=skills&q=fixture&limit=5&offset=10'
+                '&id=selected-1&id=selected-2&id=selected-1&host=local')
+        status, _, body = self.request('GET', path, headers=headers)
+        self.assertEqual(status, 200)
+        self.assertEqual(catalog.call_args.args, (THREAD,))
+        self.assertEqual(catalog.call_args.kwargs, {'refresh': False, 'kind': 'skills', 'query': 'fixture', 'offset': 10, 'limit': 5, 'ids': ['selected-1', 'selected-2']})
+        self.assertEqual(self.request('GET', '/api/sessions/'+THREAD+'/catalog?kind=skills&limit=999', headers=headers)[0], 200)
+        self.assertEqual(catalog.call_args.kwargs['limit'], 500)
+        self.assertEqual(self.request('GET', '/api/sessions/'+THREAD+'/catalog?kind=skills&offset=-1', headers=headers)[0], 200)
+        self.assertEqual(catalog.call_args.kwargs['offset'], 0)
+        self.assertEqual(self.request('GET', '/api/sessions/'+THREAD+'/catalog?kind=skills&offset=bad', headers=headers)[0], 400)
+
     def test_web_appearance_assets_are_served_with_correct_types(self):
         for name, content_type in [('presentation.js', 'text/javascript'), ('presentation.css', 'text/css')]:
             conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
@@ -817,7 +837,7 @@ class HttpTests(unittest.TestCase):
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
             scripts = re.findall(r'<script src="([^"]+)"', response.read().decode())
-            self.assertEqual(scripts, ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
+            self.assertEqual([script.split('?', 1)[0] for script in scripts], ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
                                        '/vendor/texmath.js', '/message-actions.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/modes.js', '/attachments.js', '/activity.js', '/fast-mode.js', '/accounts.js', '/app.js', '/presentation.js'])
             for script in scripts:
                 conn.request('GET', script)

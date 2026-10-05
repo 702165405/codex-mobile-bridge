@@ -1,3 +1,18 @@
+## v1.3.4 · Quick Tunnel、更新链路与图片预览修复
+
+### 本次更新
+
+- 修复 Quick Tunnel 在 Cloudflare API 重试时被提前判定失败的问题；`api.trycloudflare.com` 不再被误认为隧道入口。
+- 更新链路支持 GitHub 镜像兜底，检查更新状态更明确；更新助手可靠停止自有网关，并保留 App/网关启动诊断和历史结果。
+- 手机网页可渲染模型回答中的本地图片嵌入和 `ImageView` 预览；兼容 `ImageView` / `imageView` 命名，保留保存历史证据，并移除重复文件名与空占位。模型 Markdown 图片仍限制在会话工作区，只有运行时 `ImageView` 证据允许桌面图片特例。自定义模型优先读取运行时原生模型目录，模型列表和推理强度与桌面端一致。进入会话后模型与 Skill 独立异步加载；Skill 使用按 `CODEX_HOME + cwd` 分桶的 SQLite 缓存，支持搜索、分页、已选项补全、虚拟滚动、后台刷新和发送前内容一致性校验。
+
+**English**
+
+**v1.3.4 fixes Quick Tunnel startup, the in-app update path, and model image previews.** GitHub requests can use a restricted mirror fallback while manifest signatures and archive hashes stay authoritative. The update helper reliably stops only the managed gateway and preserves launch diagnostics. Mobile web renders embedded model images and runtime ImageView previews while keeping model-authored Markdown images inside workspace roots. Skill catalogs now use per-CODEX_HOME/cwd SQLite buckets with search, pagination, selected-item hydration, virtual scrolling, background refresh, and send-time consistency checks.
+
+---
+
+
 ## v1.3.3 · 能耗与通知优化
 
 - **按需监控会话**：持续监听运行中和等待处理的会话，结束后解除通知订阅；通过实时事件和每 30 秒的变更元数据检查发现新任务，减少反复读取历史会话。
