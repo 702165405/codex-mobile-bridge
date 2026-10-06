@@ -20,6 +20,12 @@
 
 Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明见 [Linux 文档](docs/linux.md)。提供 `.deb` 和 AppImage；原生 CI 验证安装、启动与网关功能，具体 Codex 桌面版本的 IPC 兼容性仍以实机测试为准。
 
+## 原生安卓 App
+
+提供 Android 8.0 及以上的原生客户端 **Codex Mobile Bridge**，支持保存多台电脑的 HTTPS 地址、独立登录和快速切换。对于习惯使用手机 App 的用户，聊天操作、系统文件选择、原生阅读和 App 打开期间的通知集中在一个入口，日常使用更方便。电脑端仍需运行网关。
+
+[下载安卓签名 APK](https://github.com/702165405/codex-mobile-bridge/releases/latest) · [功能、构建与升级说明](android/README.md) · [测试结果](android/TEST_RESULTS.md)。安卓更新使用该仓库的 GitHub Release，支持同签名覆盖升级；记住账号密码为可选功能，并按电脑连接加密保存。
+
 ## 消息编辑、分支与复制
 
 - 用户消息下方可复制内容。最近一条选择「编辑并重新发送」；更早的消息选择「编辑并新建分支」，原会话保留。

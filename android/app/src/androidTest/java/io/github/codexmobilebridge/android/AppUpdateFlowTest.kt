@@ -18,7 +18,7 @@ class AppUpdateFlowTest {
         ui.runOnIdle {val vm=ViewModelProvider(ui.activity)[BridgeViewModel::class.java];vm.showConnections();vm.preference("language","en");vm.openTool("updates")}
         ui.onNodeWithText("Codex Mobile Bridge ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})").assertExists()
         ui.onNodeWithText("Check for updates").assertExists()
-        val update=AppUpdate("9.0.0",999,"a".repeat(64),"https://mac.lqilt.top/android/app.apk","")
+        val update=AppUpdate("9.0.0",999,"a".repeat(64),"https://github.com/702165405/codex-mobile-bridge/releases/download/android-v9.0.0/app.apk","")
         val client=OkHttpClient.Builder().addInterceptor {chain ->Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("test").body(ResponseBody.create(null,"corrupt APK")).build()}.build()
         val updates=AppUpdates(client)
         assertTrue(runCatching {runBlocking {updates.download(ui.activity,update)}}.isFailure)

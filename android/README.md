@@ -1,10 +1,10 @@
 # Codex Mobile Bridge Android
 
-Kotlin / Jetpack Compose Material 3 原生客户端，无 WebView。Android 8.0+，版本 1.0.6，包名 `io.github.codexmobilebridge.android`。基于上游 v1.3.2（`38e61873b6790a5226b0d872411f6afa5b0b85b8`），开发分支 `codex/android-native`。
+Kotlin / Jetpack Compose Material 3 原生客户端，无 WebView。Android 8.0+，版本 1.0.8，包名 `io.github.codexmobilebridge.android`。基于上游 v1.4.0（`a924de0`），开发分支 `codex/android-native`。
 
 ## 安装与连接
 
-安装 `dist/android/Codex-Mobile-Bridge-1.0.6.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
+安装 `dist/android/Codex-Mobile-Bridge-1.0.8.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
 
 首页添加多台电脑，保存名称、排序和最近使用时间。点击卡片独立登录；聊天顶部电脑图标切换连接。可粘贴网页扫码登录链接，也可通过安卓系统分享将链接传入 App。账号密码登录可勾选「记住账号和密码」，登录成功后按连接独立保存，使用 Android Keystore 加密；重新登录时自动填入，不自动提交。取消勾选或删除连接会清除该连接保存的账号密码。免密网关显示免密连接按钮。扫码登录链接只在首次打开或新分享时消费，旋转不会重复兑换。
 
@@ -72,19 +72,17 @@ android/gradlew -p android :app:connectedDebugAndroidTest
 
 需要已启动的安卓设备或模拟器。调试包使用 `.debug` 包名后缀，与正式签名包并存，不覆盖正式连接数据。测试在设备内部启动两个独立 HTTPS 网关，覆盖原生登录、切换、草稿／上次聊天恢复、认证发送、退出隔离、Keystore 加密持久化、长消息／表格／公式、主题、生命周期轮询、账户与审批协议、附件失败重试、结果未知防重、离线及登录过期。主 Activity 测试检查键盘、系统返回、旋转和重建。
 
-详见 [测试结果](TEST_RESULTS.md)。没有自动提交 PR，也没有发布应用商店。
+详见 [测试结果](TEST_RESULTS.md)。提供源码与签名 APK，不发布应用商店版本。
 
-## App 内更新（1.0.4：自有域名）
+## App 内更新（1.0.8：GitHub Releases）
 
-打开右上角设置 →「版本与更新」（已登录时从聊天菜单 → 显示设置进入）。无需连接或登录电脑即可查看版本和检查更新。更新清单固定为 `https://mac.lqilt.top/android/update.json`，直接获取 JSON，不再访问 GitHub。下载地址允许清单内的相对路径或同域名、同端口的 HTTPS APK 地址；禁止跳转到其他来源。不发送网关 Cookie、CSRF 或登录凭据。
+打开右上角设置 →「版本与更新」，无需连接电脑即可查看版本、检查、下载和安装更新。默认读取 `https://github.com/702165405/codex-mobile-bridge/releases/latest/download/update.json`，APK 来自同仓库的版本 Release。更新 HTTP 客户端与聊天登录隔离，不发送网关 Cookie、CSRF 或登录凭据。
 
-发现更高 versionCode 后可下载更新，校验 SHA-256、包名、版本和当前已安装签名，再调用安卓系统安装器。首次需要允许此 App 安装应用，返回后再点击安装。失败可重试，失败不会显示“已是最新版本”。1.0.2／1.0.3 的更新源还是 GitHub，需要手动安装 1.0.4 一次；以后可以从此域名更新。调试包不能安装正式更新。
+只接受当前仓库的 HTTPS Release 下载地址。GitHub 的重定向限制为当前仓库的 Release 路径及 `release-assets.githubusercontent.com`，最多 6 次请求。下载后检查 SHA-256、应用包名、版本及当前安装签名，再交给安卓系统安装器；首次需允许 App 安装应用。下载失败可重试，调试包不能安装正式更新。
 
-域名当前指向需登录的聊天网关。必须在 HTTPS 反向代理中增加独立 `/android/` 静态路径，使清单和 APK 的 GET 请求无需登录，并保留现有聊天代理。可参考 `android/hosting/nginx-location.conf`，将文件放在配置中的 `/srv/codex-android/`（NAS 按真实目录修改）。先检查 Nginx 配置，再平滑重载。证书必须有效，不提供跳过 TLS 校验。
+发布步骤：增加 versionCode／versionName，用同一签名运行 `build-release.py`；运行 `python3 android/scripts/create-update-manifest.py --notes '中文更新说明'`。脚本默认生成 `android-v<版本>` Release 中的 APK 地址。向 `702165405/codex-mobile-bridge` 的对应 Release 上传 APK、update.json 和 SHA256SUMS，并将此安卓 Release 标记为 Latest。此仓库的 Latest Release 应保留安卓更新资产；上游桌面 Release 不受影响。先使用草稿 Release 上传所有资产，确认齐全后发布，避免清单指向未上传文件。签名密钥始终保存在本机，不上传 GitHub。
 
-每次发布：增加 versionCode／versionName，用原签名运行 `build-release.py`；运行 `python3 android/scripts/create-update-manifest.py --notes '本次更新说明'`。先上传 APK，最后替换 `update.json`（建议临时文件上传后原子改名），避免新清单指向尚未上传的文件。`--base-url https://mac.lqilt.top/android/` 为默认目录。清单和 APK 须来自同一次构建，禁止上传签名密钥。
-
-验证：GET `https://mac.lqilt.top/android/update.json` 应返回 200 和 JSON；清单中的 apkUrl 应返回 200 和 APK，SHA-256 应与清单一致。404 表示文件或路径有误；401 表示仍然走聊天登录代理。客户端和代理均不应缓存旧清单。
+1.0.7 及此前使用旧更新源的版本可先从旧源进行一次过渡升级，或直接下载并覆盖安装 1.0.8，之后使用 GitHub 更新。自有 HTTPS 静态服务配置仅作为可选示例保留，见 `hosting/nginx-location.conf`。
 
 ## 列表运行提示（1.0.3）
 

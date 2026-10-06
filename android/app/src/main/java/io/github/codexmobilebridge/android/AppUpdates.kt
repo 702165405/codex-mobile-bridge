@@ -17,7 +17,13 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
-const val UPDATE_MANIFEST_URL = "https://mac.lqilt.top/android/update.json"
+const val GITHUB_RELEASE_ROOT = "https://github.com/702165405/codex-mobile-bridge/releases/"
+const val UPDATE_MANIFEST_URL = GITHUB_RELEASE_ROOT + "latest/download/update.json"
+fun githubReleaseUrl(address:String): Boolean {
+    val url=address.toHttpUrl()
+    return url.isHttps && url.host=="github.com" && url.port==443 && url.username.isEmpty() && url.password.isEmpty() && url.query==null && url.fragment==null &&
+        (url.encodedPath.startsWith("/702165405/codex-mobile-bridge/releases/download/") || url.encodedPath.startsWith("/702165405/codex-mobile-bridge/releases/latest/download/"))
+}
 fun normalizeUpdateManifestUrl(address:String): String {
     val url=address.trim().toHttpUrl()
     require(url.isHttps && url.username.isEmpty() && url.password.isEmpty() && url.fragment==null && url.query==null && url.encodedPath.endsWith(".json")) { "请输入 HTTPS 更新清单地址 / Enter an HTTPS manifest URL" }
@@ -33,12 +39,28 @@ fun parseAppUpdate(value: JsonObject, manifestUrl:String=UPDATE_MANIFEST_URL): A
     val url=source.resolve(value.str("apkUrl")) ?: error("无效下载地址 / Invalid download URL")
     require(code > 0 && hash.matches(Regex("[a-f0-9]{64}"))) { "无效更新信息 / Invalid update metadata" }
     require(value.str("apkUrl").isNotBlank() && url.isHttps && url.host==source.host && url.port==source.port && url.username.isEmpty() && url.password.isEmpty() && url.fragment==null && url.query==null && url.encodedPath.endsWith(".apk")) { "无效下载地址 / Invalid download URL" }
+    require(!githubReleaseUrl(source.toString()) || githubReleaseUrl(url.toString())) { "更新包不属于当前 GitHub 仓库 / Wrong GitHub repository" }
     return AppUpdate(value.str("versionName"),code,hash,url.toString(),value.str("notes"))
 }
 // This separate client never sends gateway cookies or credentials to the update server.
-class AppUpdates(private val client:OkHttpClient=OkHttpClient.Builder().connectTimeout(20,TimeUnit.SECONDS).readTimeout(60,TimeUnit.SECONDS).callTimeout(5,TimeUnit.MINUTES).followRedirects(false).followSslRedirects(false).build()) {
+class AppUpdates(client:OkHttpClient=OkHttpClient.Builder().connectTimeout(20,TimeUnit.SECONDS).readTimeout(60,TimeUnit.SECONDS).callTimeout(5,TimeUnit.MINUTES).followRedirects(false).followSslRedirects(false).build()) {
+    private val client=client.newBuilder().followRedirects(false).followSslRedirects(false).build()
     private fun request(url:String)=Request.Builder().url(url).header("User-Agent","CodexMobileBridgeAndroid/${BuildConfig.VERSION_NAME}").header("Cache-Control","no-cache").build()
-    private fun readJson(url:String): JsonElement = client.newCall(request(url)).execute().use { response ->
+    private fun response(address:String): okhttp3.Response {
+        var url=address
+        val github=githubReleaseUrl(address)
+        repeat(6) {
+            val response=client.newCall(request(url)).execute()
+            if(response.code !in listOf(301,302,303,307,308))return response
+            val target=response.header("Location")?.let {response.request.url.resolve(it)}
+            response.close()
+            require(github && target!=null && target.isHttps && target.port==443 && target.username.isEmpty() && target.password.isEmpty() && target.fragment==null &&
+                (githubReleaseUrl(target.toString()) || target.host=="release-assets.githubusercontent.com")) { "更新地址跳转不受信任 / Untrusted update redirect" }
+            url=target.toString()
+        }
+        error("更新地址跳转过多 / Too many update redirects")
+    }
+    private fun readJson(url:String): JsonElement = response(url).use { response ->
         check(response.isSuccessful) { "HTTP ${response.code}" }
         val body=response.body!!
         require(body.contentLength() <= 1024*1024)
@@ -54,7 +76,7 @@ class AppUpdates(private val client:OkHttpClient=OkHttpClient.Builder().connectT
         val file=File(dir,"update.apk")
         file.delete()
         try {
-            client.newCall(request(update.apkUrl)).execute().use { response ->
+            response(update.apkUrl).use { response ->
                 check(response.isSuccessful) { "HTTP ${response.code}" }
                 require(response.body!!.contentLength() <= 150L*1024*1024)
                 response.body!!.byteStream().use { input -> file.outputStream().use { output ->
