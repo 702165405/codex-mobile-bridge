@@ -166,8 +166,10 @@ val EmptyObject = JsonObject(emptyMap())
     if(paste) TextPrompt(vm,vm.t("粘贴登录链接","Paste login link"),"",{paste=false}) {vm.importLink(it);paste=false}
 }
 @Composable fun LoginScreen(vm: BridgeViewModel) {
-    var username by rememberSaveable(vm.selected?.id) { mutableStateOf("admin") }
-    var password by remember(vm.selected?.id) { mutableStateOf("") }
+    val saved = remember(vm.selected?.id) { vm.selected?.let { vm.store.savedLogin(it.id) } }
+    var username by rememberSaveable(vm.selected?.id) { mutableStateOf(saved?.username ?: "admin") }
+    var password by remember(vm.selected?.id) { mutableStateOf(saved?.password ?: "") }
+    var rememberPassword by remember(vm.selected?.id) { mutableStateOf(saved != null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
         Icon(Icons.Default.Lock,null,Modifier.size(48.dp),tint=MaterialTheme.colorScheme.primary)
         Text(vm.selected?.name ?: "",style=MaterialTheme.typography.headlineSmall)
@@ -176,8 +178,12 @@ val EmptyObject = JsonObject(emptyMap())
         else {
             OutlinedTextField(username,{username=it},label={Text(vm.t("账号","Username"))},singleLine=true,enabled=!vm.busy,modifier=Modifier.fillMaxWidth())
             OutlinedTextField(password,{password=it},label={Text(vm.t("密码","Password"))},singleLine=true,visualTransformation=PasswordVisualTransformation(),enabled=!vm.busy,modifier=Modifier.fillMaxWidth())
+            Row(verticalAlignment=Alignment.CenterVertically) {
+                Checkbox(rememberPassword,{checked -> rememberPassword=checked;if(!checked)vm.selected?.let {vm.store.saveLogin(it.id,null)}},enabled=!vm.busy)
+                Text(vm.t("记住账号和密码","Remember username and password"))
+            }
         }
-        Button(onClick={vm.login(if(vm.passwordless) "" else username,if(vm.passwordless) "" else password);password=""},enabled=!vm.busy,modifier=Modifier.fillMaxWidth()) { Text(vm.t("连接电脑","Connect")) }
+        Button(onClick={vm.login(if(vm.passwordless) "" else username,if(vm.passwordless) "" else password,rememberPassword)},enabled=!vm.busy,modifier=Modifier.fillMaxWidth()) { Text(vm.t("连接电脑","Connect")) }
         TextButton(onClick={vm.selected?.let {vm.select(it)}} ,enabled=!vm.busy) {Text(vm.t("重新检查连接","Retry connection"))}
         if(vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
     }

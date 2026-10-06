@@ -184,8 +184,11 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         foreground = false;LiveNotifications.foreground=false;LiveNotifications.visible=null; polling?.cancel(); listPolling?.cancel(); api?.cancel()
         saveDraft(); busy = false
     }
-    fun login(username: String,password: String) = action {
-        api!!.api("/api/login",payload("username" to username,"password" to password)); enter()
+    fun login(username: String,password: String,rememberPassword: Boolean = false) = action {
+        val connection = selected!!
+        api!!.api("/api/login",payload("username" to username,"password" to password))
+        if(!passwordless) store.saveLogin(connection.id,if(rememberPassword) SavedLogin(username,password) else null)
+        enter()
     }
     fun importLink(link: String) {
         try {

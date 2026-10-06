@@ -12,7 +12,10 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Encrypted app state (sessions, drafts, pending operations); never store login passwords. */
+@kotlinx.serialization.Serializable
+data class SavedLogin(val username: String, val password: String)
+
+/** App state and opt-in saved logins encrypted with Android Keystore. */
 class AppStore(context: Context) {
     private val prefs = context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
     private val secret by lazy {
@@ -42,6 +45,8 @@ class AppStore(context: Context) {
     fun saveConnections(rows: List<Connection>) = put("connections",json.encodeToString(rows))
     fun draft(key: String) = get("draft:$key")?.let { runCatching { json.decodeFromString<Draft>(it) }.getOrNull() } ?: Draft()
     fun saveDraft(key: String, draft: Draft) = put("draft:$key",json.encodeToString(draft))
+    fun savedLogin(connectionId: String) = get("login:$connectionId")?.let { runCatching { json.decodeFromString<SavedLogin>(it) }.getOrNull() }
+    fun saveLogin(connectionId: String, login: SavedLogin?) = put("login:$connectionId",login?.let { json.encodeToString(it) })
     fun removeConnection(id: String) {
         prefs.all.keys.filter { it.contains(id) }.forEach { put(it,null) }
         saveConnections(connections().filter { it.id != id })

@@ -94,3 +94,7 @@ Android 11 模拟器已有 9 项客户端交互测试通过。新通知测试实
 未验证真实手机省电策略，也未在 Android 13+ 模拟器验证运行时通知权限及 Android 14+ specialUse 分支；代码遵循相应 API 版本检查，使用现有 Android 11 模拟器完成实际通知测试。没有修改网关或服务端协议，没有向真实网关发送聊天消息、审批回复或 PushPlus 测试消息。
 
 1.0.6 正式 APK 原签名校验及 Android 11 模拟器覆盖安装通过。已发布到 mac.lqilt.top，公网清单为 versionCode 7 / versionName 1.0.6，完整 APK 下载 SHA-256 与清单及本地一致。旧清单备份为远端 /var/backups/codex-android/update-before-1.0.6.json。没有修改 Nginx 配置或上传源码、签名密钥。
+
+## 1.0.7 记住登录信息（2026-10-06）
+
+按连接独立保存账号密码，仅在登录成功且勾选记住时写入 Android Keystore 加密存储；取消勾选、删除连接或更换地址清除对应凭据。重新登录自动填入，不自动发送登录请求。Android 11 模拟器新增 SavedLoginTest 通过，验证密文存储、重建恢复、两连接隔离和清除；现有 21 项单元测试通过。仅安卓提供记住密码功能，网页保持原有登录方式。
