@@ -39,19 +39,19 @@
 <span data-en="On the same network" >只在同一网络使用</span>
 </a>
 <a href="#quick" data-method="quick">
-<strong data-en="Temporary HTTPS" >临时 HTTPS</strong>
+<strong data-en="Temporary HTTPS · Recommended" >临时 HTTPS · 推荐</strong>
 <span data-en="No server or domain" >没有服务器，也没有域名</span>
 </a>
 <a href="#cloudflare" data-method="cloudflare">
-<strong data-en="Named Cloudflare Tunnel" >Cloudflare 固定域名</strong>
+<strong data-en="Named Cloudflare Tunnel · Advanced" >Cloudflare 固定域名 · 进阶</strong>
 <span data-en="Domain, without server maintenance" >有域名，希望少管服务器</span>
 </a>
 <a href="#server" data-method="server">
-<strong data-en="Own server + SSH" >自有服务器 + SSH</strong>
+<strong data-en="Own server + SSH · Advanced" >自有服务器 + SSH · 进阶</strong>
 <span data-en="Public server and domain" >有公网服务器和域名</span>
 </a>
 <a href="#nas" data-method="nas">
-<strong data-en="NAS / Docker" >NAS / Docker</strong>
+<strong data-en="NAS / Docker · Advanced" >NAS / Docker · 进阶</strong>
 <span data-en="Existing NAS / HTTPS proxy" >已有 NAS / HTTPS 反代</span>
 </a>
 </nav>
@@ -110,6 +110,7 @@
 </section>
 <section class="setup-panel" id="quick" data-setup-panel="quick" aria-labelledby="quick-title">
 <h2 data-en="Temporary HTTPS: no server setup" id="quick-title">临时 HTTPS：不用准备服务器</h2>
+<p class="callout" data-en="Recommended for quick personal access: no domain or server, with the fewest setup steps. The current URL can usually remain in use while the gateway and tunnel process stay running and connected; Cloudflare does not guarantee permanent allocation or uptime. Enable address notifications and configure a notification channel to receive the new URL when the tunnel is recreated. Delivery depends on connectivity and the notification service.">推荐个人快速接入：无需域名和服务器，配置最少、上手最快。网关与隧道进程持续运行且连接正常时，通常可以沿用当前地址；Cloudflare 不保证永久占用或持续可用。隧道重建导致地址变化后，启用“每次启动网关及入口变化时发送地址”并配置好通知渠道，即可接收新地址；送达时间取决于网络与通知服务。</p>
 <p data-en="For trying remote access when a changing URL is acceptable." class="panel-intro">适合先体验外网访问，可以接受地址变化。</p>
 <figure class="network-map">
 <div class="map-flow">
@@ -163,6 +164,7 @@
 </section>
 <section class="setup-panel" id="cloudflare" data-setup-panel="cloudflare" aria-labelledby="cloudflare-title">
 <h2 data-en="Named Cloudflare Tunnel: a domain is enough" id="cloudflare-title">Cloudflare 固定域名：只有域名也能配置</h2>
+<p class="callout" data-en="Advanced setups require relevant knowledge of DNS, HTTPS, SSH, server or NAS administration. Commands and configurations are references only and may not suit your environment. Review them, back up your data and obtain the necessary authorization before use. You assume the risks of using, modifying or executing these examples. To the maximum extent permitted by applicable law, the authors and contributors are not liable for resulting data loss, service interruption, security incidents, costs or other loss, except liability that cannot lawfully be excluded or limited.">进阶方案需要具备 DNS、HTTPS、SSH、服务器或 NAS 管理等相关知识。本文命令与配置仅供参考，不保证适合你的环境；执行前请自行核对、备份并取得必要授权。使用、修改或执行这些示例的风险由使用者自行承担。在适用法律允许的最大范围内，项目作者与贡献者不对由此造成的数据丢失、服务中断、安全事件、费用或其他损失承担责任；依法不得排除或限制的责任除外。</p>
 <p class="example-note" data-en="App controls below refer to the unreleased local preview. Server and DNS preparation also apply independently of the app version.">以下 App 操作对应尚未发布的本地预览版；服务器与 DNS 的准备方法不依赖这些新按钮。</p>
 <p data-en="Requires your own domain, a Cloudflare account and an online work computer." class="panel-intro">需要自己的域名、Cloudflare 账号，以及保持在线的工作电脑。</p>
 <figure class="network-map">
@@ -343,6 +345,7 @@
 </section>
 <section class="setup-panel" id="server" data-setup-panel="server" aria-labelledby="server-title">
 <h2 data-en="Own server + SSH: prepare the server step by step" id="server-title">自有服务器 + SSH：把服务器准备清楚</h2>
+<p class="callout" data-en="Advanced setups require relevant knowledge of DNS, HTTPS, SSH, server or NAS administration. Commands and configurations are references only and may not suit your environment. Review them, back up your data and obtain the necessary authorization before use. You assume the risks of using, modifying or executing these examples. To the maximum extent permitted by applicable law, the authors and contributors are not liable for resulting data loss, service interruption, security incidents, costs or other loss, except liability that cannot lawfully be excluded or limited.">进阶方案需要具备 DNS、HTTPS、SSH、服务器或 NAS 管理等相关知识。本文命令与配置仅供参考，不保证适合你的环境；执行前请自行核对、备份并取得必要授权。使用、修改或执行这些示例的风险由使用者自行承担。在适用法律允许的最大范围内，项目作者与贡献者不对由此造成的数据丢失、服务中断、安全事件、费用或其他损失承担责任；依法不得排除或限制的责任除外。</p>
 <p class="example-note" data-en="App controls below refer to the unreleased local preview. Server and DNS preparation also apply independently of the app version.">以下 App 操作对应尚未发布的本地预览版；服务器与 DNS 的准备方法不依赖这些新按钮。</p>
 <p data-en="The public server provides HTTPS; your work computer initiates the return tunnel." class="panel-intro">公网服务器提供固定 HTTPS 入口，工作电脑主动建立回程隧道。</p>
 <figure class="network-map">
@@ -874,6 +877,7 @@ sudo systemctl reload nginx</code>
 </section>
 <section class="setup-panel" id="nas" data-setup-panel="nas" aria-labelledby="nas-title">
 <h2 data-en="NAS / existing proxy: reuse a reachable network" id="nas-title">NAS / 已有反代：复用已连通的网络</h2>
+<p class="callout" data-en="Advanced setups require relevant knowledge of DNS, HTTPS, SSH, server or NAS administration. Commands and configurations are references only and may not suit your environment. Review them, back up your data and obtain the necessary authorization before use. You assume the risks of using, modifying or executing these examples. To the maximum extent permitted by applicable law, the authors and contributors are not liable for resulting data loss, service interruption, security incidents, costs or other loss, except liability that cannot lawfully be excluded or limited.">进阶方案需要具备 DNS、HTTPS、SSH、服务器或 NAS 管理等相关知识。本文命令与配置仅供参考，不保证适合你的环境；执行前请自行核对、备份并取得必要授权。使用、修改或执行这些示例的风险由使用者自行承担。在适用法律允许的最大范围内，项目作者与贡献者不对由此造成的数据丢失、服务中断、安全事件、费用或其他损失承担责任；依法不得排除或限制的责任除外。</p>
 <p data-en="Requires a public HTTPS entry and NAS reachability to the work computer gateway." class="panel-intro">需要已有公网 HTTPS 入口，并且 NAS 能访问工作电脑网关。</p>
 <figure class="network-map">
 <div class="map-flow">
