@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 import socket
 import tempfile
 import threading
@@ -130,7 +131,7 @@ class ConnectionSetupTests(unittest.TestCase):
             vault.set_password.side_effect = RuntimeError('vault locked')
             with self.assertRaisesRegex(ValueError, '无法保存'):
                 connection_secrets.save(self.directory, 'two', {'password': 'very-secret'})
-        self.assertNotIn('very-secret', ''.join(p.read_text() for p in self.directory.iterdir()))
+        self.assertNotIn('very-secret', ''.join(p.read_text(encoding='utf-8') for p in self.directory.iterdir()))
         self.assertEqual(read_json(self.directory/'connection-vault.json', {}), {'one': True})
         with patch.object(connection_secrets, 'backend', side_effect=AssertionError('vault not needed')):
             self.assertEqual(connection_secrets.read(self.directory, 'unsaved-key'), {})
@@ -196,7 +197,7 @@ class ConnectionSetupTests(unittest.TestCase):
         desktop = Desktop(self.directory)
         desktop.status = lambda: {'running': False}
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as bundle:
-            binary = Path(bundle)/'cloudflared'/'cloudflared'
+            binary = Path(bundle)/'cloudflared'/('cloudflared.exe' if os.name == 'nt' else 'cloudflared')
             binary.parent.mkdir()
             binary.write_text('fixture')
             with patch('sys._MEIPASS', bundle, create=True):
@@ -363,7 +364,7 @@ class SSHIntegrationTests(unittest.TestCase):
         channel.close()
         forward.close()
         self.assertFalse(forward.thread.is_alive())
-        self.assertNotIn('correct-secret', ''.join(p.read_text() for p in self.directory.glob('*.json')))
+        self.assertNotIn('correct-secret', ''.join(p.read_text(encoding='utf-8') for p in self.directory.glob('*.json')))
 
 class NamedTunnelTests(unittest.TestCase):
     def test_token_stays_out_of_argv_and_status_and_stop_closes_process(self):
@@ -386,5 +387,5 @@ class NamedTunnelTests(unittest.TestCase):
             call = spawn.call_args
             self.assertNotIn('secret-fixture-token', ' '.join(call.args[0]))
             self.assertEqual(call.kwargs['env']['TUNNEL_TOKEN'], 'secret-fixture-token')
-            self.assertNotIn('secret-fixture-token', ''.join(p.read_text() for p in Path(directory).iterdir()))
+            self.assertNotIn('secret-fixture-token', ''.join(p.read_text(encoding='utf-8') for p in Path(directory).iterdir()))
             self.assertEqual(read_json(Path(directory)/'ssh-status-test-server.json', {})['state'], 'stopped')
