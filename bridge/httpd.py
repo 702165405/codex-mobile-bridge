@@ -14,12 +14,14 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from .uploads import MAX_FILE
+from .notifications import settings as notification_settings, save_settings as save_notification_settings, publish_pushplus
 from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit, quote
 
 from .pairing import Pairing
-from .auth import Auth
+from .auth import Auth, LoginRejected
 from .ipc import IPCError
+from .goal import GoalError
 from .catalog import CatalogError
 from .store import StoreUnavailable
 from .remote import RemoteUnavailable
@@ -34,6 +36,7 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/attachments.js": ("attachments.js", "text/javascript; charset=utf-8"),
           "/activity.js": ("activity.js", "text/javascript; charset=utf-8"),
           "/fast-mode.js": ("fast-mode.js", "text/javascript; charset=utf-8"),
+          "/accounts.js": ("accounts.js", "text/javascript; charset=utf-8"),
           "/account.js": ("account.js", "text/javascript; charset=utf-8"),
           "/account.css": ("account.css", "text/css; charset=utf-8"),
           "/presentation.js": ("presentation.js", "text/javascript; charset=utf-8"),
@@ -48,25 +51,38 @@ STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/icon.png": ("icon.png", "image/png")}
-THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications|uploads|message-action))?$")
+THREAD_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})(?:/(events|send|stop|history|respond|reconnect|queue|catalog|settings|poll|timeline|changes|detail|notifications|uploads|message-action|rename))?$")
 FONT_ROUTE = re.compile(r"^/vendor/katex/fonts/(KaTeX_[A-Za-z0-9_-]+\.(woff2|woff|ttf))$")
+UPLOAD_PREVIEW_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/uploads/([0-9a-f-]{36})/preview$")
+UPLOAD_THUMB_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/uploads/([0-9a-f-]{36})/thumb$")
+DESKTOP_IMAGE_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/desktop-images/([0-9a-f]{64})$")
+GOAL_CANCEL_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/goal/cancel$")
+GOAL_EDIT_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/goal/edit$")
+GOAL_STATUS_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/goal/status$")
 
 
 class GatewayServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, bridge, config, web_dir, data_dir=None):
-        self.bridge = bridge
-        self.notifications = None
-        self.instance_id = secrets.token_hex(16)
-        self.auth = Auth(config["auth"], data_dir)
-        self.origins = set(config["origins"])
-        self.pairing = Pairing(self.auth, self.origins)
-        self.hosts = {urlsplit(o).netloc for o in self.origins}
-        self.secure_hosts = {urlsplit(o).netloc for o in self.origins if o.startswith("https://")}
-        self.web_dir = Path(web_dir)
-        self.slots = threading.BoundedSemaphore(48)
+    def __init__(self, address, bridge, config, web_dir, data_dir=None, shared=None):
+        self.local_access = config.get('localAccess', True)
+        if shared is None:
+            self.bridge = bridge
+            self.notifications = None
+            self.instance_id = secrets.token_hex(16)
+            self.auth = Auth(config["auth"], data_dir)
+            self.origins = set(config["origins"])
+            self.pairing = Pairing(self.auth, self.origins)
+            self.hosts = {urlsplit(o).netloc for o in self.origins}
+            self.secure_hosts = {urlsplit(o).netloc for o in self.origins if o.startswith("https://")}
+            self.web_dir = Path(web_dir)
+            self.slots = threading.BoundedSemaphore(48)
+        else:
+            # Listeners serve one gateway: shared sessions, pairing, limits and
+            # mutable tunnel origins, with a single notification manager.
+            for name in ('bridge', 'notifications', 'instance_id', 'auth', 'origins', 'pairing', 'hosts', 'secure_hosts', 'web_dir', 'slots'):
+                setattr(self, name, getattr(shared, name))
         super().__init__(address, Handler)
 
     def server_bind(self):
@@ -108,8 +124,8 @@ class Handler(BaseHTTPRequestHandler):
         # Request bodies, cookies, query strings and conversation IDs are private.
         pass
 
-    def headers_common(self):
-        self.send_header("Cache-Control", "no-store")
+    def headers_common(self, cache_control="no-store"):
+        self.send_header("Cache-Control", cache_control)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
@@ -117,7 +133,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
-    def output(self, status, data, content_type="application/json; charset=utf-8", cookie=None):
+    def output(self, status, data, content_type="application/json; charset=utf-8", cookie=None, content_disposition=None):
         body = json.dumps(data, ensure_ascii=False).encode() if not isinstance(data, bytes) else data
         accepts_gzip = re.search(r'(?:^|,)\s*gzip\s*(?:;\s*q=([01](?:\.\d+)?))?\s*(?:,|$)',
                                  self.headers.get('Accept-Encoding', ''), re.IGNORECASE)
@@ -134,6 +150,8 @@ class Handler(BaseHTTPRequestHandler):
         if compressed:
             self.send_header('Content-Encoding', 'gzip')
         self.send_header("Content-Length", str(len(body)))
+        if content_disposition:
+            self.send_header("Content-Disposition", content_disposition)
         if cookie:
             self.send_header("Set-Cookie", cookie)
         self.end_headers()
@@ -142,7 +160,8 @@ class Handler(BaseHTTPRequestHandler):
     def cookie(self, token, clear=False):
         secure = "; Secure" if self.headers.get("Host") in self.server.secure_hosts else ""
         age = 0 if clear else self.server.auth.cookie_age(token)
-        return f"{Auth.COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={age}{secure}"
+        lifetime = f"; Max-Age={age}" if age is not None else ""
+        return f"{Auth.COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict{lifetime}{secure}"
 
     def client(self):
         return self.server.auth.client(self.client_address[0], self.headers, self.headers.get('Host') in self.server.secure_hosts)
@@ -161,10 +180,19 @@ class Handler(BaseHTTPRequestHandler):
     def check_request(self, write=False):
         if len(self.headers.get_all("Host", [])) != 1 or self.headers.get("Host") not in self.server.hosts:
             raise PermissionError("此访问地址未在网关配置中允许")
+        host = self.headers.get('Host', '')
+        local_host = urlsplit('http://' + host).hostname in ('127.0.0.1', 'localhost')
+        if not self.server.local_access and (local_host or (self.connection.getsockname()[0] == '127.0.0.1' and host not in self.server.secure_hosts)):
+            raise PermissionError('本机网页访问已关闭')
         origin = self.headers.get("Origin")
         if (origin and origin not in self.server.origins) or (write and not origin):
             raise PermissionError("不允许跨站请求")
-        if self.headers.get("Sec-Fetch-Site") == "cross-site":
+        # External links may open the public HTML shell. Fetches, embedded pages
+        # and API requests must still pass the cross-site restriction.
+        homepage_navigation = (not write and self.command == 'GET' and urlsplit(self.path).path == '/'
+                               and self.headers.get('Sec-Fetch-Mode') == 'navigate'
+                               and self.headers.get('Sec-Fetch-Dest') == 'document')
+        if self.headers.get("Sec-Fetch-Site") == "cross-site" and not homepage_navigation:
             raise PermissionError("不允许跨站请求")
 
     def authorized(self, write=False):
@@ -203,6 +231,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_method(self, write):
         try:
+            if not write and self.path == '/api/health':
+                expected = {'127.0.0.1:' + str(self.server.server_port), 'localhost:' + str(self.server.server_port)}
+                if (self.client_address[0] != '127.0.0.1' or self.connection.getsockname()[0] != '127.0.0.1'
+                        or self.headers.get_all('Host', []) not in [[host] for host in expected]
+                        or self.headers.get('Origin') or self.headers.get('Sec-Fetch-Site') == 'cross-site'):
+                    raise PermissionError('仅允许本机状态检查')
+                return self.output(200, {'service': 'codex-mobile-bridge', 'instanceId': self.server.instance_id,
+                                         'notifications': self.server.notifications is not None})
             self.check_request(write)
             path = urlsplit(self.path).path
             query = parse_qs(urlsplit(self.path).query)
@@ -217,19 +253,20 @@ class Handler(BaseHTTPRequestHandler):
             if not write and path == "/api/auth":
                 session = self.login_session()
                 return self.output(200, {"authenticated": bool(session), "csrf": session["csrf"] if session else None,
+                                         "loginStatus": self.server.auth.login_status(self.client()["ip"]),
                                          "instanceId": self.server.instance_id,
                                          "notifications": self.server.notifications is not None,
                                          "passwordless": self.server.auth.config.get("mode") == "none",
                                          "transport": "poll" if self.headers.get("Host", "").endswith(".trycloudflare.com") else "sse"},
                                    cookie=self.cookie(self.token()) if session else None)
-            if not self.server.auth.permitted(self.client()['ip']):
+            if not self.server.auth.permitted(self.client()['ip']) and path != '/api/login':
                 raise PermissionError('此 IP 已被访问规则禁止')
             if write and path == "/api/login":
                 body = self.read_json()
                 username, password = body.get("username", ""), body.get("password", "")
                 if not isinstance(username, str) or not isinstance(password, str) or len(username) > 200 or len(password) > 1000:
                     raise ValueError("账号或密码格式不正确")
-                token, session = self.server.auth.login(username, password, self.client()['ip'], self.headers.get('User-Agent', ''), self.client())
+                token, session = self.server.auth.login(username, password, self.client()['ip'], self.headers.get('User-Agent', ''), self.client(), remember=body.get('remember'))
                 self.server.auth.logout(self.token())
                 return self.output(200, {"csrf": session["csrf"]}, cookie=self.cookie(token))
             if write and path == '/api/pair':
@@ -248,8 +285,29 @@ class Handler(BaseHTTPRequestHandler):
                 self.read_json()
                 self.server.auth.logout(self.token())
                 return self.output(200, {"ok": True}, cookie=self.cookie("", clear=True))
+            if not write and path == '/api/accounts':
+                result = self.server.bridge.accounts.public()
+                result['canSwitch'] = self.server.auth.config.get('mode') != 'none'
+                return self.output(200, result)
+            if write and path == '/api/accounts/details':
+                body = self.read_json()
+                if set(body) - {'id', 'section', 'refresh'} or not {'id', 'section'} <= set(body):
+                    raise ValueError('账号详情请求包含不支持的字段')
+                return self.output(202, self.server.bridge.accounts.info.request(body))
+            if write and path == '/api/accounts/ignore-submission':
+                body = self.read_json()
+                if set(body) != {'threadId', 'submissionId', 'host'}:
+                    raise ValueError('忽略请求包含不支持的字段')
+                return self.output(200, self.server.bridge.accounts.ignore_submission(body))
+            if write and path == '/api/accounts/switch':
+                if self.server.auth.config.get('mode') == 'none':
+                    raise PermissionError('免密访问不能切换账号，请在桌面端操作')
+                body = self.read_json()
+                if set(body) != {'id', 'requestId', 'confirmed', 'tasksConfirmed'}:
+                    raise ValueError('账号切换请求包含不支持的字段')
+                return self.output(202, self.server.bridge.accounts.switch(body))
             if not write and path == '/api/account':
-                return self.output(200, self.server.bridge.account.read())
+                return self.output(200, self.server.bridge.account.read(refresh=query.get('cached', [''])[0] != '1'))
             if write and path == '/api/account/reset':
                 return self.output(200, self.server.bridge.account.consume(self.read_json()))
             if not write and path == "/api/sessions":
@@ -268,10 +326,69 @@ class Handler(BaseHTTPRequestHandler):
             if write and path == '/api/sessions':
                 body = self.read_json()
                 return self.output(200, self.server.bridge.create_chat(body.get('project'), body.get('title'), body.get('id')))
+            if path == '/api/notifications/defaults':
+                if self.server.notifications is None:
+                    raise ValueError('当前网关未启用通知服务')
+                return self.output(200, self.server.notifications.defaults(self.read_json() if write else None))
+            if path in ('/api/notifications/pushplus', '/api/notifications/pushplus/test'):
+                manager = self.server.notifications
+                if manager is None:
+                    raise ValueError('当前网关未启用通知服务')
+                with manager.lock:
+                    config = notification_settings(manager.data_dir)
+                    if path.endswith('/test'):
+                        if not write:
+                            return self.output(405, {'error': '需要 POST 请求'})
+                        self.read_json()
+                        try:
+                            publish_pushplus(config, 'Codex 手机通知测试', '收到这条消息表示 PushPlus 通道已连通。')
+                        except Exception:
+                            raise ValueError('PushPlus 测试失败，请检查 Token 和网络') from None
+                        return self.output(200, {'ok': True})
+                    if write:
+                        body = self.read_json()
+                        if set(body) - {'pushplusEnabled', 'pushplusToken', 'clearPushplusToken'}:
+                            raise ValueError('PushPlus 配置格式不正确')
+                        config = save_notification_settings(manager.data_dir, body)
+                    return self.output(200, {'pushplusEnabled': config['pushplusEnabled'],
+                                             'hasPushplusToken': bool(config['pushplusToken'])})
             bridge = self.server.bridge.for_host(query.get("host", ["local"])[0])
             file_match = re.fullmatch(r"/api/sessions/([0-9a-f-]{36})/files/([a-f0-9]{64})", path)
             if not write and file_match:
                 return self.download(bridge, *file_match.groups())
+            preview_match = UPLOAD_PREVIEW_ROUTE.fullmatch(path)
+            if not write and preview_match:
+                return self.upload_preview(bridge, *preview_match.groups(), variant=query.get('variant', ['thumb'])[0])
+            desktop_image_match = DESKTOP_IMAGE_ROUTE.fullmatch(path)
+            if not write and desktop_image_match:
+                return self.desktop_image_preview(bridge, *desktop_image_match.groups())
+            thumb_match = UPLOAD_THUMB_ROUTE.fullmatch(path)
+            if write and thumb_match:
+                sizes = self.headers.get_all('Content-Length', [])
+                if self.headers.get('Transfer-Encoding') or len(sizes) != 1 or not sizes[0].isdigit() or not 0 < int(sizes[0]) <= 1024 * 1024:
+                    raise ValueError('缩略图需为 1 字节至 1 MB')
+                data = self.rfile.read(int(sizes[0]))
+                if len(data) != int(sizes[0]):
+                    raise ValueError('缩略图上传中断，请重试')
+                try:
+                    width, height = int(query.get('width', ['0'])[0]), int(query.get('height', ['0'])[0])
+                except ValueError:
+                    raise ValueError('缩略图尺寸无效') from None
+                return self.output(200, bridge.upload_thumb(thumb_match[1], thumb_match[2], data, width, height))
+            goal_match = GOAL_CANCEL_ROUTE.fullmatch(path)
+            if write and goal_match:
+                body = self.read_json()
+                return self.output(200, bridge.cancel_goal(goal_match[1], body.get("id", ""), expected=body.get("expected")))
+            goal_edit_match = GOAL_EDIT_ROUTE.fullmatch(path)
+            if write and goal_edit_match:
+                body = self.read_json()
+                return self.output(200, bridge.edit_goal(goal_edit_match[1], body.get('objective'),
+                                                        body.get('id', ''), expected=body.get('expected')))
+            goal_status_match = GOAL_STATUS_ROUTE.fullmatch(path)
+            if write and goal_status_match:
+                body = self.read_json()
+                return self.output(200, bridge.set_goal_status(goal_status_match[1], body.get("status"),
+                                                              body.get("id", ""), body.get("uiLocale"), expected=body.get("expected")))
             match = THREAD_ROUTE.fullmatch(path)
             if not match:
                 return self.output(404, {"error": "页面不存在"})
@@ -289,7 +406,7 @@ class Handler(BaseHTTPRequestHandler):
                 if self.server.notifications is None:
                     return self.output(200, {'available': False, 'watching': False, 'notifyOnCompletion': False})
                 body = self.read_json() if write else {}
-                return self.output(200, self.server.notifications.watch(thread_id, bridge.host, body.get('enabled'), body.get('notifyOnCompletion')))
+                return self.output(200, self.server.notifications.policy(thread_id, bridge.host, body if write else None))
             if not write:
                 if action == 'timeline':
                     return self.output(200, bridge.timeline_read(thread_id, limit=int(query.get('limit', ['20'])[0]), before=query.get('before', [None])[0]))
@@ -302,7 +419,19 @@ class Handler(BaseHTTPRequestHandler):
                 if action is None:
                     return self.output(200, bridge.view(thread_id, background=True))
                 if action == "catalog":
-                    return self.output(200, bridge.catalog(thread_id, refresh=query.get("refresh") == ["true"]))
+                    kind = query.get("kind", [None])[0]
+                    try:
+                        offset = max(0, int(query.get("offset", ["0"])[0]))
+                        limit = min(500, max(1, int(query.get("limit", ["200"])[0])))
+                    except ValueError:
+                        raise ValueError("Skill 分页参数无效") from None
+                    requested_ids = [value for value in query.get("id", []) if value]
+                    if len(requested_ids) > 8:
+                        raise ValueError("最多关联 8 个已选 Skill")
+                    ids = list(dict.fromkeys(requested_ids))
+                    return self.output(200, bridge.catalog(
+                        thread_id, refresh=query.get("refresh") == ["true"], kind=kind,
+                        query=query.get("q", [""])[0][:200], offset=offset, limit=limit, ids=ids))
                 if action == "poll":
                     return self.poll(bridge, thread_id, int(query.get("after", ["-1"])[0]))
                 if action == "events":
@@ -312,7 +441,11 @@ class Handler(BaseHTTPRequestHandler):
             if action == "message-action":
                 result = bridge.message_action(thread_id, body)
             elif action == "send":
-                result = bridge.send(thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"), body.get("skills", []), work_mode=body.get("workMode"), attachments=body.get('attachments'))
+                result = bridge.send(thread_id, body.get("text"), body.get("id", ""), body.get("mode", "send"),
+                                     body.get("skills", []), work_mode=body.get("workMode"),
+                                     attachments=body.get('attachments'), ui_locale=body.get("uiLocale"))
+            elif action == "rename":
+                result = bridge.rename(thread_id, body.get("title"))
             elif action == "settings":
                 if 'fastMode' in body and not isinstance(body['fastMode'], bool):
                     raise ValueError('Fast 模式开关无效')
@@ -340,6 +473,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 return self.output(404, {"error": "接口不存在"})
             self.output(200, result)
+        except LoginRejected as exc:
+            self.close_connection = True
+            self.output(403, {"error": str(exc), "loginStatus": exc.status})
         except PermissionError as exc:
             self.close_connection = True
             self.output(403, {"error": str(exc)})
@@ -349,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self.close_connection = True
             self.output(400, {"error": str(exc)})
-        except (IPCError, CatalogError, RemoteUnavailable, CreationError, StoreUnavailable, AccountError) as exc:
+        except (IPCError, GoalError, CatalogError, RemoteUnavailable, CreationError, StoreUnavailable, AccountError) as exc:
             self.close_connection = True
             self.output(409, {"error": str(exc), "code": "desktop_unavailable"})
         except (BrokenPipeError, ConnectionResetError, socket.timeout):
@@ -368,7 +504,50 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", mime or "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))
         disposition = "inline" if artifact["image"] else "attachment"
-        self.send_header("Content-Disposition", disposition + "; filename*=UTF-8''" + quote(artifact["name"]))
+        self.send_header("Content-Disposition", disposition + "; filename*=UTF-8''" + quote(artifact["name"], safe=""))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def upload_preview(self, bridge, thread_id, upload_id, variant='thumb'):
+        artifact, served_variant = bridge.upload_preview(thread_id, upload_id, variant)
+        data = Path(artifact["previewPath"]).read_bytes()
+        etag = '"' + artifact["previewSha256"] + '"'
+        cache_control = 'private, no-store' if served_variant == 'fallback-original' else 'private, max-age=31536000, immutable'
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.headers_common(cache_control)
+            self.send_header("ETag", etag)
+            self.send_header("X-Preview-Variant", served_variant)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.headers_common(cache_control)
+        self.send_header("Content-Type", artifact["previewMime"])
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("ETag", etag)
+        self.send_header("X-Preview-Variant", served_variant)
+        self.send_header("Content-Disposition", "inline; filename*=UTF-8''" + quote(artifact["name"], safe=""))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def desktop_image_preview(self, bridge, thread_id, image_id):
+        artifact, served_variant = bridge.desktop_image_preview(thread_id, image_id)
+        data = Path(artifact["previewPath"]).read_bytes()
+        etag = '"' + artifact["previewSha256"] + '"'
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.headers_common("private, max-age=31536000, immutable")
+            self.send_header("ETag", etag)
+            self.send_header("X-Preview-Variant", served_variant)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.headers_common("private, max-age=31536000, immutable")
+        self.send_header("Content-Type", artifact["previewMime"])
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("ETag", etag)
+        self.send_header("X-Preview-Variant", served_variant)
+        self.send_header("Content-Disposition", "inline; filename*=UTF-8''" + quote(artifact["name"], safe=""))
         self.end_headers()
         self.wfile.write(data)
 

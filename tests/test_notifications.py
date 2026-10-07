@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from bridge.notifications import Notifications, publish, publish_bark, settings, save_settings, write_json, read_json
+from bridge.notifications import Notifications, publish, publish_bark, publish_pushplus, settings, save_settings, write_json, read_json
 from bridge.service import LiveSession
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +34,137 @@ class NotificationTests(unittest.TestCase):
         save_settings(self.directory, {'enabled': True, 'topic': 'test', 'token': 'secret-token'})
         self.manager.watch(self.thread, 'remote', True)
 
+    def test_global_defaults_monitor_unwatched_chats_without_loading_history(self):
+        # Discovery finds a chat that was never explicitly watched.
+        other = str(uuid.uuid4())
+        self.source.notification_candidates = lambda: [{'id': other, 'host': 'local'}]
+        self.source.notification_session = lambda identifier: self.session
+        self.source.store = type('Store', (), {'get': lambda _, identifier: {}})()
+        self.manager.watch(self.thread, 'remote', False)
+        with patch.object(self.source, 'session', side_effect=AssertionError('history read')), patch('bridge.notifications.publish') as send:
+            self.manager.scan()
+            self.assertEqual(send.call_count, 1)
+            self.manager.policy(other, 'local', {'requests': 'off', 'completion': 'on'})
+            self.session.state['turns'] = [{'turnId':'old','status':'completed','items':[]}]
+            self.manager.scan();self.assertEqual(send.call_count, 1)
+            self.session.state['turns'].append({'turnId':'new','status':'inProgress','items':[]})
+            self.manager.scan()
+            self.session.state['turns'][-1]['status'] = 'completed'
+            self.manager.scan();self.assertEqual(send.call_count, 2)
+        self.assertEqual(self.manager.policy(other,'local')['requests'], 'off')
+        self.assertTrue(self.manager.policy(other,'local')['notifyOnCompletion'])
+
+    def test_global_policy_inheritance_and_explicit_overrides_survive_restart(self):
+        other = str(uuid.uuid4())
+        self.source.store = type('Store', (), {'get': lambda _, identifier: {}})()
+        self.assertTrue(self.manager.policy(other, 'local')['notifyOnRequest'])
+        self.manager.defaults({'requests': False, 'completion': True})
+        self.assertFalse(self.manager.policy(other, 'local')['notifyOnRequest'])
+        self.assertTrue(self.manager.policy(other, 'local')['notifyOnCompletion'])
+        self.manager.policy(other, 'local', {'requests': 'on', 'completion': 'off'})
+        other_manager = Notifications(self.source, self.directory)
+        self.assertTrue(other_manager.policy(other, 'local')['notifyOnRequest'])
+        self.assertFalse(other_manager.policy(other, 'local')['notifyOnCompletion'])
+        # Legacy explicit choices are independent of the new defaults.
+        self.assertFalse(other_manager.policy(self.thread, 'remote')['notifyOnCompletion'])
+        other_manager.close()
+
+    def test_pushplus_token_validation_preservation_and_clear(self):
+        with self.assertRaises(ValueError):
+            save_settings(self.directory, {'pushplusEnabled': True})
+        save_settings(self.directory, {'pushplusEnabled': True, 'pushplusToken': 'private-token'})
+        self.assertEqual(save_settings(self.directory, {'pushplusToken': ''})['pushplusToken'], 'private-token')
+        for token in (123, 'x\ny', 'x y'):
+            with self.assertRaises(ValueError):
+                save_settings(self.directory, {'pushplusToken': token})
+        with self.assertRaises(ValueError):
+            save_settings(self.directory, {'clearPushplusToken': True})
+        self.assertEqual(save_settings(self.directory, {'pushplusEnabled': False, 'clearPushplusToken': True})['pushplusToken'], '')
+
+    def test_pushplus_delivery_deduplicates_and_new_recipient_gets_alert(self):
+        save_settings(self.directory, {'enabled': False, 'pushplusEnabled': True, 'pushplusToken': 'first'})
+        with patch('bridge.notifications.publish_pushplus') as send:
+            self.manager.scan(); self.manager.scan()
+            self.assertEqual(send.call_count, 1)
+            save_settings(self.directory, {'pushplusToken': 'second'})
+            self.manager.scan()
+            self.assertEqual(send.call_count, 2)
+        ledger = read_json(self.directory/'notification-delivery.json', {})
+        self.assertTrue(all(k.startswith('pushplus:') for k in ledger))
+        self.assertNotIn('second', json.dumps(ledger))
+
+    def test_pushplus_known_error_codes_are_useful_without_echoing_server_secrets(self):
+        from unittest.mock import MagicMock
+        from bridge.notifications import PushplusError
+        response = MagicMock()
+        response.status = 200
+        for code in (401, 403, 888, 900, 903, 905, 999):
+            with self.subTest(code=code), patch('bridge.notifications.build_opener') as opener:
+                opener.return_value.open.return_value.__enter__.return_value = response
+                response.read.return_value = json.dumps({'code': code, 'msg': 'secret-pushplus'}).encode()
+                with self.assertRaises(PushplusError) as caught:
+                    publish_pushplus({'pushplusToken': 'secret-pushplus'}, 'Title', 'Body')
+                self.assertEqual(caught.exception.code, code)
+                self.assertNotIn('secret-pushplus', str(caught.exception))
+                if code != 999:
+                    self.assertIn(str(code), str(caught.exception))
+
+    def test_pushplus_restriction_pauses_all_events_and_survives_restart(self):
+        from bridge.notifications import PushplusError
+        save_settings(self.directory, {'pushplusEnabled': True, 'pushplusToken': 'private-token'})
+        self.turns(('run', 'inProgress'))
+        self.manager.watch(self.thread, 'remote', notify_on_completion=True)
+        self.turns(('run', 'completed'))
+        self.session.state['requests'] = [{'id': 'question', 'method': 'item/tool/requestUserInput', 'params': {}}]
+        with patch('bridge.notifications.publish') as ntfy, \
+             patch('bridge.notifications.publish_pushplus', side_effect=PushplusError(900)) as push:
+            self.manager.scan()
+            self.manager.scan()
+            self.assertEqual(push.call_count, 1)
+            self.assertEqual(ntfy.call_count, 2)
+        self.assertFalse(settings(self.directory)['pushplusEnabled'])
+        self.assertEqual(settings(self.directory)['pushplusToken'], 'private-token')
+        status = read_json(self.directory/'notification-status.json', {})
+        self.assertIn('900', status['pushplus']['error'])
+        self.assertNotIn('private-token', json.dumps(status))
+        restarted = Notifications(self.source, self.directory)
+        self.addCleanup(restarted.close)
+        with patch('bridge.notifications.publish_pushplus') as push:
+            restarted.scan()
+            push.assert_not_called()
+
+    def test_restriction_for_old_token_does_not_pause_replacement_recipient(self):
+        from bridge.notifications import PushplusError, delivery_error, destination
+        save_settings(self.directory, {'pushplusEnabled': True, 'pushplusToken': 'old-token'})
+        old_target = destination(settings(self.directory), 'pushplus')
+        save_settings(self.directory, {'pushplusToken': 'replacement-token'})
+        delivery_error(self.directory, 'pushplus', old_target, PushplusError(900), 'fallback')
+        self.assertTrue(settings(self.directory)['pushplusEnabled'])
+
+    def test_manual_pushplus_test_reports_restriction_and_pauses_channel(self):
+        from bridge.notifications import PushplusError
+        from bridge.desktop import Desktop
+        save_settings(self.directory, {'pushplusEnabled': True, 'pushplusToken': 'private-token'})
+        with patch('bridge.desktop.publish_pushplus', side_effect=PushplusError(900)):
+            with self.assertRaisesRegex(ValueError, '900'):
+                Desktop(self.directory).test_notification({'channel': 'pushplus'})
+        self.assertFalse(settings(self.directory)['pushplusEnabled'])
+
+    def test_pushplus_payload_and_application_errors_are_sanitized(self):
+        from unittest.mock import MagicMock
+        config = {**settings(self.directory), 'pushplusToken': 'secret-pushplus'}
+        response = MagicMock(); response.status = 200; response.read.return_value = b'{"code":200}'
+        with patch('bridge.notifications.build_opener') as opener:
+            opener.return_value.open.return_value.__enter__.return_value = response
+            publish_pushplus(config, 'Title', 'Body', 'https://example.com/#chat')
+            request = opener.return_value.open.call_args.args[0]
+            self.assertEqual(request.full_url, 'https://www.pushplus.plus/send')
+            self.assertEqual(json.loads(request.data), {'token': 'secret-pushplus', 'title': 'Title', 'content': 'Body\n\nhttps://example.com/#chat', 'template': 'txt'})
+            response.read.return_value = b'{"code":401,"msg":"secret-pushplus"}'
+            with self.assertRaises(RuntimeError) as error:
+                publish_pushplus(config, 'Title', 'Body')
+            self.assertNotIn('secret-pushplus', str(error.exception))
+
     def tearDown(self):
         self.manager.close()
         self.temp.cleanup()
@@ -52,6 +183,63 @@ class NotificationTests(unittest.TestCase):
             other.scan()
             self.assertEqual(send.call_count, 1)
             other.close()
+
+    def test_delivery_stops_after_three_failures_per_event_and_channel(self):
+        for completed in (False, True):
+            for channel, sender in (('ntfy', 'publish'), ('bark', 'publish_bark'), ('pushplus', 'publish_pushplus')):
+                with self.subTest(completed=completed, channel=channel):
+                    save_settings(self.directory, {
+                        'enabled': channel == 'ntfy', 'barkEnabled': channel == 'bark',
+                        'pushplusEnabled': channel == 'pushplus', 'barkKey': 'device-key',
+                        'pushplusToken': 'pushplus-token'})
+                    event = f'{channel}-{completed}'
+                    self.manager.watch(self.thread, 'remote', notify_on_completion=False)
+                    if completed:
+                        self.turns((event, 'inProgress'))
+                        self.manager.watch(self.thread, 'remote', notify_on_completion=True)
+                        self.turns((event, 'completed'))
+                    else:
+                        self.session.state = {'requests': [{'id': event,
+                            'method': 'item/tool/requestUserInput', 'params': {}}]}
+                    with patch('bridge.notifications.' + sender, side_effect=OSError('private-token')) as send:
+                        for _ in range(6):
+                            for record in self.manager.ledger.values():
+                                record['next'] = 0
+                            self.manager.scan()
+                        self.assertEqual(send.call_count, 3)
+                    failed = [record for record in self.manager.ledger.values() if not record.get('delivered')]
+                    self.assertTrue(failed)
+                    self.assertTrue(all(record['attempts'] == 3 for record in failed))
+                    status = read_json(self.directory/'notification-status.json', {})[channel]['error']
+                    self.assertIn('3', status)
+                    self.assertNotIn('private-token', status)
+                    self.manager.close()
+                    self.manager = Notifications(self.source, self.directory)
+                    with patch('bridge.notifications.' + sender) as send:
+                        self.manager.scan()
+                        send.assert_not_called()
+                        if completed:
+                            self.assertTrue(all(not row['pending'] for row in self.manager.completions.values()))
+                            self.turns((event, 'completed'), (event + '-new', 'inProgress'))
+                            self.manager.scan()
+                            self.turns((event, 'completed'), (event + '-new', 'completed'))
+                        else:
+                            self.session.state['requests'][0]['id'] = event + '-new'
+                        self.manager.scan()
+                        send.assert_called_once()
+
+    def test_existing_failures_above_limit_are_not_retried_after_restart(self):
+        with patch('bridge.notifications.publish', side_effect=OSError('offline')):
+            self.manager.scan()
+        for record in self.manager.ledger.values():
+            record.update(attempts=120, next=0)
+        write_json(self.directory/'notification-delivery.json', self.manager.ledger)
+        self.manager.close()
+        self.manager = Notifications(self.source, self.directory)
+        with patch('bridge.notifications.publish') as send:
+            self.manager.scan()
+            send.assert_not_called()
+        self.assertTrue(all(record['attempts'] == 120 for record in self.manager.ledger.values()))
 
     def test_new_request_notifies_and_completed_request_does_not_retry(self):
         with patch('bridge.notifications.publish', side_effect=OSError('offline')) as send:
@@ -236,6 +424,21 @@ class NotificationTests(unittest.TestCase):
             self.assertNotIn('Private project', bark.call_args.args[2])
             self.assertTrue(bark.call_args.args[3].endswith('~remote'))
 
+    def test_pushplus_only_subscription_sends_requests_and_opt_in_completion(self):
+        self.manager.watch(self.thread, 'remote', False)
+        save_settings(self.directory, {'enabled': False, 'topic': '', 'pushplusEnabled': True, 'pushplusToken': 'pushplus-token'})
+        self.turns(('current', 'inProgress'))
+        result = self.manager.watch(self.thread, 'remote', True, True)
+        self.assertTrue(result['available'])
+        with patch('bridge.notifications.publish') as ntfy, patch('bridge.notifications.publish_pushplus') as bark:
+            self.turns(('current', 'completed'))
+            self.session.state['requests'] = [{'id': 'question', 'method': 'item/tool/requestUserInput', 'params': {}}]
+            self.manager.scan();self.manager.scan()
+            self.assertFalse(ntfy.called)
+            self.assertEqual([c.args[1] for c in bark.call_args_list], ['Codex 需要你的确认', 'Codex 运行已完成'])
+            self.assertNotIn('Private project', bark.call_args.args[2])
+            self.assertTrue(bark.call_args.args[3].endswith('~remote'))
+
     def test_channels_retry_independently_after_restart(self):
         save_settings(self.directory, {'barkEnabled': True, 'barkKey': 'device-key'})
         for failing in ('ntfy', 'bark'):
@@ -371,9 +574,12 @@ class NotificationTests(unittest.TestCase):
     def test_real_http_payload_and_authorization(self):
         captured = []
         class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
             def do_POST(self):
                 captured.append((json.loads(self.rfile.read(int(self.headers['Content-Length']))), self.headers.get('Authorization')))
-                self.send_response(200);self.end_headers();self.wfile.write(b'{}')
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers();self.wfile.write(b'{}')
             def log_message(self, *args): pass
         server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()

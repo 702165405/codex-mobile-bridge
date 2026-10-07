@@ -25,7 +25,7 @@ function fixture(){
 test('official account shows limits, authoritative card count and refresh stays usable',async()=>{
   const ui=fixture();await ui.panel.refresh();
   assert.equal(ui.button.hidden,false);assert.match(ui.text(),/75%/);assert.match(ui.text(),/可用数量：3/);
-  assert.equal(ui.all().find(n=>n.textContent==='刷新额度').disabled,false);
+  assert.equal(ui.all().find(n=>n.textContent==='查看剩余额度').disabled,false);
   assert.equal(ui.all().find(n=>n.tag==='progress').value,75);
   assert.equal(ui.panel.countdown(2523),'1 天 18 小时 3 分钟');
   ui.language();assert.match(ui.text(),/Remaining 75%/);assert.match(ui.text(),/Shared account limits/);

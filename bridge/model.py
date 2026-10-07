@@ -1,6 +1,12 @@
 """Normalize desktop state without changing the native thread or provider."""
 import copy
 import json
+import re
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+from urllib.request import url2pathname
+import ntpath
+
 
 
 def apply_patches(state, patches):
@@ -72,19 +78,56 @@ def items_array(items):
     return []
 
 
+def request_id(item):
+    """Return the bridge submission id attached to a desktop user message."""
+    return item.get("clientId") or item.get("clientUserMessageId") or item.get("client_id")
+
+
+def user_display_text(text):
+    """Hide desktop attachment plumbing from the phone-visible request."""
+    if not isinstance(text, str) or "# Files mentioned by the user:" not in text:
+        return text
+    marker = "\n## My request:\n"
+    header = text.find("# Files mentioned by the user:")
+    boundary = text.rfind(marker)
+    if header < 0 or boundary <= header:
+        return text
+    request = text[boundary + len(marker):].strip("\r\n")
+    return request or text
+
+
 def normalize_item(item):
     kind = item.get("type", "unknown")
     row = {"id": item.get("id"), "kind": kind, "status": item.get("status")}
     if kind in ("userMessage", "steeringUserMessage"):
         if kind == "steeringUserMessage":
             item = {**item, "content": item.get("input", [])}
-        text = text_content(item.get("content", []))
+        submission_request_id = request_id(item)
+        if request_id:
+            row["requestId"] = str(submission_request_id)
+        text = user_display_text(text_content(item.get("content", [])))
         replies = question_replies(text)
         if replies:
             text = "\n\n".join(str(r.get("question", "")) + "\n" + str(r.get("answer", "")) for r in replies)
         row.update(role="user", text=text)
     elif kind in ("agentMessage", "assistantMessage"):
         row.update(role="assistant", text=item.get("text", ""), phase=item.get("phase"))
+    elif kind in ("ImageView", "imageView"):
+        raw = item.get("path", "")
+        path = raw
+        try:
+            parsed = urlsplit(raw)
+            if parsed.scheme == "file" and parsed.netloc in ("", "localhost"):
+                file_path = unquote(parsed.path)
+                # file:///D:/... has a leading slash on Windows too.
+                if re.fullmatch(r"/[A-Za-z]:[\\/].+", file_path):
+                    file_path = file_path[1:]
+                path = url2pathname(file_path)
+        except ValueError:
+            path = raw
+        row.update(role="activity", title="图片预览", text="", phase="commentary")
+        if path:
+            row["attachments"] = [{"type": "localImage", "path": path, "name": Path(path).name}]
     elif kind == "reasoning":
         row.update(role="activity", title="思考摘要", text="\n".join(item.get("summary", [])))
     elif kind == "commandExecution":
@@ -162,6 +205,26 @@ def pending_requests(state):
     return requests + async_requests(state)
 
 
+def computer_use_approval(params):
+    """Expose only the scope choices present in the live desktop approval."""
+    meta = params.get('_meta') or {}
+    if not isinstance(meta, dict) or meta.get('codex_approval_kind') != 'mcp_tool_call':
+        return None
+    connector = re.sub(r'[^a-z0-9]+', '-', str(meta.get('connector_id', '')).lower()).strip('-')
+    tool = meta.get('tool_params') or {}
+    app = tool.get('app') if isinstance(tool, dict) else None
+    schema = params.get('requestedSchema') or {}
+    if (params.get('mode', 'form') != 'form' or not (connector == 'computer-use' or connector.startswith('computer-use-'))
+            or not isinstance(app, str) or not app.strip() or schema.get('properties') or schema.get('required')):
+        return None
+    modes = meta.get('persist', [])
+    if isinstance(modes, str):
+        modes = [modes]
+    if not isinstance(modes, list):
+        modes = []
+    return {'app': app, 'persistModes': [mode for mode in ('session', 'always') if mode in modes]}
+
+
 def normalize_request(request):
     result = {"id": request.get("id"), "method": request.get("method"), "params": {}}
     params = request.get("params", {})
@@ -182,6 +245,10 @@ def normalize_request(request):
         result["supported"] = False
     if result["supported"]:
         result["params"] = {k: copy.deepcopy(params[k]) for k in fields[method] if k in params}
+        if method == 'mcpServer/elicitation/request':
+            computer = computer_use_approval(params)
+            if computer:
+                result['params']['computerUse'] = computer
     else:
         result["params"] = {"message": "请在桌面 App 处理此请求"}
     return result

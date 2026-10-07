@@ -26,10 +26,10 @@ class GatewayControl:
         self.closed = threading.Event()
         self.worker = None
 
-    def start(self, shutdown, pairing=None, instance_id=None, auth=None, account=None, notifications=None):
+    def start(self, shutdown, pairing=None, instance_id=None, auth=None, account=None, notifications=None, accounts=None):
         self.pairing_dir = Path(tempfile.mkdtemp(prefix=".pairing-", dir=self.path.parent))
         self.record.update(pairingDir=self.pairing_dir.name, instanceId=instance_id, deviceManagement=auth is not None,
-                           accountManagement=account is not None, notificationManagement=notifications is not None)
+                           accountsManagement=accounts is not None, accountManagement=account is not None, notificationManagement=notifications is not None)
         self.request_path.unlink(missing_ok=True)
         self.path.write_text(json.dumps(self.record), encoding='utf-8')
         self.path.chmod(0o600)
@@ -44,10 +44,13 @@ class GatewayControl:
                         request.unlink(missing_ok=True)
                         if not isinstance(value, dict) or value.get('control') != self.record:
                             continue
-                        if value.get('payload', {}).get('action') == 'account' and account:
+                        if value.get('payload', {}).get('action') in ('account', 'accounts') and account:
                             def account_request(request=request, value=value):
                                 try:
-                                    result = {'ok': True, 'result': account(value['payload'].get('value', {}))}
+                                    handler = accounts if value['payload']['action'] == 'accounts' else account
+                                    if handler is None:
+                                        raise ValueError('请更新网关')
+                                    result = {'ok': True, 'result': handler(value['payload'].get('value', {}))}
                                 except (AccountError, PermissionError, ValueError) as exc:
                                     result = {'ok': False, 'error': str(exc)}
                                 except Exception:

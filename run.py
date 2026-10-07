@@ -2,6 +2,7 @@
 """Run the desktop bridge with Python 3.9+; no package installation required."""
 import argparse
 import getpass
+import ipaddress
 import json
 import logging
 import os
@@ -21,13 +22,33 @@ from bridge.lifecycle import GatewayControl
 from bridge.service import Bridge
 from bridge.tunnel import QuickTunnel
 from bridge.ssh_tunnel import SSHTunnel
+from bridge.address_notifications import AddressNotifications, ready_url, gateway_ready, entry_urls
 from bridge.notifications import Notifications
+from bridge import network
 
 ROOT = Path(__file__).resolve().parent
 
 
 def addresses():
     result = {"127.0.0.1", "localhost"}
+    if sys.platform == 'linux':
+        executable = shutil.which('ip')
+        if executable:
+            try:
+                output = subprocess.run([executable, '-j', '-4', 'address', 'show', 'up'],
+                                        capture_output=True, text=True, check=True, timeout=5)
+                interfaces = json.loads(output.stdout)
+                if not isinstance(interfaces, list):
+                    raise ValueError('Invalid interface list')
+                for interface in interfaces:
+                    for address in interface.get('addr_info', []):
+                        if address.get('family') == 'inet':
+                            ip = ipaddress.IPv4Address(address['local'])
+                            if not ip.is_unspecified and not ip.is_multicast:
+                                result.add(str(ip))
+                return sorted(result)
+            except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, AttributeError):
+                pass
     if os.name == "posix" and Path("/sbin/ifconfig").exists():
         # Enumerate local interfaces without waiting for hostname DNS.
         output = subprocess.run(["/sbin/ifconfig"], capture_output=True, text=True, check=False).stdout
@@ -51,7 +72,8 @@ def save_config(path, config):
     temp.replace(path)
 
 
-def main(connections=None):
+def main(connections=None, connection_secrets=None):
+    connection_secrets = connection_secrets or {}
     # Redirected Windows streams may use a codec that cannot encode Chinese.
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8', errors='backslashreplace')
@@ -103,7 +125,7 @@ def main(connections=None):
         config["auth"]["mode"] = "none"
     from bridge.access import validate_connections, public_urls, public_url
     preferences = {'connections': config.get('connections', []) if connections is None else connections,
-                   'lan': args.lan, 'port': args.port}
+                   'lan': args.lan, 'port': args.port, 'lanAddresses': network.selected_addresses(config.get('lanAddresses'))}
     entries = validate_connections(preferences)
     args.tunnel = args.tunnel or any(c['enabled'] and c['accessMode'] == 'quick' for c in entries)
     if entries:
@@ -113,24 +135,50 @@ def main(connections=None):
         parsed = urlsplit(origin)
         if parsed.scheme != "https" or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password:
             parser.error("额外 origin 必须是完整 HTTPS 源且不能有路径")
-    hosts = addresses() if args.lan else ["127.0.0.1", "localhost"]
+    selected = preferences['lanAddresses']
+    hosts = (addresses() if selected is None else ['127.0.0.1', 'localhost'] + selected) if args.lan else ['127.0.0.1', 'localhost']
     config["origins"] = sorted(set(origins + [f"http://{host}:{args.port}" for host in hosts]))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     bridge = Bridge(args.codex_home, args.config.parent, ipc_path=args.ipc_path, codex_bin=args.codex_bin)
-    server = GatewayServer(("0.0.0.0" if args.lan else "127.0.0.1", args.port), bridge, config, ROOT / "web", args.config.parent)
+    servers = []
+    try:
+        for address in network.bindings(preferences):
+            servers.append(GatewayServer((address, args.port), bridge, config, ROOT / 'web', args.config.parent,
+                                         **({'shared': servers[0]} if servers else {})))
+    except OSError:
+        for listener in servers:
+            listener.server_close()
+        bridge.close()
+        raise
+    server = servers[0]
+    listener_threads = []
     pid_file = args.config.parent / "gateway.pid"
     pid_file.write_text(str(os.getpid()), encoding='utf-8')
     control = GatewayControl(args.config.parent)
     tunnel = None
     tunnel_thread = None
     ssh_tunnels = []
+    def notification_urls():
+        if not gateway_ready(args.port, server.instance_id):
+            return []
+        from bridge.notifications import read_json
+        external = {}
+        for entry in entries:
+            status = read_json(args.config.parent/('ssh-status-'+entry['id']+'.json'), {})
+            if status.get('pid') == os.getpid():
+                external[entry['id']] = status
+        return entry_urls(preferences, hosts, ready_url(tunnel, args.port, server.instance_id), external)
+    address_notifications = AddressNotifications(args.config.parent, notification_urls, server.instance_id)
     notifications = Notifications(bridge, args.config.parent, lambda: server.origins, lambda: config.get('publicUrl', ''))
-    server.notifications = notifications
+    for listener in servers:
+        listener.notifications = notifications
     def stop_signal(signum, frame):
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, stop_signal)
     print("Codex App 手机网关已启动", flush=True)
     for origin in config["origins"]:
+        if not config.get("localAccess", True) and urlsplit(origin).hostname in ("127.0.0.1", "localhost"):
+            continue
         print("  " + origin, flush=True)
     print("登录方式：" + ("免密（已显式启用）" if config["auth"]["mode"] == "none" else "账号密码"), flush=True)
     if first_login.exists():
@@ -140,12 +188,35 @@ def main(connections=None):
         if args.ssh_target:
             forwards.append({'sshTarget': args.ssh_target, 'sshRemotePort': args.ssh_remote_port, 'id': 'cli'})
         for entry in forwards:
-            ssh_tunnel = SSHTunnel(entry['sshTarget'], entry['sshRemotePort'], args.port, args.config.parent, entry['id'])
+            from bridge.server_connection import managed
+            if not managed(entry, args.config.parent):
+                ssh_tunnel = SSHTunnel(entry['sshTarget'], entry['sshRemotePort'], args.port, args.config.parent, entry['id'])
+            else:
+                from bridge.server_connection import ManagedForward
+                ssh_tunnel = ManagedForward(entry, args.port, args.config.parent, connection_secrets.get(entry['id']))
             ssh_tunnels.append(ssh_tunnel)
             ssh_tunnel.start()
+        for entry in entries:
+            if entry['enabled'] and entry['accessMode'] == 'cloudflare':
+                from bridge.named_tunnel import NamedTunnel
+                from bridge.server_connection import credentials
+                secret = credentials(entry, args.config.parent, connection_secrets.get(entry['id']))
+                named = NamedTunnel(args.cloudflared, entry, args.config.parent, secret.get('tunnelToken', ''))
+                ssh_tunnels.append(named)
+                named.start()
         if args.tunnel:
             print("正在建立临时 HTTPS 外网连接…", flush=True)
+            quick_origin = None
             def allow_origin(origin):
+                nonlocal quick_origin
+                if quick_origin and quick_origin != origin:
+                    # A new Quick Tunnel has a new random hostname.  Remove the
+                    # obsolete origin instead of leaving it trusted forever.
+                    server.origins.discard(quick_origin)
+                    old_host = urlsplit(quick_origin).netloc
+                    server.hosts.discard(old_host)
+                    server.secure_hosts.discard(old_host)
+                quick_origin = origin
                 server.origins.add(origin)
                 host = urlsplit(origin).netloc
                 server.hosts.add(host)
@@ -161,11 +232,20 @@ def main(connections=None):
             tunnel_thread = threading.Thread(target=connect_tunnel, daemon=True)
             tunnel_thread.start()
         notifications.start()
-        control.start(server.shutdown, server.pairing.control, server.instance_id, server.auth, bridge.account.control, server.notifications.control)
+        address_notifications.start()
+        control.start(server.shutdown, server.pairing.control, server.instance_id, server.auth, bridge.account.control, server.notifications.control, bridge.accounts.control)
+        for listener in servers[1:]:
+            thread = threading.Thread(target=listener.serve_forever, kwargs={'poll_interval': 0.5}, daemon=True)
+            thread.start()
+            listener_threads.append((listener, thread))
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass
     finally:
+        for listener, thread in listener_threads:
+            listener.shutdown()
+            thread.join()
+        address_notifications.close()
         notifications.close()
         if tunnel:
             tunnel.close()
@@ -174,7 +254,8 @@ def main(connections=None):
         for ssh_tunnel in ssh_tunnels:
             ssh_tunnel.close()
         bridge.close()
-        server.server_close()
+        for listener in servers:
+            listener.server_close()
         if pid_file.exists() and pid_file.read_text(encoding='utf-8').strip() == str(os.getpid()):
             pid_file.unlink()
         control.close()

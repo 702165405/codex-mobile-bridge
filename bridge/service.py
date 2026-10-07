@@ -1,4 +1,5 @@
 import copy
+from contextlib import nullcontext
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -8,19 +9,22 @@ import subprocess
 import threading
 import time
 import uuid
+import unicodedata
 from pathlib import Path
 
 from .ipc import DesktopIPC, IPCError
 from .transport import ipc_endpoint
-from .model import apply_patches, normalize_state, normalize_request, ordered_turns, async_requests
+from .model import apply_patches, computer_use_approval, items_array, normalize_state, normalize_request, ordered_turns, pending_requests, async_requests, request_id, user_display_text
 from .store import SessionStore, StoreUnavailable
-from .files import artifact_paths
+from .files import artifact_paths, referenced_model_images
 from .catalog import Catalog
 from .remote import AppHosts, RemoteStore, RemoteCatalog, RemoteUnavailable, ssh_read, payload
-from .create import create_empty, fork_copy, open_in_desktop, CreationError, ForkUnavailable
+from .create import rename_thread, create_empty, fork_copy, open_in_desktop, CreationError, ForkUnavailable
 from .timeline import Timeline
 from .account import Account
-from .uploads import Uploads
+from .accounts import Accounts, operation
+from .goal import GoalRPC, GoalError, GoalUnavailable, GoalUnsupported, goal_activation, goal_identity, normalize_goal_result, normalize_ui_locale, goal_command_fingerprint, goal_state_confirms_command, native_goal_absent, normalize_goal, plan_goal_command, read_native_goal
+from .uploads import Uploads, image_type
 from .remote import upload_file
 
 
@@ -31,6 +35,7 @@ class LiveSession:
         self.discovering = False
         self.state = None
         self.saved_view = None
+        self.history_limit = 20
         self.revision = None
         self.sequence = 0
         self.connected = False
@@ -41,12 +46,13 @@ class LiveSession:
         self.error = None
         self.viewers = 0
         self.watched = False
+        self.notification_probe_until = 0
         self.activity_only = False
         self.touched = time.monotonic()
         self.condition = threading.Condition(threading.RLock())
         self.attach_lock = threading.Lock()
         self.activation_lock = threading.Lock()
-        self.action_lock = threading.Lock()
+        self.action_lock = threading.RLock()
         self.timeline = Timeline()
 
     def changed(self):
@@ -55,7 +61,7 @@ class LiveSession:
 
     def set_history(self, state):
         self.saved_view = normalize_state(state, False)
-        if self.state is None:
+        if self.state is None or not self.connected:
             self.state = state
         self.changed()
 
@@ -70,7 +76,8 @@ class LiveSession:
                 first = next((i for i, turn in enumerate(saved) if turns and turn['id'] == turns[0]['id']), None)
                 if not turns or first is not None:
                     result['turns'] = saved[:first] + turns if turns else saved
-                    result['historyComplete'] = True
+                    result['historyComplete'] = self.saved_view['historyComplete']
+            result["savedHistoryMore"] = bool(self.saved_view and not result["historyComplete"] and not self.saved_view["historyComplete"])
             result["sequence"] = self.sequence
             result["connectionError"] = self.error
             result["connecting"] = self.connecting
@@ -80,7 +87,7 @@ class LiveSession:
 
 
 class Bridge:
-    def __init__(self, codex_home, data_dir, host="local", alias=None, ipc_path=None, codex_bin=None):
+    def __init__(self, codex_home, data_dir, host="local", alias=None, ipc_path=None, codex_bin=None, goal_rpc=None, owner_goal=None):
         self.host = host
         self.codex_home = Path(codex_home)
         self.data_dir = Path(data_dir)
@@ -89,10 +96,20 @@ class Bridge:
         self.host_errors = []
         self.listed = set()
         self.activity_following = False
+        self.notification_cursor = 0
+        self.notification_client_id = None
+        self.notification_dirty = set()
+        self.notification_boundary = set()
+        self.notification_event = threading.Event()
         self.store = RemoteStore(alias) if alias else SessionStore(codex_home)
         self.catalog_reader = RemoteCatalog(alias) if alias else Catalog(codex_home, codex_bin)
         self.uploads = Uploads(data_dir, (lambda *args: upload_file(alias, *args)) if alias else None)
         self.account = Account(codex_home, data_dir, codex_bin) if host == 'local' else None
+        self.accounts = Accounts(self) if host == "local" else None
+        self.goal = goal_rpc or (GoalRPC(codex_home, codex_bin or Catalog.find_runtime()) if host == 'local' else None)
+        self.owner_goal = owner_goal
+        self.goal_transport = 'owner' if owner_goal else 'sidecar'
+        self._open_desktop = open_in_desktop
         self.live = {}
         self.lock = threading.RLock()
         self.ipc = DesktopIPC(ipc_path or ipc_endpoint(codex_home), self._event, self._disconnected)
@@ -107,10 +124,234 @@ class Bridge:
         self.creations_path = self.data_dir / 'creations.json'
         self.creations = json.loads(self.creations_path.read_text(encoding='utf-8')) if self.creations_path.exists() else {}
         self.submissions = json.loads(self.ledger_path.read_text(encoding='utf-8')) if self.ledger_path.exists() else {}
+        self.goal_commands_path = self.data_dir / 'goal-commands.json'
+        self.goal_commands = json.loads(self.goal_commands_path.read_text(encoding='utf-8')) if self.goal_commands_path.exists() else {}
+        self.goal_lock = threading.RLock()
+        for command in self.goal_commands.values():
+            if command.get('state') in ('pending', 'sent'):
+                command['state'] = 'unknown'
+
         for key, value in self.submissions.items():
             if value.get("status") == "queued":
                 self.live.setdefault(key.split(":")[0], LiveSession(key.split(":")[0]))
         threading.Thread(target=self._maintain, daemon=True).start()
+        threading.Thread(target=self._upload_gc, daemon=True).start()
+
+    def _goal_runtime_available(self):
+        if self.host != "local":
+            return False
+        if self.owner_goal is not None:
+            return True
+        executable = getattr(self.goal, "executable", None)
+        return bool(executable and Path(executable).is_file())
+
+    def _save_goal_commands(self):
+        target = self.goal_commands_path.with_suffix('.tmp')
+        target.write_text(json.dumps(self.goal_commands, ensure_ascii=False), encoding='utf-8')
+        target.chmod(0o600)
+        target.replace(self.goal_commands_path)
+
+    def _native_goal_state(self, thread_id, *, strict=False):
+        if self.goal:
+            try:
+                native = self._goal_call('get_goal', thread_id)
+                # A successful empty answer is authoritative. Do not let a stale
+                # desktop snapshot resurrect a goal that native state has cleared.
+                return normalize_goal_result(native)
+            except GoalUnsupported:
+                pass
+            except GoalError:
+                if strict:
+                    raise
+        native = normalize_goal(read_native_goal(self.codex_home, thread_id))
+        if strict and native is None and not native_goal_absent(self.codex_home, thread_id):
+            raise GoalUnavailable('无法确认原生目标状态，请稍后刷新')
+        return native
+
+    def _reconcile_goal_commands(self, thread_id):
+        """Promote unknown commands that authoritative native state now proves.
+
+        A goal RPC can succeed while the post-write snapshot read races the
+        desktop owner. That outcome is durable and unknown, but it must not be
+        replayed. Later reads may safely close the ledger when SQLite or
+        GoalRPC proves the requested state.
+        """
+        with self.submit_lock:
+            pending = [(key, copy.deepcopy(value)) for key, value in self.goal_commands.items()
+                       if key.startswith(thread_id + ':') and value.get('state') in ('unknown', 'sent', 'pending')]
+        if not pending:
+            return
+        try:
+            native = self._native_goal_state(thread_id, strict=True)
+        except GoalError:
+            return
+        confirmed_keys = []
+        for key, command in pending:
+            objective = (command.get('objective') or '').strip()
+            action = command.get('action')
+            proved = goal_state_confirms_command(command, native)
+            if proved:
+                confirmed_keys.append((key, command))
+        if not confirmed_keys:
+            return
+        with self.submit_lock:
+            for key, command in confirmed_keys:
+                stored = self.goal_commands.get(key)
+                if not stored or stored.get('state') not in ('unknown', 'sent', 'pending'):
+                    continue
+                action = command.get('action')
+                status = {'create': 'active', 'pause': 'paused', 'resume': 'active',
+                          'cancel': 'cancelled', 'edit': 'paused'}.get(action)
+                stored['state'] = 'confirmed'; stored['sent'] = True
+                stored['confirmedAt'] = time.time()
+                stored['response'] = {'status': status, 'confirmed': True,
+                                      'reconciled': True, 'result': native, 'transitionId': key.split(':')[-1],
+                                      'uiLocale': stored.get('uiLocale')}
+                if action == 'cancel':
+                    objective = (command.get('objective') or '').strip()
+                    for old_key, old in self.goal_commands.items():
+                        if (old_key.startswith(thread_id + ':') and old.get('action') == 'create' and
+                                old.get('objective', '').strip() == objective):
+                            old['goalCancelled'] = True
+                self._save_goal_commands()
+
+    def _goal_command(self, session, thread_id, request_id, action, *, objective=None, status=None, ui_locale=None, expected=None):
+        uuid.UUID(request_id)
+        if action not in ('create', 'pause', 'resume', 'cancel', 'edit'):
+            raise ValueError('目标操作无效')
+        key = thread_id + ':' + request_id
+        if expected is not None and not isinstance(expected, dict):
+            raise ValueError('目标状态无效')
+        objective = (objective or '').strip()
+        if action in ('create', 'pause', 'resume', 'edit') and not objective:
+            raise ValueError('当前聊天没有目标')
+        if len(objective) > 4000:
+            raise ValueError('目标内容不能超过 4000 字')
+        fingerprint = goal_command_fingerprint(action, objective, status)
+        expected_status = {'create': 'active', 'resume': 'active', 'pause': 'paused', 'edit': 'paused'}.get(action)
+        # Goal commands mutate one native object and are observed asynchronously,
+        # so serialize every bridge-side transition before checking the ledger.
+        with self.goal_lock:
+            self._reconcile_goal_commands(thread_id)
+            native = self._native_goal_state(thread_id, strict=True)
+            with self.submit_lock:
+                command = self.goal_commands.get(key)
+                if command:
+                    if command.get('fingerprint') != fingerprint:
+                        raise ValueError('同一目标操作标识不能用于不同内容')
+                    if command.get('state') == 'confirmed':
+                        response = copy.deepcopy(command.get('response') or {})
+                        response.update({'status': response.get('status') or expected_status or 'cancelled',
+                                         'confirmed': True, 'duplicate': True})
+                        return response
+                    if command.get('state') == 'failed':
+                        raise IPCError(command.get('error') or '目标操作失败')
+                    # A durable sent/pending command has an unknown delivery result
+                    # after restart. The caller may inspect state, but replaying it
+                    # automatically could create or clear the wrong goal.
+                    return {'status': 'unknown', 'confirmed': False, 'duplicate': True,
+                            'error': command.get('error') or '目标操作结果尚未确认'}
+                if expected is not None and (goal_identity(expected) != goal_identity(native) or expected.get('status') != (native or {}).get('status')):
+                    raise ValueError('目标已发生变化，请刷新后重试')
+                command = {'before': native, 'action': action, 'workMode': 'goal', 'objective': objective, 'status': status,
+                           'uiLocale': normalize_ui_locale(ui_locale), 'state': 'pending', 'sent': False,
+                           'at': time.time(), 'fingerprint': fingerprint}
+                self.goal_commands[key] = command
+                self._save_goal_commands()
+
+            def confirm(response, *, duplicate=False):
+                with self.submit_lock:
+                    command['state'] = 'confirmed'; command['sent'] = True
+                    if not duplicate:
+                        response['transitionId'] = request_id
+                    command['confirmedAt'] = time.time(); command['response'] = response
+                    if duplicate:
+                        response['duplicate'] = True
+                    self._save_goal_commands()
+                with session.condition:
+                    session.changed()
+                return response
+
+            def fail(message, *, unknown=False):
+                with self.submit_lock:
+                    command['state'] = 'unknown' if unknown else 'failed'
+                    command['error'] = message; command['sent'] = command.get('sent', False)
+                    command['response'] = {'status': 'unknown' if unknown else (expected_status or 'cancelled'),
+                                           'confirmed': False, 'error': message}
+                    self._save_goal_commands()
+                with session.condition:
+                    session.changed()
+
+            decision, decision_error, _expected = plan_goal_command(action, objective, native, status=status)
+            if decision == 'duplicate':
+                return confirm({'status': expected_status or 'cancelled', 'confirmed': True,
+                                'result': native, 'uiLocale': command['uiLocale']}, duplicate=True)
+            if decision == 'invalid':
+                fail(decision_error)
+                raise ValueError(decision_error)
+
+            rpc_methods = {'create': ('set_goal', objective), 'pause': ('set_goal_status', 'paused'),
+                           'resume': ('set_goal_status', 'active'), 'cancel': ('clear_goal', None), 'edit': ('edit_goal', objective)}
+            rpc_method, rpc_arg = rpc_methods[action]
+            with self.submit_lock:
+                command['sent'] = True; command['state'] = 'sent'; command['attemptedAt'] = time.time()
+                self._save_goal_commands()
+            with session.condition:
+                session.changed()
+            try:
+                if action == 'edit':
+                    result = self._goal_call('edit_goal', thread_id, objective, (native or {}).get('tokenBudget'))
+                elif rpc_arg is None:
+                    result = self._goal_call(rpc_method, thread_id)
+                else:
+                    result = self._goal_call(rpc_method, thread_id, rpc_arg)
+            except GoalUnsupported as exc:
+                fail('桌面 Codex 版本不支持原生目标模式')
+                raise IPCError('桌面 Codex 版本不支持原生目标模式') from exc
+            except GoalError as exc:
+                # Timeout and disconnect leave delivery unknown; ordinary native
+                # errors are deterministic failures. Neither is replayed by id.
+                unknown = isinstance(exc, GoalUnavailable) or 'timeout' in str(exc).lower() or '超时' in str(exc)
+                fail(str(exc), unknown=unknown)
+                raise IPCError(str(exc)) from exc
+
+            try:
+                native = self._native_goal_state(thread_id, strict=True)
+            except GoalError as exc:
+                fail(str(exc), unknown=True)
+                raise IPCError('目标操作已发送，但状态尚未确认') from exc
+            confirmed = goal_state_confirms_command(command, native)
+            if action == 'cancel':
+                if confirmed:
+                    with self.submit_lock:
+                        for old_key, old in self.goal_commands.items():
+                            if old_key.startswith(thread_id + ':') and old.get('action') == 'create' and old.get('objective', '').strip() == objective:
+                                old['goalCancelled'] = True
+                        self._save_goal_commands()
+                    with session.condition:
+                        if session.state is not None:
+                            session.state['threadGoal'] = None
+                        session.changed()
+                    return confirm({'status': 'cancelled', 'confirmed': True, 'result': result})
+            elif confirmed:
+                return confirm({'status': expected_status, 'confirmed': True, 'result': native,
+                                'uiLocale': command['uiLocale']})
+            fail('目标操作已发送，但状态尚未确认', unknown=True)
+            raise IPCError('目标操作已发送，但状态尚未确认')
+
+    def _upload_gc(self):
+        while not self.closed.wait(60):
+            try:
+                with self.submit_lock:
+                    protected=set()
+                    for value in self.submissions.values():
+                        if value.get("status") in ("queued", "unknown", "accepted"):
+                            protected.update(value.get("attachments") or [])
+                removed=self.uploads.collect(protected=protected)
+                if removed:
+                    logging.getLogger(__name__).info("Removed %d expired upload(s)", removed)
+            except Exception:
+                logging.getLogger(__name__).exception("Upload cleanup failed")
 
     def _save_creations(self):
         target = self.creations_path.with_suffix('.tmp')
@@ -118,6 +359,7 @@ class Bridge:
         target.chmod(0o600)
         target.replace(self.creations_path)
 
+    @operation
     def create_chat(self, project_key, title, request_id):
         if not isinstance(request_id, str):
             raise ValueError('创建请求标识无效')
@@ -195,6 +437,7 @@ class Bridge:
                 result[key] = permissions[key]
         return result
 
+    @operation
     def message_action(self, thread_id, body):
         action, identifier = body.get('action'), body.get('id')
         if action not in ('edit', 'fork', 'edit-fork') or not isinstance(identifier, str):
@@ -303,6 +546,7 @@ class Bridge:
             if host not in self.remote_bridges:
                 folder = self.data_dir / 'hosts' / hashlib.sha256(host.encode()).hexdigest()[:16]
                 self.remote_bridges[host] = Bridge(self.codex_home, folder, host, available[host]['alias'], ipc_path=self.ipc.path)
+                self.remote_bridges[host].accounts = self.accounts
             return self.remote_bridges[host]
 
     def list(self, query="", limit=100, offset=0, archived=False):
@@ -356,20 +600,113 @@ class Bridge:
                     finally:
                         with self.lock: self.activity_following = False
                 threading.Thread(target=follow, daemon=True).start()
+        try:
+            recencies = self.store.recencies([s.id for s in sessions])
+        except (OSError, ValueError, StoreUnavailable, RemoteUnavailable):
+            recencies = {}
         rows = []
         for session in sessions:
             with session.condition:
                 state = session.state or {}
                 turns = ordered_turns(state)
                 last = next((t for t in reversed(turns) if t.get('turnId')), {})
-                rows.append({'id': session.id, 'host': self.host, 'connected': session.connected,
+                rows.append({'id': session.id, 'host': self.host, 'recency': recencies.get(session.id, 0), 'connected': session.connected,
                              'status': state.get('threadRuntimeStatus', {}).get('type') if session.connected else 'unknown',
                              'turnId': last.get('turnId'), 'turnStatus': last.get('status')})
         return rows
 
+    def notification_candidates(self):
+        sources = [self]
+        if self.host == 'local':
+            sources.extend(self.for_host(host) for host in self.hosts.hosts())
+        rows = []
+        for source in sources:
+            source.notification_event = self.notification_event
+            try:
+                # A new IPC connection needs one fresh discovery, even if the
+                # desktop resumed a task without changing its saved metadata.
+                source.ipc.connect()
+                if source.notification_client_id != source.ipc.client_id:
+                    source.notification_cursor = 0
+                    source.notification_boundary.clear()
+                    source.notification_client_id = source.ipc.client_id
+                changes = source.store.notification_changes(source.notification_cursor)
+                cursor = max([source.notification_cursor] + [r['changed_at'] for r in changes])
+                for row in changes:
+                    if row['changed_at'] > source.notification_cursor or row['id'] not in source.notification_boundary:
+                        rows.append({'id': row['id'], 'host': source.host})
+                source.notification_boundary = {r['id'] for r in changes if r['changed_at'] == cursor}
+                source.notification_cursor = cursor
+            except (IPCError, RemoteUnavailable, StoreUnavailable):
+                pass  # Preserve the cursor so the next discovery can recover.
+        return rows
+
+    def notification_updates(self):
+        sources = [self] + list(self.remote_bridges.values()) if self.host == 'local' else [self]
+        rows = []
+        for source in sources:
+            with source.lock:
+                identifiers = source.notification_dirty
+                source.notification_dirty = set()
+                sessions = [source.live[i] for i in identifiers if i in source.live]
+            for session in sessions:
+                with session.condition:
+                    state = session.state or {}
+                    if session.connected and (session.watched or state.get('threadRuntimeStatus', {}).get('type') == 'active' or
+                            any(t.get('status') == 'inProgress' for t in ordered_turns(state)) or pending_requests(state)):
+                        rows.append({'id': session.id, 'host': source.host})
+        return rows
+
+    def release_notification_session(self, session):
+        # A follow may be waiting for a snapshot. Never invert its lock order
+        # against the notification worker holding session.condition.
+        if not session.attach_lock.acquire(blocking=False):
+            return False
+        try:
+            session.watched = False
+            with self.submit_lock:
+                queued = any(k.startswith(session.id + ':') and v['status'] == 'queued' for k, v in self.submissions.items())
+            with session.condition:
+                if session.viewers or queued or not session.activity_only:
+                    return True
+                if session.connected or session.discovering:
+                    try:
+                        self.ipc.follow(session.id, session.owner, False, host=self.host)
+                    except IPCError:
+                        pass
+                session.connected = False
+                session.discovering = False
+                session.revision = None
+            return True
+        finally:
+            session.attach_lock.release()
+
+    def notification_session(self, thread_id):
+        # Follow only; never parse saved history or activate an unloaded owner.
+        with self.lock:
+            session = self.live.get(thread_id)
+            if session is None:
+                session = self.live[thread_id] = LiveSession(thread_id)
+                session.activity_only = True
+        if not session.watched:
+            session.notification_probe_until = time.monotonic() + 10
+        session.watched = True
+        if not session.connected and time.monotonic() >= session.retry_at:
+            session.retry_at = time.monotonic() + 15
+            self._attach(session, timeout=0)
+        return session
+
     def upload(self, thread_id, identifier, name, data):
         self.store.get(thread_id)  # Uploads do not activate a desktop chat.
         return self.uploads.put(thread_id, identifier, name, data)
+
+    def upload_thumb(self, thread_id, identifier, data, width, height):
+        self.store.get(thread_id)
+        return self.uploads.set_thumb(thread_id, identifier, data, width, height)
+
+    def upload_preview(self, thread_id, identifier, variant='thumb'):
+        self.store.get(thread_id)
+        return self.uploads.preview(thread_id, identifier, variant)
 
     def session(self, thread_id, attach=True, background=False, force=False):
         uuid.UUID(thread_id)
@@ -388,12 +725,15 @@ class Bridge:
         if attach and not session.connected:
             self._attach(session)
         if session.state is None or session.activity_only:
-            fallback = self.store.history(thread_id)
+            fallback = self._saved_history(session)
             with session.condition:
                 if session.state is None or session.activity_only:
                     session.set_history(fallback)
                     session.activity_only = False
         return session
+
+    def _saved_history(self, session):
+        return self.store.history(session.id, turn_limit=session.history_limit)
 
     def _refresh_async(self, session, force=False):
         with session.condition:
@@ -401,13 +741,17 @@ class Bridge:
                 return
             if not force and time.monotonic() < session.retry_at and not session.activity_only:
                 return
+            needs_history = session.state is None or session.activity_only
             session.connecting = True
             session.changed()
         def refresh():
+            # Owner discovery and saved-history IO progress independently.
+            attachment = threading.Thread(target=self._attach, args=(session,), daemon=True)
+            attachment.start()
             try:
-                if session.state is None or session.activity_only:
+                if needs_history:
                     try:
-                        fallback = self.store.history(session.id)
+                        fallback = self._saved_history(session)
                         with session.condition:
                             session.set_history(fallback)
                     except (OSError, ValueError, KeyError, RemoteUnavailable, StoreUnavailable):
@@ -415,13 +759,12 @@ class Bridge:
                         logging.getLogger(__name__).warning("Saved history unavailable; trying desktop snapshot")
                     finally:
                         session.activity_only = False
-                if not self.closed.is_set():
-                    self._attach(session)
             except Exception:
                 logging.getLogger(__name__).exception("Background session read failed")
                 with session.condition:
                     session.error = "读取会话失败，请重新连接或查看网关日志。"
             finally:
+                attachment.join()
                 with session.condition:
                     session.connecting = False
                     session.retry_at = time.monotonic() + 15
@@ -452,6 +795,7 @@ class Bridge:
                     session.error = str(exc)
                     session.changed()
 
+    @operation
     def activate(self, thread_id):
         """Explicit phone operation only; reads and notification watches never navigate."""
         session = self.session(thread_id, background=True)
@@ -501,6 +845,10 @@ class Bridge:
                 for session in sessions:
                     if session.owner == params.get("clientId"):
                         self._invalidate(session, "桌面会话连接已断开，正在等待重连")
+            # Owner changes can make previously unanswered probes available.
+            self.notification_cursor = 0
+            self.notification_boundary.clear()
+            self.notification_event.set()
             return
         if message.get("method") != "thread-stream-state-changed":
             return
@@ -537,6 +885,9 @@ class Bridge:
                 session.connected = True
                 session.error = None
                 session.changed()
+                with self.lock:
+                    self.notification_dirty.add(session.id)
+                self.notification_event.set()
             except (ValueError, KeyError, IndexError, TypeError):
                 session.connected = False
                 session.revision = None
@@ -551,6 +902,9 @@ class Bridge:
             session.changed()
 
     def _disconnected(self):
+        self.notification_cursor = 0
+        self.notification_boundary.clear()
+        self.notification_event.set()
         with self.lock:
             sessions = list(self.live.values())
         for session in sessions:
@@ -559,6 +913,11 @@ class Bridge:
     def _maintain(self):
         delay = 3
         while not self.closed.wait(delay):
+            if self.accounts is not None:
+                try:
+                    self.accounts.check_ready()
+                except ValueError:
+                    continue
             with self.lock:
                 sessions = list(self.live.values())
             for session in sessions:
@@ -571,7 +930,12 @@ class Bridge:
                     except Exception:
                         pass  # Unknown outcomes stay recorded and are never automatically replayed.
                 if (session.viewers > 0 or queued or session.watched) and not session.connected:
-                    self._refresh_async(session)
+                    if session.activity_only and session.viewers == 0 and not queued:
+                        if time.monotonic() >= session.retry_at:
+                            session.retry_at = time.monotonic() + 15
+                            self._attach(session, timeout=0)
+                    else:
+                        self._refresh_async(session)
                 elif session.viewers == 0 and not queued and not session.watched and time.monotonic() - session.touched > 300:
                     with self.lock:
                         if session.viewers != 0 or session.watched:
@@ -591,7 +955,16 @@ class Bridge:
                 raise IPCError(session.error or "请先在桌面 App 打开此聊天")
         return session
 
+    def _check_provider(self, session):
+        if self.host == 'local' and self.accounts and self.accounts.active_matches():
+            row = self.accounts.row(self.accounts.index['activeId'])
+            expected = ('openai',) if row['kind'] == 'chatgpt' else ('openai', 'bridge_api')
+            if session.view().get('provider') not in expected:
+                raise ValueError('此聊天保留了原提供商，请切回对应接入或新建聊天')
+
+    @operation
     def _call(self, session, method, params, timeout=30):
+        self._check_provider(session)
         return self.ipc.request(method, {"conversationId": session.id, **params}, target=session.owner, host=self.host, timeout=timeout)["result"]
 
     def _save_ledger(self):
@@ -606,45 +979,115 @@ class Bridge:
         view = session.view()
         view["host"] = self.host
         view["hostLabel"] = "此电脑" if self.host == "local" else self.hosts.hosts().get(self.host, {}).get("displayName", self.host)
+        view["goalTransport"] = self.goal_transport
+        view["goalRuntimeAvailable"] = self._goal_runtime_available()
+        view["goalActivationIds"] = sorted(self._goal_activation_ids(thread_id))
         with session.condition:
             artifacts = artifact_paths(session.state or {}, self.store.home) if self.host == "local" else {}
         view["files"] = [{"id": k, "name": v["name"], "reference": v["reference"], "image": v["image"]} for k, v in artifacts.items()]
+        self._overlay_native_goal(session, thread_id, view)
         self._submission_meta(session, view)
         view["forkedFrom"] = self._fork_origin(thread_id)
         return view
 
-    @staticmethod
-    def _goal_text(objective):
-        return ("请开启本会话的原生目标模式：先调用 create_goal，将下方原文设为 objective，"
-                "再持续推进该目标。不要只用文字声称已开启；若工具不可用，请明确说明。\n\n" + objective)
+    def _latest_created_goal_objective(self, thread_id):
+        with self.submit_lock:
+            commands = [v for k, v in self.goal_commands.items()
+                        if k.startswith(thread_id + ":") and v.get("action") == "create"]
+        latest = max(commands, key=lambda v: v.get("at", 0), default=None)
+        return (latest or {}).get("objective", "")
+
+    def _cancelled_goal_objective(self, thread_id, objective=None):
+        """Return true when the newest ledger entry for this objective was cancelled."""
+        objective_key = (objective or "").strip()
+        if not objective_key:
+            return False
+        with self.submit_lock:
+            entries = []
+            for key, value in self.goal_commands.items():
+                if key.startswith(thread_id + ":") and (value.get("workMode") == "goal" or value.get("action") == "cancel") and value.get("objective", "").strip() == objective_key:
+                    entries.append({**value, 'goalCancelled': value.get('goalCancelled', value.get('action') == 'cancel')})
+            for key, value in self.submissions.items():
+                if key.startswith(thread_id + ":") and value.get("workMode") == "goal" and value.get("text", "").strip() == objective_key:
+                    entries.append(value)
+        latest = max(entries, key=lambda v: v.get("at", 0), default=None)
+        return bool(latest and latest.get("goalCancelled"))
 
     def _submission_meta(self, session, view):
         with self.submit_lock:
             entries = [(k.split(":")[1], copy.deepcopy(v)) for k, v in self.submissions.items()
                        if k.startswith(session.id + ":")]
+            # Native goal creates live in the goal-command ledger, while older
+            # prompt-based goals remain in submissions. Merge both by request id
+            # so a newly created native goal cannot be shadowed by a stale entry.
+            merged = {key: value for key, value in entries}
+            for key, value in self.goal_commands.items():
+                if not key.startswith(session.id + ":") or value.get('action') != 'create':
+                    continue
+                command_id = key.split(':', 2)[-1]
+                command_entry = {
+                    'text': value.get('objective', ''), 'status': 'accepted', 'at': value.get('at', 0),
+                    'workMode': 'goal', 'goalConfirmed': bool((value.get('response') or {}).get('confirmed')),
+                    'goalCancelled': bool(value.get('goalCancelled')), 'goalSource': 'command',
+                    'goalState': value.get('state'),
+                }
+                old = merged.get(command_id)
+                if not old or command_entry['at'] >= old.get('at', 0):
+                    merged[command_id] = command_entry
+        activation_ids = self._goal_activation_ids(session.id)
         view["submissions"] = [{"id": k, "text": v["text"], "status": v["status"], **({'attachments': v['attachmentNames']} if v.get('attachmentNames') else {})}
-                               for k, v in entries if v["status"] in ("queued", "unknown")]
-        goals = [(k, v) for k, v in entries if v.get("workMode") == "goal"]
+                               for k, v in entries if v["status"] in ("queued", "unknown")
+                               and k not in activation_ids]
         view["goalSubmission"] = None
+        goal = view.get('goal')
+        goal_commands = [(k.split(':',2)[-1], copy.deepcopy(v)) for k, v in self.goal_commands.items()
+                         if k.startswith(session.id + ':') and (v.get('workMode') == 'goal' or v.get('action') == 'cancel')]
+        latest_goal_command = max(goal_commands, key=lambda pair: pair[1].get('at', 0), default=None)
+        if latest_goal_command and latest_goal_command[1].get('action') == 'cancel':
+            return
+        # The direct GoalRPC connection can leave the desktop owner's in-memory
+        # thread goal behind after the owner deletes or completes it. Once
+        # native storage is readable and proves absence, do not turn that stale
+        # snapshot into a mobile-only "unconfirmed" dead end.
+        if (latest_goal_command and latest_goal_command[1].get('action') == 'create' and
+                (latest_goal_command[1].get('response') or {}).get('confirmed') and
+                time.time() - latest_goal_command[1].get('confirmedAt', latest_goal_command[1].get('at', 0)) > 1 and
+                native_goal_absent(self.codex_home, session.id)):
+            view['goal'] = None
+            return
+        goals = [(k, v) for k, v in merged.items() if v.get("workMode") == "goal"]
         if not goals:
             return
         key, entry = max(goals, key=lambda pair: pair[1]["at"])
-        if entry.get("goalConfirmed"):
-            return
+        objective = entry["text"].strip()
         goal = view.get("goal")
-        if goal and goal != entry.get("previousGoal") and goal.get("objective", "").strip() == entry["text"].strip():
-            with self.submit_lock:
-                self.submissions[session.id + ":" + key]["goalConfirmed"] = True
-                self._save_ledger()
+
+        # Once the authoritative native goal is cleared, hide a stale desktop
+        # snapshot instead of offering a second cancel.
+        if entry.get("goalCancelled"):
             return
-        status = "unknown" if entry["status"] == "unknown" else "pending"
+
+        goal_statuses = {"active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"}
+        if entry.get("goalConfirmed") and (not goal or goal.get("objective", "").strip() != objective or goal.get("status") not in goal_statuses):
+            # A later clear/replace happened elsewhere; expose the stale request only briefly as unconfirmed.
+            view["goalSubmission"] = {"id": key, "objective": entry["text"], "status": "unconfirmed"}
+            return
+        if goal and goal.get("objective", "").strip() == objective and goal.get("status") in goal_statuses:
+            if not entry.get("goalConfirmed") and entry.get("goalSource") != 'command':
+                with self.submit_lock:
+                    self.submissions[session.id + ":" + key]["goalConfirmed"] = True
+                    self._save_ledger()
+            return
+        status = "unknown" if entry["status"] == "unknown" or entry.get("goalState") == "unknown" else "pending"
+        # Legacy prompt-based requests created a real turn. Once that turn ends
+        # without a native goal, the request is unconfirmed rather than blocking
+        # the newer native Goal API forever.
         with session.condition:
             for turn in ordered_turns(session.state or {}):
                 params = turn.get("params", {})
-                if (params.get("clientUserMessageId") == key or
-                        any(item.get("text") == self._goal_text(entry["text"]) for item in params.get("input", []))):
-                    if turn.get("status") in ("completed", "failed", "interrupted"):
-                        status = "unconfirmed"
+                if params.get("clientUserMessageId") == key and turn.get("status") in ("completed", "failed", "interrupted"):
+                    status = "unconfirmed"
+                    break
         view["goalSubmission"] = {"id": key, "objective": entry["text"], "status": status}
 
     def artifact(self, thread_id, artifact_id):
@@ -655,12 +1098,128 @@ class Bridge:
             raise KeyError("文件不属于此聊天的工作目录")
         return files[artifact_id]
 
+    def _annotate_upload_attachments(self, session, rows):
+        """Add preview ids only for images recorded in this chat's upload ledger."""
+        paths = {a['path'] for row in rows for a in row.get('attachments', [])
+                 if a.get('type') in ('localImage', 'image') and isinstance(a.get('path'), str)}
+        if not paths:
+            return
+        by_path = self.uploads.by_path(session.id, paths)
+        for row in rows:
+            for attachment in row.get('attachments', []):
+                path = attachment.get('path')
+                if attachment.get('type') not in ('localImage', 'image') or not isinstance(path, str):
+                    continue
+                resolved = str(Path(path).resolve())
+                upload = by_path.get(resolved)
+                if upload and upload.get('image'):
+                    attachment['uploadId'] = upload['id']
+                    attachment['mime'] = upload['image']
+                    attachment['thumb'] = upload.get('thumb')
+                    attachment['name'] = upload.get('name') or attachment.get('name')
+                elif self.host == 'local':
+                    attachment['desktopId'] = hashlib.sha256(resolved.encode('utf-8')).hexdigest()
+                if not attachment.get('name'):
+                    attachment['name'] = Path(path).name
+                # Preview metadata is enough for the browser. The private upload
+                # path must never cross the authenticated web API boundary.
+                attachment.pop('path', None)
+
+    def desktop_image_preview(self, thread_id, image_id):
+        """Serve a desktop-side image that is referenced by the saved thread."""
+        if not re.fullmatch(r'[0-9a-f]{64}', image_id):
+            raise ValueError('桌面图片标识无效')
+        session = self.session(thread_id, attach=False)
+        paths = []
+        with session.condition:
+            for turn in ordered_turns(session.state or {}):
+                for item in items_array(turn.get('items', [])):
+                    if item.get('type') not in ('userMessage', 'steeringUserMessage'):
+                        continue
+                    content = item.get('content') or item.get('input') or []
+                    if not isinstance(content, list):
+                        continue
+                    for attachment in content:
+                        if not isinstance(attachment, dict) or attachment.get('type') != 'localImage':
+                            continue
+                        path = attachment.get('path')
+                        if isinstance(path, str) and path:
+                            paths.append(Path(path))
+            paths.extend(referenced_model_images(session.state or {}, image_views_only=True))
+        for path in paths:
+            try:
+                resolved = path.resolve()
+                if hashlib.sha256(str(resolved).encode('utf-8')).hexdigest() != image_id or not resolved.is_file():
+                    continue
+                data = resolved.read_bytes()
+            except OSError:
+                continue
+            mime = image_type(data)
+            if not mime:
+                continue
+            return {'previewPath': str(resolved), 'previewMime': mime,
+                    'previewSha256': hashlib.sha256(data).hexdigest(),
+                    'name': resolved.name}, 'desktop'
+        raise KeyError('桌面图片不存在或已不可用')
+
+    def _merge_submission_attachments(self, session, rows):
+        """Show every submitted attachment, including files passed only as context."""
+        with self.submit_lock:
+            submissions = {key.rsplit(':', 1)[-1]: copy.deepcopy(value) for key, value in self.submissions.items()
+                           if key.startswith(session.id + ':') and value.get('attachmentNames')}
+        for row in rows:
+            request_id = row.get('requestId')
+            if not request_id:
+                continue
+            names = []
+            entry = submissions.get(request_id)
+            if not entry:
+                continue
+            for name in entry.get('attachmentNames') or []:
+                if name not in names:
+                    names.append(name)
+            if row.get('role') != 'user' or not names:
+                continue
+            attachments = row.setdefault('attachments', [])
+            existing = {item.get('name') for item in attachments}
+            for name in names:
+                if name not in existing:
+                    attachments.append({'type': 'file', 'name': name})
+
+    def _overlay_native_goal(self, session, thread_id, view):
+        if self.host != "local":
+            return view
+        native_goal = normalize_goal(read_native_goal(self.codex_home, thread_id))
+        if native_goal:
+            view["goal"] = native_goal
+        elif native_goal_absent(self.codex_home, thread_id):
+            view["goal"] = None
+        elif view.get("goal") and self._cancelled_goal_objective(thread_id, view["goal"].get("objective", "")):
+            view["goal"] = None
+        return view
+
     def timeline_read(self, thread_id, mode='page', **options):
         session = self.session(thread_id, background=True)
+        # Expand saved history only when the reader reaches its loaded edge.
+        if mode == 'page' and options.get('before'):
+            with session.condition:
+                position = session.timeline.position(options['before'])
+                expand = position is not None and position < options.get('limit', 20) and session.saved_view and not session.saved_view['historyComplete']
+                if expand:
+                    session.history_limit += 50
+            if expand:
+                saved = self._saved_history(session)
+                with session.condition:
+                    session.set_history(saved)
         with session.condition:
             projection = session.timeline
-            if projection.sequence != session.sequence:
-                projection.update(session.view())
+            authoritative_view = self._overlay_native_goal(session, thread_id, session.view())
+            if projection.sequence != session.sequence or projection.meta.get("goal") != authoritative_view.get("goal"):
+                projection.update(authoritative_view)
+            # Annotate the full projection, not only the returned page. Otherwise
+            # older pages briefly render raw localImage paths after an upgrade.
+            self._annotate_upload_attachments(session, projection.rows)
+            self._merge_submission_attachments(session, projection.rows)
             if mode == 'detail':
                 result = projection.detail(**options)
                 texts = [projection.details[result['key']]]
@@ -670,8 +1229,14 @@ class Bridge:
                                       hostLabel='此电脑' if self.host == 'local' else self.hosts.hosts().get(self.host, {}).get('displayName', self.host))
                 texts = [row['text'] for row in result['rows'] if row['role'] == 'assistant']
             cwd = (session.state or {}).get('cwd')
-        # Resolve only links in the delivered page, not every file in the chat.
-        file_state = {'cwd': cwd, 'turns': [{'items': [{'type': 'agentMessage', 'text': text} for text in texts]}]}
+            media_items = [item for turn in ordered_turns(session.state or {})
+                           for item in items_array(turn.get('items')) if item.get('type') in ('ImageView', 'imageView')]
+        # Resolve links in the delivered page, plus ImageView evidence needed by
+        # embedded model screenshots that can live outside workspace roots.
+        file_state = {'cwd': cwd, 'turns': [
+            {'items': [{'type': 'agentMessage', 'text': text} for text in texts]},
+            {'items': media_items},
+        ]}
         artifacts = artifact_paths(file_state, self.store.home) if self.host == 'local' else {}
         result['files'] = [{'id': k, 'name': v['name'], 'reference': v['reference'], 'image': v['image']} for k, v in artifacts.items()]
         if mode != 'detail':
@@ -679,16 +1244,29 @@ class Bridge:
             result['meta']['forkedFrom'] = self._fork_origin(thread_id)
         return result
 
-    def catalog(self, thread_id, refresh=False):
+    def catalog(self, thread_id, refresh=False, kind=None, query='', offset=0, limit=200, ids=None):
         session = self.session(thread_id)
         with session.condition:
             cwd = session.state.get("cwd")
             model = session.state.get("latestModel")
             effort = session.state.get("latestReasoningEffort") or (session.state.get("latestThreadSettings") or {}).get("effort")
-        catalog = self.catalog_reader.get(cwd, refresh=refresh)
+            provider = session.view().get('provider')
+        if kind in ('models', 'skills'):
+            value = self.catalog_reader.get_kind(kind, cwd, refresh=refresh, provider=provider,
+                                                 query=query, offset=offset, limit=limit, ids=ids)
+            if kind == 'models':
+                with session.condition:
+                    view = session.view()
+                return {**value, 'kind': 'models', 'currentModel': model or value.get('currentModel'),
+                        'currentEffort': effort or value.get('currentEffort'),
+                        'fastMode': {**value.get('fastMode', {}), 'allowed': view.get('provider') == 'openai' and value.get('fastMode', {}).get('allowed') is True},
+                        **({'currentServiceTier': view['serviceTier']} if 'serviceTier' in view else {})}
+            return {**value, 'kind': 'skills'}
+        catalog = self.catalog_reader.get(cwd, refresh=refresh, provider=provider)
         with session.condition:
             view = session.view()
-        return {**catalog, "currentModel": model, "currentEffort": effort,
+        return {**catalog, "currentModel": model or catalog.get("currentModel"),
+                "currentEffort": effort or catalog.get("currentEffort"),
                 'fastMode': {**catalog.get('fastMode', {}), 'allowed': view.get('provider') == 'openai' and catalog.get('fastMode', {}).get('allowed') is True},
                 **({'currentServiceTier': view['serviceTier']} if 'serviceTier' in view else {})}
 
@@ -697,16 +1275,47 @@ class Bridge:
             raise ValueError("最多选择 8 个 Skill")
         if not skills:
             return []
-        catalog = self.catalog(session.id)
-        by_id = {s["id"]: s for s in catalog["skills"]}
+        with session.condition:
+            cwd = session.state.get("cwd") or str(self.codex_home)
+        identifiers = sorted(set(skills))
+        rows = self.catalog_reader.validate_skills(cwd, identifiers)
+        by_id = {row["id"]: row for row in rows}
         selected = []
-        for key in sorted(set(skills)):
+        for key in identifiers:
             skill = by_id.get(key)
-            if not skill or (self.host == "local" and not Path(skill["path"]).is_file()):
+            if not skill:
                 raise ValueError("Skill 不可用，请刷新列表")
             selected.append({"id": key, "name": skill["name"], "path": skill["path"]})
         return selected
 
+    @operation
+    def rename(self, thread_id, title):
+        uuid.UUID(thread_id)
+        if not isinstance(title, str) or not title.strip() or len(title) > 120 or any(unicodedata.category(c) in ('Cc', 'Zl', 'Zp') for c in title):
+            raise ValueError('聊天名称需为 1–120 个字符，不能包含换行或控制字符')
+        title = title.strip()
+        self.store.get(thread_id)  # Only existing desktop chats may be renamed.
+        session = self.session(thread_id, attach=False, background=True)
+        with session.action_lock:
+            if isinstance(self.store, RemoteStore):
+                source = Path(__file__).with_name('create.py').read_text(encoding='utf-8')
+                source += '\nimport shutil\nhome=Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex")))\n'
+                source += 'runtime=shutil.which("codex") or str(Path.home()/".local/bin/codex")\n'
+                source += 'rename_thread(runtime, home, **' + payload({'thread_id': thread_id, 'title': title}) + ')\nprint(json.dumps({"ok":True}))\n'
+                ssh_read(self.store.alias, source, timeout=90)
+                with self.store.lock:
+                    self.store.cache.clear()
+            else:
+                rename_thread(self.catalog_reader.executable, self.codex_home, thread_id, title)
+            with session.condition:
+                if session.state is not None:
+                    session.state['title'] = title
+                if session.saved_view is not None:
+                    session.saved_view['title'] = title
+                session.changed()
+        return {'id': thread_id, 'host': self.host, 'title': title}
+
+    @operation
     def settings(self, thread_id, model, effort, *, fast_mode=None):
         if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,199}", model):
             raise ValueError("模型 ID 格式不正确")
@@ -719,7 +1328,7 @@ class Bridge:
             # Recheck login/model/policy on the execution host before a speed change.
             catalog = self.catalog(thread_id, refresh=fast_mode is not None)
             known = next((m for m in catalog["models"] if m["id"] == model), None)
-            if known and effort not in known["efforts"]:
+            if known and known["efforts"] and effort not in known["efforts"]:
                 raise ValueError("这个模型不支持所选推理强度")
             settings = {'model': model, 'effort': effort}
             if fast_mode is not None:
@@ -736,6 +1345,122 @@ class Bridge:
         return {"applied": True, "confirmed": confirmed, "model": model, "effort": effort,
                 **({'serviceTier': settings['serviceTier']} if fast_mode is not None else {})}
 
+    def _goal_activation_ids(self, thread_id):
+        """Stable request ids used by goal activation turns."""
+        ids = set()
+        for key, command in self.goal_commands.items():
+            if not key.startswith(thread_id + ':') or command.get('action') not in ('create', 'resume'):
+                continue
+            response = command.get('response') or {}
+            goal = normalize_goal_result(response.get('result'))
+            if response.get('confirmed') and goal:
+                ids.add(goal_activation(thread_id, goal, command['action'], transition_id=response.get('transitionId'))[0])
+        return ids
+
+    def _cancel_goal_activation_queues(self, thread_id):
+        """Cancel queued start turns after their goal command is confirmed cancelled."""
+        ids = self._goal_activation_ids(thread_id)
+        changed = False
+        with self.submit_lock:
+            for activation_id in ids:
+                key = thread_id + ':' + activation_id
+                entry = self.submissions.get(key)
+                if entry and entry.get('status') == 'queued':
+                    entry['status'] = 'cancelled'
+                    changed = True
+            if changed:
+                self._save_ledger()
+        if changed:
+            session = self.live.get(thread_id)
+            if session:
+                with session.condition:
+                    session.changed()
+
+    def _send_goal_activation(self, session, response, action, ui_locale=None):
+        """Serially start a turn after authoritative state proves the goal."""
+        if not response.get("confirmed") or response.get("status") not in ("active",):
+            return None
+        goal = normalize_goal_result(response.get("result"))
+        if not goal:
+            return None
+        # Prefer the authoritative row when the RPC result omits a stable goal id.
+        goal = normalize_goal(self._native_goal_state(session.id, strict=True))
+        if goal is None:
+            return None
+        ui_locale = normalize_ui_locale(response.get("uiLocale") or ui_locale)
+        if goal.get('status') != 'active' or goal_identity(goal) != goal_identity(normalize_goal_result(response.get('result'))):
+            return None
+        if response.get('duplicate') and not response.get('transitionId'):
+            return None
+        activation_id, text = goal_activation(session.id, goal, action, ui_locale, response.get('transitionId'))
+        with session.condition:
+            active = (session.state or {}).get("threadRuntimeStatus", {}).get("type") == "active"
+        try:
+            activation = self.send(session.id, text, activation_id, "queue" if active else "send",
+                                   activation={"action": action, "objective": goal["objective"],
+                                               "uiLocale": ui_locale, "goal": goal_identity(goal)})
+        except Exception as exc:
+            raise IPCError(f"目标状态已确认，但启动消息发送失败：{exc}") from exc
+        if activation.get("status") not in ("accepted", "queued"):
+            raise IPCError("目标状态已确认，但启动消息结果尚未确认；请不要自动重发")
+        return {"id": activation_id, "status": activation["status"]}
+
+    def _goal_call(self, method, *args):
+        """Use the owner when available, otherwise the isolated sidecar."""
+        if self.owner_goal is not None:
+            # A configured owner transport is authoritative. Never silently
+            # fall back after the owner path was selected: that could create a
+            # second writer and reintroduce split-brain state.
+            return getattr(self.owner_goal, method)(*args)
+        last = None
+        for attempt in range(2 if method == 'get_goal' else 1):
+            try:
+                return getattr(self.goal, method)(*args)
+            except GoalUnavailable as exc:
+                last = exc
+                self.goal.close()
+                if method == 'get_goal' and attempt == 0 and not self.closed.is_set():
+                    self.closed.wait(.25)
+                    continue
+                raise
+        raise last
+
+    @operation
+    def _goal_control(self, thread_id, request_id, action, *, status=None, objective=None, ui_locale=None, expected=None):
+        uuid.UUID(request_id)
+        if self.host != 'local' or self.goal is None:
+            raise ValueError('目标模式暂不支持 SSH 主机')
+        session = self.session(thread_id, attach=False, background=True)
+        # Match the queue dispatcher lock order and serialize state + activation.
+        with session.action_lock, self.goal_lock:
+            prior = self.goal_commands.get(thread_id + ':' + request_id)
+            native = self._native_goal_state(thread_id, strict=True)
+            if objective is None:
+                objective = (prior or {}).get('objective', (native or {}).get('objective', ''))
+            response = self._goal_command(session, thread_id, request_id, action,
+                objective=objective, status=status, ui_locale=ui_locale, expected=expected)
+            if response.get('confirmed') and action in ('pause', 'cancel', 'edit'):
+                self._cancel_goal_activation_queues(thread_id)
+            if action == 'resume':
+                response['activation'] = self._send_goal_activation(session, response, action)
+            with session.condition:
+                session.changed()
+            return response
+
+    def set_goal_status(self, thread_id, status, request_id, ui_locale=None, expected=None):
+        if status not in ('active', 'paused'):
+            raise ValueError('目标状态无效')
+        return self._goal_control(thread_id, request_id, 'pause' if status == 'paused' else 'resume',
+                                  status=status, ui_locale=ui_locale, expected=expected)
+
+    def cancel_goal(self, thread_id, request_id, expected=None):
+        return self._goal_control(thread_id, request_id, 'cancel', expected=expected)
+
+    def edit_goal(self, thread_id, objective, request_id, expected=None):
+        if not isinstance(objective, str) or not 0 < len(objective.strip()) <= 4000:
+            raise ValueError('请输入 1–4000 字的目标内容')
+        return self._goal_control(thread_id, request_id, 'edit', objective=objective, expected=expected)
+
     def cancel_queued(self, thread_id, submission_id):
         uuid.UUID(submission_id)
         session = self.session(thread_id, attach=False)
@@ -751,7 +1476,27 @@ class Bridge:
                 session.changed()
         return {"status": "cancelled"}
 
-    def send(self, thread_id, text, submission_id, mode="send", skills=None, *, work_mode=None, plan_response=None, attachments=None):
+    @operation
+    def ignore_submission(self, thread_id, submission_id):
+        uuid.UUID(thread_id)
+        uuid.UUID(submission_id)
+        with self.lock:
+            session = self.live.get(thread_id)
+        with session.action_lock if session else nullcontext():
+            with self.submit_lock:
+                entry = self.submissions.get(thread_id + ':' + submission_id)
+                if not entry or entry['status'] not in ('unknown', 'ignored'):
+                    raise ValueError('只能忽略发送结果未确认的记录')
+                entry['status'] = 'ignored'
+                self._save_ledger()
+            if session:
+                with session.condition:
+                    session.changed()
+        return {'status': 'ignored', 'id': submission_id}
+
+    @operation
+    def send(self, thread_id, text, submission_id, mode="send", skills=None, *, work_mode=None,
+             plan_response=None, attachments=None, ui_locale=None, activation=None):
         uuid.UUID(submission_id)
         identifiers = [] if attachments is None else attachments
         files = self.uploads.resolve(thread_id, identifiers)
@@ -765,6 +1510,23 @@ class Bridge:
             raise ValueError("补充当前任务时不能切换工作模式")
         if work_mode == "goal" and (mode != "send" or not text.strip() or len(text) > 4000):
             raise ValueError("目标需在当前任务结束后直接发送，且不超过 4000 字")
+        if work_mode == "goal":
+            if self.host != "local" or self.goal is None:
+                raise ValueError("目标模式暂不支持 SSH 主机")
+            if identifiers:
+                raise ValueError("目标模式暂不支持附件")
+            if skills:
+                raise ValueError("目标模式只接受纯文本目标")
+            session = self._target(thread_id)
+            with session.action_lock, self.goal_lock:
+                response = self._goal_command(session, thread_id, submission_id, "create", objective=text,
+                                              ui_locale=ui_locale or activation.get("uiLocale") if activation else ui_locale)
+                result = {"status": "unknown" if response.get("status") == "unknown" else "accepted",
+                          "confirmed": bool(response.get("confirmed")), "duplicate": bool(response.get("duplicate")),
+                          "id": submission_id, "result": response.get("result")}
+                result["activation"] = self._send_goal_activation(
+                    session, response, "create", ui_locale or activation.get("uiLocale") if activation else ui_locale)
+                return result
         session = self._target(thread_id)
         selected = self._resolve_skills(session, [] if skills is None else skills)
         key = thread_id + ":" + submission_id
@@ -773,19 +1535,17 @@ class Bridge:
                 prior = self.submissions.get(key)
                 if prior:
                     if (prior["text"] != text or prior["mode"] != mode or prior.get("skills", []) != selected or
-                            prior.get("workMode") != work_mode or prior.get("planResponse") != plan_response or prior.get('attachments', []) != identifiers):
+                            prior.get("workMode") != work_mode or prior.get("planResponse") != plan_response or prior.get('attachments', []) != identifiers or
+                            prior.get("goalActivation") != activation):
                         raise ValueError("同一消息标识不能用于不同内容")
                     return {"status": prior["status"], "duplicate": True, "id": submission_id}
+            self._check_provider(session)
             with session.condition:
-                active = session.state.get("threadRuntimeStatus", {}).get("type") == "active"
+                active = (session.state or {}).get("threadRuntimeStatus", {}).get("type") == "active"
                 if active and mode == "send":
                     raise ValueError("Codex 正在执行。请选择「排队发送」或「补充当前任务」。")
                 if not active and mode == "steer":
                     raise ValueError("当前任务已经结束，请使用普通发送")
-                if work_mode == "goal":
-                    goal = session.state.get("threadGoal")
-                    if goal and goal.get("status") != "complete":
-                        raise ValueError("此聊天已有未完成目标，请先处理当前目标")
                 if work_mode is not None and not (session.state.get("latestModel") or
                         (session.state.get("latestCollaborationMode") or {}).get("settings", {}).get("model")):
                     raise ValueError("尚未取得桌面模型设置，请重新连接后再切换模式")
@@ -797,11 +1557,6 @@ class Bridge:
                     if plan_response["action"] == "implement":
                         if text != "Implement the following plan:\n\n" + pending.get("params", {}).get("planContent", ""):
                             raise ValueError("计划已更新，请刷新后重试")
-            if work_mode == "goal":
-                pending_view = session.view()
-                self._submission_meta(session, pending_view)
-                if (pending_view.get("goalSubmission") or {}).get("status") in ("pending", "unknown"):
-                    raise ValueError("上一条目标请求尚未确认，请先查看会话结果")
             with self.submit_lock:
                 entry = {"text": text, "mode": mode, "skills": selected, "status": "queued" if mode == "queue" else "unknown", "at": time.time()}
                 if identifiers:
@@ -809,10 +1564,10 @@ class Bridge:
                     entry['attachmentNames'] = [f['name'] for f in files]
                 if work_mode is not None:
                     entry["workMode"] = work_mode
-                if work_mode == "goal":
-                    entry["previousGoal"] = pending_view.get("goal")
                 if plan_response is not None:
                     entry["planResponse"] = plan_response
+                if activation:
+                    entry["goalActivation"] = activation
                 self.submissions[key] = entry
                 self._save_ledger()
             with session.condition:
@@ -821,29 +1576,41 @@ class Bridge:
                 return {"status": "queued", "id": submission_id}
             return self._dispatch(session, key, entry)
 
+    @operation
     def _send_queued(self, session, key, entry):
         with session.action_lock:
             with session.condition:
                 if not session.connected or session.state.get("threadRuntimeStatus", {}).get("type") != "idle":
                     return
-            with self.submit_lock:
-                if self.submissions[key]["status"] != "queued":
-                    return
-                self.submissions[key]["status"] = "unknown"
-                self._save_ledger()
-            try:
-                self._dispatch(session, key, entry)
-            finally:
-                with session.condition:
-                    session.changed()
+            with self.goal_lock:
+                with self.submit_lock:
+                    if self.submissions[key]["status"] != "queued":
+                        return
+                    activation = entry.get("goalActivation")
+                    cancelled = False
+                    if activation:
+                        goal = self._native_goal_state(session.id, strict=True)
+                        objective = (activation.get("objective") or "").strip()
+                        goal_objective = (goal or {}).get("objective", "").strip()
+                        if goal is None or goal.get("status") != "active" or goal_objective != objective or (activation.get("goal") and activation["goal"] != goal_identity(goal)):
+                            self.submissions[key]["status"] = "cancelled"
+                            self._save_ledger()
+                            cancelled = True
+                    if not cancelled:
+                        self.submissions[key]["status"] = "unknown"
+                        self._save_ledger()
+                try:
+                    if cancelled:
+                        return
+                    self._dispatch(session, key, entry)
+                finally:
+                    with session.condition:
+                        session.changed()
 
     def _dispatch(self, session, key, entry):
         submission_id = key.split(":")[1]
-        text = self._goal_text(entry["text"]) if entry.get("workMode") == "goal" else entry["text"]
+        text = entry["text"]
         files = self.uploads.resolve(session.id, entry.get('attachments', []))
-        if files:
-            manifest = '# Attached files\n' + '\n'.join(json.dumps({'name': f['name'], 'path': f['path']}, ensure_ascii=False) for f in files)
-            text = manifest + '\n\n' + text if entry.get('workMode') == 'goal' else text + '\n\n' + manifest
         request = {"threadId": session.id, "input": [{"type": "text", "text": text, "text_elements": []}], "clientUserMessageId": submission_id}
         request['input'].extend({'type': 'localImage', 'path': f['path']} for f in files if f['image'])
         context = {'attachments': [], 'commentAttachments': []}
@@ -907,7 +1674,7 @@ class Bridge:
             text = "<send_user_message_question_reply>\n" + json.dumps(replies, ensure_ascii=False, separators=(",", ":")) + "\n</send_user_message_question_reply>"
             submission = str(uuid.uuid5(uuid.UUID(thread_id), request_id + text))
             with session.condition:
-                active = session.state.get("threadRuntimeStatus", {}).get("type") == "active"
+                active = (session.state or {}).get("threadRuntimeStatus", {}).get("type") == "active"
             return self.send(thread_id, text, submission, "steer" if active else "send")
         with session.condition:
             pending = next((r for r in session.state.get("requests", []) if str(r.get("id")) == str(request_id)), None)
@@ -966,14 +1733,27 @@ class Bridge:
             action = response.get("action")
             if action not in ("accept", "decline", "cancel"):
                 raise ValueError("未知确认操作")
-            content = response.get("content")
-            if action == "accept":
-                validate_form(content, params.get("requestedSchema", {}))
-            payload["response"] = {"action": action, "content": content if action == "accept" else None}
+            computer = computer_use_approval(params)
+            if computer:
+                if set(response) - {'action', 'persist'} or ('persist' in response and
+                        (action != 'accept' or response['persist'] not in computer['persistModes'])):
+                    raise ValueError('此请求不支持所选授权范围')
+                payload['response'] = {'action': action, 'content': {} if action == 'accept' else None}
+                if 'persist' in response:
+                    payload['response']['_meta'] = {'persist': response['persist']}
+            else:
+                if set(response) - {'action', 'content'}:
+                    raise ValueError('此请求不支持所选授权范围')
+                content = response.get("content")
+                if action == "accept":
+                    validate_form(content, params.get("requestedSchema", {}))
+                payload["response"] = {"action": action, "content": content if action == "accept" else None}
         return self._call(session, mapping[method], payload)
 
     def close(self):
         self.closed.set()
+        if self.host == "local" and self.accounts:
+            self.accounts.login_cancel.set()
         for bridge in list(self.remote_bridges.values()):
             bridge.close()
         with self.lock:
@@ -985,6 +1765,8 @@ class Bridge:
             except IPCError:
                 pass
         self.ipc.close()
+        if self.goal:
+            self.goal.close()
 
 
 def validate_form(value, schema):

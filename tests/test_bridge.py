@@ -11,7 +11,7 @@ import time
 import unittest
 import uuid
 from contextlib import closing
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from bridge.auth import Auth, password_record
 from bridge.files import artifact_paths
@@ -126,6 +126,7 @@ class IntegrationTests(unittest.TestCase):
         db.execute('INSERT INTO threads VALUES(?,?,?,?,?,?,?,?)', (THREAD, 'Desktop test', '/workspace', 1, 0, 'Codex Desktop', 'vscode', 'unused'))
         db.commit()
         db.close()
+        db.close()
         self.bridge = Bridge(self.root, self.root / 'data')
         self.bridge.ipc.path = self.fixture.path
 
@@ -151,6 +152,23 @@ class IntegrationTests(unittest.TestCase):
         self.assertNotIn('model', request)
         self.assertNotIn('modelProvider', request)
         self.assertTrue(call['params']['turnStart']['context']['inheritThreadSettings'])
+
+    def test_external_provider_change_does_not_use_stale_managed_account_to_block_send(self):
+        from bridge.accounts import Accounts
+        manager = Accounts(self.bridge)
+        self.bridge.accounts = manager
+        config = self.root / 'config.toml'
+        config.write_text('model_provider="bridge_api"\n')
+        manager.index['accounts'] = [{'id': 'a' * 32, 'kind': 'api'}]
+        manager.mark_active('a' * 32)
+        config.write_text('model_provider="custom-api"\n')
+        self.assertFalse(manager.active_matches())
+        self.bridge.send(THREAD, 'hello from the existing provider', str(uuid.uuid4()))
+        calls = [r for r in self.fixture.requests if r['method'] == 'thread-follower-start-turn']
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]['targetClientId'], 'owner')
+        self.assertNotIn('modelProvider', calls[0]['params']['turnStart']['request'])
+        self.assertEqual(self.bridge.view(THREAD)['provider'], 'custom-api')
 
     def test_local_database_failure_keeps_other_hosts_in_list(self):
         from types import SimpleNamespace
@@ -222,12 +240,15 @@ class IntegrationTests(unittest.TestCase):
             release.wait(2)
         self.bridge._attach = slow_attach
         history = {**state(), 'title': 'Saved history'}
-        self.bridge.store.history = lambda tid: history
+        self.bridge.store.history = lambda tid, **kwargs: history
         try:
             started = time.monotonic()
             self.bridge.view(THREAD, background=True)
             self.assertLess(time.monotonic() - started, .5)
             self.assertTrue(entered.wait(1))
+            session = self.bridge.live[THREAD]
+            with session.condition:
+                self.assertTrue(session.condition.wait_for(lambda: session.saved_view is not None, timeout=1))
             view = self.bridge.view(THREAD, background=True)
             self.assertEqual(view['title'], 'Saved history')
             self.assertTrue(view['connecting'])
@@ -240,10 +261,27 @@ class IntegrationTests(unittest.TestCase):
                 with session.condition:
                     session.condition.wait_for(lambda: not session.connecting, timeout=3)
 
+    def test_fast_owner_snapshot_does_not_skip_saved_history(self):
+        from unittest.mock import patch, Mock
+        session = LiveSession(THREAD)
+        saved = {**state(), 'turns': [{'turnId':'old','status':'completed','items':[]}]}
+        class InlineThread:
+            def __init__(self, target, args=(), **kwargs):self.target,self.args=target,args
+            def start(self):self.target(*self.args)
+            def join(self):pass
+        def attach(target):
+            target.state = {**state(), 'turnsPagination': {'hasLoadedOldest':False}}
+            target.connected = True
+        with patch('bridge.service.threading.Thread', InlineThread), patch.object(self.bridge, '_attach', side_effect=attach), patch.object(self.bridge.store, 'history', return_value=saved) as read:
+            self.bridge._refresh_async(session)
+        read.assert_called_once_with(THREAD, turn_limit=20)
+        self.assertEqual(session.view()['turns'][0]['id'], 'old')
+        self.assertTrue(session.connected)
+
     def test_cold_read_never_opens_desktop_and_late_snapshot_can_connect(self):
         from unittest.mock import patch
         self.fixture.loaded = False
-        self.bridge.store.history = lambda tid: {**state(), 'title': 'Saved history'}
+        self.bridge.store.history = lambda tid, **kwargs: {**state(), 'title': 'Saved history'}
         with patch('bridge.service.open_in_desktop') as opened:
             session = self.bridge.session(THREAD, background=True)
             with session.condition:
@@ -259,7 +297,7 @@ class IntegrationTests(unittest.TestCase):
     def test_explicit_activation_recovers_cold_chat_without_a_model_request(self):
         from unittest.mock import patch
         self.fixture.loaded = False
-        self.bridge.store.history = lambda tid: state()
+        self.bridge.store.history = lambda tid, **kwargs: state()
         with patch('bridge.service.open_in_desktop', side_effect=lambda *args: setattr(self.fixture, 'loaded', True)) as opened:
             session = self.bridge.activate(THREAD)
             self.assertTrue(session.connected)
@@ -278,7 +316,7 @@ class IntegrationTests(unittest.TestCase):
         from unittest.mock import patch
         self.fixture.loaded = False
         self.bridge.host = self.fixture.host = 'remote:test'
-        self.bridge.store.history = lambda tid: state()
+        self.bridge.store.history = lambda tid, **kwargs: state()
         with patch('bridge.service.open_in_desktop', side_effect=lambda *args: setattr(self.fixture, 'loaded', True)) as opened:
             self.bridge.send(THREAD, 'hello', str(uuid.uuid4()))
             opened.assert_called_once_with(THREAD, 'remote:test')
@@ -291,7 +329,7 @@ class IntegrationTests(unittest.TestCase):
     def test_failed_activation_never_sends_or_marks_message_submitted(self):
         from unittest.mock import patch
         self.fixture.loaded = False
-        self.bridge.store.history = lambda tid: state()
+        self.bridge.store.history = lambda tid, **kwargs: state()
         with patch('bridge.service.open_in_desktop', side_effect=OSError('handler unavailable')):
             with self.assertRaisesRegex(IPCError, '未发送'):
                 self.bridge.send(THREAD, 'hello', str(uuid.uuid4()))
@@ -321,6 +359,43 @@ class IntegrationTests(unittest.TestCase):
             self.assertTrue(session.condition.wait_for(lambda: not session.connected, timeout=2))
         self.assertTrue(self.bridge.view(THREAD)['connected'])
         self.assertEqual(session.revision, 1)
+
+    def test_computer_use_persistence_is_validated_and_forwarded(self):
+        params = {'serverName':'codex_apps','mode':'form','message':'Use fixture app',
+                  'requestedSchema':{'type':'object','properties':{}},
+                  '_meta':{'codex_approval_kind':'mcp_tool_call','connector_id':'computer-use',
+                           'tool_params':{'app':'Fixture App'},'persist':['session','always'], 'private':'omit'}}
+        self.fixture.state['requests'] = [{'id':'computer','method':'mcpServer/elicitation/request','params':params}]
+        view = self.bridge.view(THREAD)
+        self.assertEqual(view['requests'][0]['params']['computerUse'], {'app':'Fixture App','persistModes':['session','always']})
+        self.assertNotIn('private', json.dumps(view['requests']))
+        for mode in ('session','always'):
+            self.bridge.respond(THREAD,'computer',{'action':'accept','persist':mode})
+            reply = self.fixture.requests[-1]['params']['response']
+            self.assertEqual(reply, {'action':'accept','content':{},'_meta':{'persist':mode}})
+        self.bridge.respond(THREAD,'computer',{'action':'decline'})
+        self.assertEqual(self.fixture.requests[-1]['params']['response'], {'action':'decline','content':None})
+        for response in ({'action':'accept','persist':'forever'}, {'action':'decline','persist':'always'},
+                         {'action':'accept','_meta':{'persist':'always'}}):
+            with self.assertRaises(ValueError): self.bridge.respond(THREAD,'computer',response)
+
+    def test_computer_scope_cannot_be_added_to_other_or_session_only_requests(self):
+        params = {'mode':'form','requestedSchema':{'type':'object','properties':{}},
+                  '_meta':{'codex_approval_kind':'mcp_tool_call','connector_id':'computer-use',
+                           'tool_params':{'app':'Fixture'},'persist':['session']}}
+        self.fixture.state['requests']=[{'id':'computer','method':'mcpServer/elicitation/request','params':params}]
+        self.bridge.view(THREAD)
+        with self.assertRaises(ValueError):self.bridge.respond(THREAD,'computer',{'action':'accept','persist':'always'})
+        self.bridge.respond(THREAD,'computer',{'action':'accept','persist':'session'})
+        session=self.bridge.session(THREAD)
+        with session.condition:
+            session.state['requests'][0]['params']['_meta']['connector_id']='unrelated'
+        with self.assertRaises(ValueError):self.bridge.respond(THREAD,'computer',{'action':'accept','persist':'session'})
+        self.bridge.respond(THREAD,'computer',{'action':'accept','content':{}})
+        self.assertNotIn('_meta',self.fixture.requests[-1]['params']['response'])
+        with session.condition:session.state['requests']=[]
+        with self.assertRaisesRegex(ValueError,'已处理或已过期'):
+            self.bridge.respond(THREAD,'computer',{'action':'accept','persist':'always'})
 
     def test_stale_and_pending_approval_routing(self):
         self.fixture.state['requests'] = [{"id": 7, "method": "item/commandExecution/requestApproval", "params": {"command": "pwd", "availableDecisions": ['accept', 'decline']}}]
@@ -378,10 +453,30 @@ class IntegrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.bridge.settings(THREAD, 'model-b', 'ultra')
 
+    def test_upstream_model_without_effort_metadata_uses_original_provider_and_owner(self):
+        reads = []
+        def catalog(cwd, **kwargs):
+            reads.append((cwd, kwargs))
+            return {'models': [{'id': 'gemini-fixture', 'efforts': []}], 'skills': [], 'modelSource': 'api'}
+        self.bridge.catalog_reader.get = catalog
+        before = self.bridge.view(THREAD)
+        result = self.bridge.settings(THREAD, 'gemini-fixture', 'high')
+        self.assertTrue(result['confirmed'])
+        self.assertEqual(reads, [(before['cwd'], {'refresh': False, 'provider': 'custom-api'})])
+        call = self.fixture.requests[-1]
+        self.assertEqual(call['method'], 'thread-follower-update-thread-settings')
+        self.assertEqual(call['params']['threadSettings'], {'model': 'gemini-fixture', 'effort': 'high'})
+        after = self.bridge.view(THREAD)
+        for key in ('provider', 'cwd', 'owner'):
+            self.assertEqual(after.get(key), before.get(key))
+        self.assertFalse(any(r['method'] == 'thread-follower-start-turn' for r in self.fixture.requests))
+
     def test_explicit_skill_input_and_dedup(self):
         path = self.root / 'SKILL.md'
         path.write_text('---\nname: sample\n---\nSample')
-        self.bridge.catalog_reader.get = lambda *a, **k: {'models': [], 'skills': [{'id': 'sample-id', 'name': 'sample', 'path': str(path)}]}
+        skill = {'id': 'sample-id', 'name': 'sample', 'path': str(path)}
+        self.bridge.catalog_reader.get_kind = lambda kind, *a, **k: {'skills': [skill]}
+        self.bridge.catalog_reader.validate_skills = lambda cwd, ids, refresh=False: ([skill] if set(ids) == {'sample-id'} else [])
         message_id = str(uuid.uuid4())
         self.bridge.send(THREAD, 'Use this skill', message_id, skills=['sample-id'])
         request = self.fixture.requests[-1]['params']['turnStart']['request']
@@ -394,7 +489,8 @@ class IntegrationTests(unittest.TestCase):
     def test_remote_host_routes_send_settings_and_approval_to_mac_owner(self):
         host = 'remote-ssh-discovered:fixture'
         self.bridge.host = self.fixture.host = host
-        self.bridge.catalog_reader.get = lambda *a, **k: {'models': [], 'skills': []}
+        self.bridge.catalog_reader.get = lambda *a, **k: {'models': [], 'skills': [], 'fastMode': {'allowed': False}}
+        self.bridge.catalog_reader.get_kind = lambda kind, *a, **k: {'skills': []}
         self.fixture.state['requests'] = [{'id': 7, 'method': 'item/commandExecution/requestApproval', 'params': {}}]
         self.assertTrue(self.bridge.view(THREAD)['connected'])
         self.bridge.send(THREAD, 'remote', str(uuid.uuid4()))
@@ -465,6 +561,34 @@ class IntegrationTests(unittest.TestCase):
         saved = json.loads((self.root / 'data/submissions.json').read_text(encoding='utf-8'))
         self.assertEqual(saved[THREAD + ':' + message_id]['status'], 'unknown')
 
+    def test_ignore_unknown_is_durable_and_never_replays_or_cancels_other_records(self):
+        message_id = str(uuid.uuid4())
+        key = THREAD + ':' + message_id
+        self.bridge.submissions[key] = {'text': 'uncertain', 'mode': 'send', 'status': 'unknown', 'at': 1}
+        queued = str(uuid.uuid4())
+        self.bridge.submissions[THREAD + ':' + queued] = {'text': 'queued', 'mode': 'queue', 'status': 'queued', 'at': 2}
+        self.assertEqual(self.bridge.ignore_submission(THREAD, message_id)['status'], 'ignored')
+        self.assertEqual(self.bridge.ignore_submission(THREAD, message_id)['status'], 'ignored')
+        self.assertFalse(self.fixture.requests)
+        saved = json.loads(self.bridge.ledger_path.read_text())
+        self.assertEqual(saved[key]['status'], 'ignored')
+        with self.assertRaises(ValueError): self.bridge.ignore_submission(THREAD, queued)
+        with self.assertRaises(ValueError): self.bridge.ignore_submission(str(uuid.uuid4()), message_id)
+        self.assertEqual(self.bridge.send(THREAD, 'uncertain', message_id)['status'], 'ignored')
+        self.assertFalse(any(r['method'] == 'thread-follower-start-turn' for r in self.fixture.requests))
+
+    def test_provider_rejection_does_not_create_unconfirmed_record(self):
+        from bridge.accounts import Accounts
+        manager = Accounts(self.bridge)
+        self.bridge.accounts = manager
+        (self.root / 'config.toml').write_text('model_provider="bridge_api"\n')
+        manager.index['accounts'] = [{'id': 'a' * 32, 'kind': 'api'}]
+        manager.mark_active('a' * 32)
+        with self.assertRaisesRegex(ValueError, '原提供商'):
+            self.bridge.send(THREAD, 'blocked before sending', str(uuid.uuid4()))
+        self.assertEqual(self.bridge.submissions, {})
+
+
 
 class ModelTests(unittest.TestCase):
     def test_canonical_history(self):
@@ -484,6 +608,37 @@ class ModelTests(unittest.TestCase):
         req = normalize_request({'id': 'x', 'method': 'mcpServer/elicitation/request', 'params': {'_meta': {'openai/userVerification': {'token': 'secret'}}}})
         self.assertFalse(req['supported'])
         self.assertNotIn('secret', json.dumps(req))
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows drive path syntax')
+    def test_reference_path_accepts_windows_drive_paths(self):
+        from bridge.files import reference_path
+        path = reference_path('D:\\workspace\\report.txt')
+        self.assertTrue(path.is_absolute())
+        self.assertEqual(path, PureWindowsPath('D:/workspace/report.txt'))
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows drive path syntax')
+    def test_windows_drive_markdown_reference_remains_in_workspace(self):
+        with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
+            root = Path(directory)
+            workspace = root / 'workspace';workspace.mkdir()
+            allowed = workspace / 'report.txt';allowed.write_text('report', encoding='utf-8')
+            outside = root / 'private.txt';outside.write_text('private', encoding='utf-8')
+            value = state();value['cwd'] = str(workspace)
+            value['turns'] = [{'items': [{'type': 'agentMessage', 'text': f'[report]({allowed}) [private]({outside})'}]}]
+            files = artifact_paths(value, root / '.codex')
+            self.assertEqual([item['name'] for item in files.values()], ['report.txt'])
+
+    def test_file_uri_image_view_links_plain_markdown_reference(self):
+        with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
+            root = Path(directory)
+            image = root / 'preview.png';image.write_bytes(b'PNG')
+            value = {**state(), 'cwd': str(root), 'turns': [{'items': [
+                {'type': 'ImageView', 'path': image.as_uri()},
+                {'type': 'agentMessage', 'text': f'![preview]({image})'},
+            ]}]}
+            files = artifact_paths(value, root / '.codex')
+            self.assertEqual(len(files), 1)
+            self.assertEqual(next(iter(files.values()))['reference'], str(image))
 
     def test_artifacts_only_referenced_workspace_files(self):
         with tempfile.TemporaryDirectory(dir=str(ROOT / '.tmp')) as directory:
@@ -575,6 +730,104 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('HttpOnly', headers['Set-Cookie'])
         return {'Cookie': headers['Set-Cookie'].split(';')[0], 'X-CSRF-Token': body['csrf']}
+
+    def test_ignore_submission_route_requires_login_csrf_and_exact_payload(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        ignore = Mock(return_value={'accounts': [], 'blockers': []})
+        self.server.bridge.accounts = SimpleNamespace(ignore_submission=ignore)
+        payload = {'threadId': THREAD, 'submissionId': str(uuid.uuid4()), 'host': 'local'}
+        path = '/api/accounts/ignore-submission'
+        self.assertEqual(self.request('POST', path, payload)[0], 401)
+        auth = self.login()
+        self.assertEqual(self.request('POST', path, payload, {'Cookie': auth['Cookie']})[0], 403)
+        self.assertEqual(self.request('POST', path, {**payload, 'extra': True}, auth)[0], 400)
+        ignore.assert_not_called()
+        self.assertEqual(self.request('POST', path, payload, auth)[0], 200)
+        ignore.assert_called_once_with(payload)
+
+    def test_cross_site_link_can_open_homepage_only(self):
+        navigation = {'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate',
+                      'Sec-Fetch-Dest': 'document', 'Sec-Fetch-User': '?1'}
+        for path in ['/', '/?source=link']:
+            with self.subTest(path=path):
+                conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
+                self.addCleanup(conn.close)
+                # A link from another site has Fetch Metadata but no Origin.
+                conn.request('GET', path, headers=navigation)
+                response = conn.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertTrue(response.getheader('Content-Type').startswith('text/html'))
+                self.assertEqual(response.read(), (ROOT / 'web' / 'index.html').read_bytes())
+
+    def test_cross_site_navigation_keeps_api_embedding_origin_and_host_guards(self):
+        navigation = {'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate',
+                      'Sec-Fetch-Dest': 'document'}
+        cases = [
+            ('GET', '/api/auth', navigation),
+            ('GET', '/api/sessions', navigation),
+            ('GET', '/app.js', navigation),
+            ('GET', '/', {**navigation, 'Sec-Fetch-Dest': 'iframe'}),
+            ('GET', '/', {**navigation, 'Sec-Fetch-Mode': 'cors'}),
+            ('GET', '/', {'Sec-Fetch-Site': 'cross-site'}),
+            ('GET', '/', {**navigation, 'Origin': 'https://other.example'}),
+            ('GET', '/', {**navigation, 'Host': 'other.example'}),
+            ('POST', '/', navigation),
+            ('POST', '/api/login', navigation),
+        ]
+        for method, path, headers in cases:
+            with self.subTest(method=method, path=path, headers=headers):
+                self.assertEqual(self.request(method, path, headers=headers)[0], 403)
+
+    def test_pushplus_configuration_requires_login_and_csrf_and_hides_token(self):
+        from bridge.notifications import Notifications, settings
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as directory:
+            self.server.notifications = Notifications(None, directory)
+            path = '/api/notifications/pushplus'
+            self.assertEqual(self.request('GET', path)[0], 401)
+            headers = self.login()
+            body = {'pushplusEnabled': True, 'pushplusToken': 'private-pushplus'}
+            self.assertEqual(self.request('POST', path, body, {'Cookie': headers['Cookie']})[0], 403)
+            status, _, result = self.request('POST', path, body, headers)
+            self.assertEqual(status, 200)
+            self.assertEqual(result, {'pushplusEnabled': True, 'hasPushplusToken': True})
+            self.assertNotIn('private-pushplus', json.dumps(self.request('GET', path, headers=headers)))
+            self.assertEqual(settings(directory)['pushplusToken'], 'private-pushplus')
+            with patch('bridge.httpd.publish_pushplus') as send:
+                self.assertEqual(self.request('POST', path+'/test', {}, headers)[0], 200)
+                send.assert_called_once()
+            self.assertEqual(self.request('POST', path, {'server':'https://other.example'}, headers)[0], 400)
+
+    def test_rename_route_requires_csrf_and_routes_to_selected_host(self):
+        from unittest.mock import Mock
+        headers = self.login()
+        remote = Mock()
+        remote.rename.return_value = {'id': THREAD, 'host':'remote', 'title':'New'}
+        self.server.bridge.for_host = Mock(return_value=remote)
+        path = '/api/sessions/'+THREAD+'/rename?host=remote'
+        self.assertEqual(self.request('POST', path, {'title':'New'}, {'Cookie':headers['Cookie']})[0], 403)
+        remote.rename.assert_not_called()
+        self.assertEqual(self.request('POST', path, {'title':'New'}, headers)[0], 200)
+        self.server.bridge.for_host.assert_called_once_with('remote')
+        remote.rename.assert_called_once_with(THREAD, 'New')
+
+    def test_skill_catalog_route_paginates_searches_and_hydrates_selection(self):
+        from unittest.mock import Mock
+        headers = self.login()
+        catalog = self.server.bridge.catalog = Mock()
+        catalog.return_value = {'kind': 'skills', 'skills': [], 'selectedSkills': [], 'total': 0}
+        path = ('/api/sessions/' + THREAD + '/catalog?kind=skills&q=fixture&limit=5&offset=10'
+                '&id=selected-1&id=selected-2&id=selected-1&host=local')
+        status, _, body = self.request('GET', path, headers=headers)
+        self.assertEqual(status, 200)
+        self.assertEqual(catalog.call_args.args, (THREAD,))
+        self.assertEqual(catalog.call_args.kwargs, {'refresh': False, 'kind': 'skills', 'query': 'fixture', 'offset': 10, 'limit': 5, 'ids': ['selected-1', 'selected-2']})
+        self.assertEqual(self.request('GET', '/api/sessions/'+THREAD+'/catalog?kind=skills&limit=999', headers=headers)[0], 200)
+        self.assertEqual(catalog.call_args.kwargs['limit'], 500)
+        self.assertEqual(self.request('GET', '/api/sessions/'+THREAD+'/catalog?kind=skills&offset=-1', headers=headers)[0], 200)
+        self.assertEqual(catalog.call_args.kwargs['offset'], 0)
+        self.assertEqual(self.request('GET', '/api/sessions/'+THREAD+'/catalog?kind=skills&offset=bad', headers=headers)[0], 400)
 
     def test_web_appearance_assets_are_served_with_correct_types(self):
         for name, content_type in [('presentation.js', 'text/javascript'), ('presentation.css', 'text/css')]:
@@ -701,8 +954,8 @@ class HttpTests(unittest.TestCase):
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
             scripts = re.findall(r'<script src="([^"]+)"', response.read().decode())
-            self.assertEqual(scripts, ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
-                                       '/vendor/texmath.js', '/message-actions.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/modes.js', '/attachments.js', '/activity.js', '/fast-mode.js', '/app.js', '/presentation.js'])
+            self.assertEqual([script.split('?', 1)[0] for script in scripts], ['/vendor/markdown-it.min.js', '/vendor/katex/katex.min.js',
+                                       '/vendor/texmath.js', '/message-actions.js', '/markdown.js', '/i18n.js', '/timeline.js', '/account.js', '/modes.js', '/attachments.js', '/activity.js', '/fast-mode.js', '/accounts.js', '/app.js', '/presentation.js'])
             for script in scripts:
                 conn.request('GET', script)
                 response = conn.getresponse()
@@ -731,21 +984,28 @@ class HttpTests(unittest.TestCase):
 
     def test_notification_route_is_authenticated_and_csrf_protected(self):
         class NotificationsFixture:
-            def watch(self, thread, host, enabled, notify_on_completion):
-                return {'available': True, 'watching': bool(enabled), 'notifyOnCompletion': bool(notify_on_completion)}
+            def policy(self, thread, host, value):
+                return {'available': True, 'watching': value['requests']=='on', 'notifyOnCompletion': value['completion']=='on'}
+            def defaults(self, value=None):
+                return value or {'requests':True,'completion':False}
         self.server.notifications = NotificationsFixture()
         self.server.bridge.host = 'local'
         path = '/api/sessions/'+THREAD+'/notifications'
         self.assertEqual(self.request('GET', path)[0], 401)
         auth = self.login()
-        self.assertEqual(self.request('POST', path, {'enabled': True}, {'Cookie': auth['Cookie']})[0], 403)
-        status, _, value = self.request('POST', path, {'enabled': True}, auth)
+        self.assertEqual(self.request('POST', path, {'requests':'on','completion':'off'}, {'Cookie': auth['Cookie']})[0], 403)
+        status, _, value = self.request('POST', path, {'requests':'on','completion':'off'}, auth)
         self.assertEqual(status, 200)
         self.assertTrue(value['watching'])
         self.assertFalse(value['notifyOnCompletion'])
-        status, _, value = self.request('POST', path, {'enabled': True, 'notifyOnCompletion': True}, auth)
+        status, _, value = self.request('POST', path, {'requests':'on','completion':'on'}, auth)
         self.assertEqual(status, 200)
         self.assertTrue(value['notifyOnCompletion'])
+
+        defaults = '/api/notifications/defaults'
+        self.assertEqual(self.request('GET', defaults)[0], 401)
+        self.assertEqual(self.request('POST', defaults, {'requests':False,'completion':True}, {'Cookie':auth['Cookie']})[0], 403)
+        self.assertEqual(self.request('POST', defaults, {'requests':False,'completion':True}, auth)[0], 200)
 
     def test_formula_css_fonts_and_path_boundary(self):
         conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
