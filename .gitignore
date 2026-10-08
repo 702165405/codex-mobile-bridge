@@ -19,3 +19,11 @@ __pycache__/
 node_modules/
 dist/
 *.spec
+
+# Android local tools, build outputs and signing credentials
+android/.gradle/
+android/.kotlin/
+android/**/build/
+android/local.properties
+*.jks
+*.keystore

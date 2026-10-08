@@ -6,7 +6,7 @@
 
 [简体中文](README.md) · [English](README_EN.md)
 
-> 本仓库由 **702165405** 维护：`origin` 指向本仓库，`upstream` 指向 `try2love/codex-mobile-bridge`。上游更新必须先在审查分支分析、测试，再通过 PR 合入本仓库；不会直接覆盖主分支。维护流程见 [上游同步说明](docs/UPSTREAM_SYNC.md)。
+> 本仓库由 **702165405** 维护，以 `main` 为主：`origin` 指向本仓库，`upstream` 指向 `try2love/codex-mobile-bridge`。每次更新先拉取双方主分支，保留本地定制并审查、测试，再合入自有 `main`。维护流程见 [上游同步说明](docs/UPSTREAM_SYNC.md)。
 
 **[双语介绍与使用演示 ↗](https://try2love.github.io/codex-mobile-bridge/?lang=zh)** · **[下载桌面 App](https://github.com/try2love/codex-mobile-bridge/releases)**
 
@@ -21,6 +21,12 @@
 > 社区项目，与 OpenAI 无隶属关系。支持 macOS 和 Windows，依赖 Codex App 的内部 IPC；各平台的实测范围见 [验证记录](VERIFICATION.md)。App 更新后可能需要适配。
 
 Linux x64 / ARM64 实验性适配、Ubuntu 22.04 构建与 VMware 网络说明见 [Linux 文档](docs/linux.md)。提供 `.deb` 和 AppImage；原生 CI 验证安装、启动与网关功能，具体 Codex 桌面版本的 IPC 兼容性仍以实机测试为准。
+
+## 原生安卓 App
+
+提供 Android 8.0 及以上的原生客户端 **Codex Mobile Bridge**，支持保存多台电脑的 HTTPS 地址、独立登录和快速切换。对于习惯使用手机 App 的用户，聊天操作、系统文件选择、原生阅读和 App 打开期间的通知集中在一个入口，日常使用更方便。电脑端仍需运行网关。
+
+[下载安卓签名 APK](https://github.com/702165405/codex-mobile-bridge/releases/latest) · [功能、构建与升级说明](android/README.md) · [测试结果](android/TEST_RESULTS.md)。安卓更新使用该仓库的 GitHub Release，支持同签名覆盖升级；记住账号密码为可选功能，并按电脑连接加密保存。
 
 ## 消息编辑、分支与复制
 

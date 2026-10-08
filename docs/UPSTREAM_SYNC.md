@@ -1,41 +1,48 @@
-# 上游同步与自有仓库维护
+# 自有 main 与上游同步
 
-## 两份目录，各司其职
+本项目以 **702165405/codex-mobile-bridge 的 `main`** 为主，本地开发和定制功能最终合入此分支。安卓功能已由 `codex/android-native` 整合到 `main`，原分支保留历史。
 
-- `upstream` 目录：原始 `try2love/codex-mobile-bridge` 的干净参考副本，禁止推送。
-- `702165405` 目录：你的正式维护副本。`origin` 是 `702165405/codex-mobile-bridge`，`upstream` 只用于拉取原作者更新。
-- 根目录旧版和 `.tmp/latest-source-*` 是历史工作副本，不再作为发布来源。历史修改保留，不直接删除。
+| 远程 | 地址 | 用途 |
+| --- | --- | --- |
+| `origin` | `https://github.com/702165405/codex-mobile-bridge.git` | 自有仓库，拉取和推送 |
+| `upstream` | `https://github.com/try2love/codex-mobile-bridge.git` | 原作者仓库，只拉取 `main` |
 
-## 每次同步必须经过检查
+当前目录就是正式维护副本，无需另建源仓库目录。此电脑已设置 `main` 跟踪 `origin/main`、默认推送到 `origin`，并禁用 `upstream` 推送。其他电脑克隆后需单独配置这些本地 Git 设置；它们不随提交传播。
 
-在自己的仓库目录执行：
+## 每次更新
 
-```powershell
-python scripts/prepare-upstream-sync.py
+先提交或妥善保存本地修改，将需要保留的功能分支合入本地 `main`。在干净的 `main` 执行：
+
+```sh
+python3 scripts/prepare-upstream-sync.py
 ```
 
-脚本先检查工作区干净、远程地址正确，再拉取双方主分支，创建独立 `sync/upstream-*` 审查分支并执行未提交的合并。冲突会保留供处理；不会自动提交、推送、强制重置或改写 `main`。差异摘要写入忽略的 `.tmp/upstream-review-*.md`。
+脚本依次拉取 `upstream/main` 和 `origin/main`，任一失败就停止。没有待合入的提交时保持当前分支；有更新时，从**本地 `main`** 建立 `codex/sync-upstream-*` 审查分支，先合并自有远程 `origin/main`，再准备上游的未提交合并。本地尚未推送的提交会保留，不会被远程分支替代。
 
-1. 检查上游提交及 `git diff --cached`，重点审查认证、HTTP/IPC 边界、路径校验、依赖、构建/更新签名及 Actions 权限；保留本分支推送限制和其他自定义修复。
-2. 运行全部测试：
+自有远程与本地分叉时，脚本可能在审查分支生成一次 merge commit。任一步发生冲突都会停止并保留现场；解决自有远程冲突并提交后，继续执行 `git merge --no-ff --no-commit upstream/main`。脚本不会推送或改动 `main`。成功准备后，差异摘要写入被忽略的 `.tmp/upstream-review-*.md`；同时检查 `git diff main`，覆盖远程和上游的全部变化。
 
-```powershell
-python -B -m unittest discover -s tests -v
+1. 审查新增功能和安全敏感变化：认证、CSRF、HTTP/IPC、文件路径、依赖、构建/更新签名、Actions 权限。保留本仓库的安卓功能、模型目录兼容和通知修复。冲突以自有分支的预期行为为主，同时保留适用的上游安全修复，不盲目使用 `-X ours`。
+2. 执行回归：
+
+```sh
+python3 -B -m unittest discover -s tests -v
 npm run test:desktop
 npm run test:updater
 ```
 
-3. 在 PR 中记录检查结论、测试结果和未覆盖的平台检查；通过后再合并到 **702165405/main**。保留 merge commit，避免 squash 丢失上游合并祖先。
-4. 以自己的代码构建、安装并验证，不直接用上游安装包覆盖自定义修复。
+`tests/markdown.test.js` 和 `tests/math.test.js` 需要在加载网关资源的浏览器页面运行，不能直接用 Node 执行。安卓有变化时，使用现有 JDK/SDK 执行：
 
-有冲突或测试失败时停止合并；不要用 `git reset --hard`、强制推送或关闭安全校验绕过。
+```sh
+export GRADLE_USER_HOME="$PWD/.tmp/android-gradle-cache"
+android/gradlew -p android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+```
 
-## 发布和本机配置
+3. 记录安全审查、新功能、测试结果和未覆盖的平台/设备检查。检查通过后提交待完成的 merge，合入自有 `main` 并推送 `origin main`；也可通过 PR 合并。保留 merge 历史，不 squash 上游同步。推送前再次拉取 `origin/main`，如有新提交，合并后重新检查受影响部分。
 
-本分支桌面更新源指向 `702165405/codex-mobile-bridge`。目前没有为本仓库创建正式签名发布；发布前需要生成自己的更新签名密钥、公钥并配置仓库的 `UPDATE_SIGNING_KEY` Secret。不能使用原作者私钥，也不能移除验签。
+测试失败时先定位问题，不用强制重置、强制推送或关闭安全校验绕过。开发目录中的凭据、签名密钥、`.local`、`.tmp` 和构建产物始终不入库。
 
-为了保留已有 Windows 安装、凭据和数据目录，本次不修改 appId 或产品名。
+## 更新来源与发布
 
-当前电脑的 GitHub 联网使用已有本机代理，Git 配置只保存在这两份仓库的本地 `.git/config`，不写入仓库文件。其他电脑按自己的网络情况配置；代理不可用时应修正或移除自己的本地 `http.proxy`，不要全局改写。
+安卓和桌面应用内更新均使用自有仓库的 Release。不要直接用上游安装包覆盖自有功能。桌面正式发布前需单独配置自己的更新签名密钥和公钥，并保留验签；安卓覆盖升级使用已有本地签名，详见 [安卓说明](../android/README.md)。
 
-本流程按需执行，没有创建定时自动合并任务。即使日后加入定时拉取，也必须保留审查和测试这一步。
+此流程按需执行；没有创建定时拉取、定时合并或自动发布任务。

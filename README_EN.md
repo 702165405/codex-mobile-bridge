@@ -6,7 +6,7 @@
 
 [简体中文](README.md) · [English](README_EN.md)
 
-> This fork is maintained by **702165405**. `origin` is this repository; `upstream` is `try2love/codex-mobile-bridge`. Upstream changes are reviewed and tested on a separate branch before merging through a PR. See [the upstream sync workflow](docs/UPSTREAM_SYNC.md).
+> This fork is maintained by **702165405**, with `main` as the primary branch. `origin` is this repository; `upstream` is `try2love/codex-mobile-bridge`. Each update fetches both main branches, preserves local customizations, and reviews and tests changes before merging into this fork's `main`. See [the upstream sync workflow](docs/UPSTREAM_SYNC.md).
 
 **[Product tour and walkthrough ↗](https://try2love.github.io/codex-mobile-bridge/?lang=en)** · **[Download the desktop App](https://github.com/try2love/codex-mobile-bridge/releases)**
 
