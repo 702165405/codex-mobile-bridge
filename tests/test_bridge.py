@@ -799,6 +799,51 @@ class HttpTests(unittest.TestCase):
                 send.assert_called_once()
             self.assertEqual(self.request('POST', path, {'server':'https://other.example'}, headers)[0], 400)
 
+    def test_pushplus_mobile_test_reports_safe_errors_and_pauses_restricted_recipient(self):
+        from bridge.notifications import Notifications, PushplusError, read_json, save_settings, settings
+        from unittest.mock import patch
+        headers = self.login()
+        path = '/api/notifications/pushplus'
+        for code in (900, 903, None):
+            with self.subTest(code=code), tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as directory:
+                manager = self.server.notifications = Notifications(None, directory)
+                self.addCleanup(manager.close)
+                save_settings(directory, {'pushplusEnabled': True, 'pushplusToken': 'private-pushplus',
+                                          'enabled': True, 'topic': 'kept-topic',
+                                          'barkEnabled': True, 'barkKey': 'kept-device'})
+                error = PushplusError(code) if code else RuntimeError('response contains private-pushplus')
+                with patch('bridge.httpd.publish_pushplus', side_effect=error) as send:
+                    self.assertEqual(self.request('POST', path+'/test', {}, {'Cookie': headers['Cookie']})[0], 403)
+                    send.assert_not_called()
+                    status, _, result = self.request('POST', path+'/test', {}, headers)
+                    send.assert_called_once()
+                self.assertEqual(status, 400)
+                self.assertNotIn('private-pushplus', json.dumps(result))
+                if code:
+                    self.assertIn(str(code), result['error'])
+                else:
+                    self.assertEqual(result['error'], 'PushPlus 测试失败，请检查 Token 和网络')
+                config = settings(directory)
+                self.assertEqual(config['pushplusEnabled'], code != 900)
+                self.assertEqual(config['pushplusToken'], 'private-pushplus')
+                self.assertTrue(config['enabled'])
+                self.assertTrue(config['barkEnabled'])
+                if code == 900:
+                    self.assertIn('900', read_json(Path(directory)/'notification-status.json', {})['pushplus']['error'])
+                    self.assertFalse(self.request('GET', path, headers=headers)[2]['pushplusEnabled'])
+                    manager.close()
+                    restarted = Notifications(None, directory)
+                    self.addCleanup(restarted.close)
+                    with patch('bridge.notifications.publish_pushplus') as automatic:
+                        restarted.scan()
+                        automatic.assert_not_called()
+                    # Re-enabling is an explicit user action, never a background probe.
+                    self.assertEqual(self.request('POST', path, {'pushplusEnabled': True}, headers)[0], 200)
+                    with patch('bridge.httpd.publish_pushplus') as send:
+                        self.assertEqual(self.request('POST', path+'/test', {}, headers)[0], 200)
+                        send.assert_called_once()
+                    self.assertEqual(settings(directory)['pushplusToken'], 'private-pushplus')
+
     def test_rename_route_requires_csrf_and_routes_to_selected_host(self):
         from unittest.mock import Mock
         headers = self.login()

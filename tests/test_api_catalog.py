@@ -1,6 +1,7 @@
 import hashlib
 import os
 import json
+import io
 import stat
 import tempfile
 import time
@@ -9,8 +10,27 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bridge.catalog import Catalog, CatalogError
+from bridge.account_models import model_ids
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class ModelResponseTests(unittest.TestCase):
+    def read(self, value):
+        with patch('bridge.account_models.build_opener') as factory:
+            factory.return_value.open.return_value = io.BytesIO(json.dumps(value).encode())
+            return model_ids('https://fixture.invalid/v1', 'fixture-key')
+
+    def test_openai_and_cc_switch_catalog_formats(self):
+        self.assertEqual(self.read({'data': [{'id': 'gpt-5.5'}]}), ['gpt-5.5'])
+        self.assertEqual(self.read({'models': [
+            {'slug': 'gpt-5.5', 'visibility': 'list'},
+            {'slug': 'hidden', 'visibility': 'hide'},
+            {'slug': '../invalid model'}, {'slug': 'gpt-5.5'}]}), ['gpt-5.5'])
+
+    def test_empty_cc_switch_catalog_explains_no_available_models(self):
+        with self.assertRaisesRegex(ValueError, '未返回可用模型'):
+            self.read({'models': []})
 
 
 class ApiCatalogTests(unittest.TestCase):
