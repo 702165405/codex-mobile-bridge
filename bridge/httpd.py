@@ -14,7 +14,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from .uploads import MAX_FILE
-from .notifications import settings as notification_settings, save_settings as save_notification_settings, publish_pushplus
+from .notifications import settings as notification_settings, save_settings as save_notification_settings, publish_pushplus, delivery_error, destination
 from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit, quote
 
@@ -342,8 +342,10 @@ class Handler(BaseHTTPRequestHandler):
                         self.read_json()
                         try:
                             publish_pushplus(config, 'Codex 手机通知测试', '收到这条消息表示 PushPlus 通道已连通。')
-                        except Exception:
-                            raise ValueError('PushPlus 测试失败，请检查 Token 和网络') from None
+                        except Exception as error:
+                            message = delivery_error(manager.data_dir, 'pushplus', destination(config, 'pushplus'), error,
+                                'PushPlus 测试失败，请检查 Token 和网络')
+                            raise ValueError(message) from None
                         return self.output(200, {'ok': True})
                     if write:
                         body = self.read_json()
