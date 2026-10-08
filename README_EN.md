@@ -6,6 +6,8 @@
 
 [简体中文](README.md) · [English](README_EN.md)
 
+> This fork is maintained by **702165405**. `origin` is this repository; `upstream` is `try2love/codex-mobile-bridge`. Upstream changes are reviewed and tested on a separate branch before merging through a PR. See [the upstream sync workflow](docs/UPSTREAM_SYNC.md).
+
 **[Product tour and walkthrough ↗](https://try2love.github.io/codex-mobile-bridge/?lang=en)** · **[Download the desktop App](https://github.com/try2love/codex-mobile-bridge/releases)**
 
 [![Desktop App: connections and status (demonstration data)](site/assets/desktop-overview.png)](https://try2love.github.io/codex-mobile-bridge/?lang=en)
@@ -18,6 +20,8 @@ The phone and desktop use the same chat. Read replies, send messages, choose mod
 
 > Community project, not affiliated with OpenAI. Supports macOS and Windows and depends on internal Codex App IPC. See [verification records](VERIFICATION.md) for what was actually tested. App updates may require compatibility changes.
 
+Experimental Linux x64 / ARM64 integration, Ubuntu 22.04 builds, and VMware networking are covered in the [Linux guide](docs/linux.md). Both .deb and AppImage packages are available. Native CI checks installation, startup and gateway behavior; IPC compatibility with a particular Codex desktop version still requires real-device testing.
+
 ## Edit, branch and copy messages
 
 - Copy user messages from their action row. Choose **Edit and resend** on the latest user message, or **Edit in new branch** on an older message to keep the original conversation.
@@ -29,23 +33,25 @@ The phone and desktop use the same chat. Read replies, send messages, choose mod
 
 ## Download and quick start (recommended)
 
-Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v1.2.1 (stable)**.
+Download the desktop App for everyday use. **No deployment Agent, Python, Node.js or terminal is required.** The current release is **v1.4.0 (stable)**.
 
 | Platform | Download | Open |
 | --- | --- | --- |
-| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/Codex-Mobile-Bridge-1.2.1-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
-| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/Codex-Mobile-Bridge-1.2.1-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
-| macOS Apple Silicon (M series) | [Download arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/Codex-Mobile-Bridge-1.2.1-macOS-arm64.dmg) | Open the DMG and drag the App to Applications |
-| macOS Intel | [Download x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/Codex-Mobile-Bridge-1.2.1-macOS-x64.dmg) | Open the DMG and drag the App to Applications |
+| Windows x64 (recommended installer) | [Download Setup.exe](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.4.0/Codex-Mobile-Bridge-1.4.0-Windows-x64-Setup.exe) | Run the installer and launch from the shortcut |
+| Windows x64 (no installation) | [Download full ZIP](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.4.0/Codex-Mobile-Bridge-1.4.0-Windows-x64.zip) | Extract the entire ZIP and run `Codex Mobile Bridge.exe`; do not move just the exe |
+| macOS Apple Silicon (M series) | [Download arm64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.4.0/Codex-Mobile-Bridge-1.4.0-macOS-arm64.dmg) | Open the DMG and drag the App to Applications |
+| macOS Intel | [Download x64 DMG](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.4.0/Codex-Mobile-Bridge-1.4.0-macOS-x64.dmg) | Open the DMG and drag the App to Applications |
+| Ubuntu x64 (experimental) | [Download .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.4.0/Codex-Mobile-Bridge-1.4.0-Linux-amd64.deb) | Ubuntu 22.04; launch as a regular user |
+| Ubuntu ARM64 (experimental) | [Download .deb](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.4.0/Codex-Mobile-Bridge-1.4.0-Linux-arm64.deb) | Ubuntu 22.04 ARM64; no 32-bit ARM build |
 
-[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.2.1/SHA256SUMS.txt). Both Mac architectures also include ZIPs for in-app updates or manual replacement. Windows ARM packages are not available. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
+[All releases and release notes](https://github.com/try2love/codex-mobile-bridge/releases) · [Download SHA256 checksums](https://github.com/try2love/codex-mobile-bridge/releases/download/v1.4.0/SHA256SUMS.txt). Both Mac architectures also include ZIPs for in-app updates or manual replacement. Windows ARM packages are not available. The Mac build is ad-hoc signed but not notarized and may require manual approval; Windows builds have no certificate signature. See the macOS first-launch instructions below.
 
 1. Open the original **Codex App** on the computer, then open **Codex Mobile Bridge**.
 2. Keep LAN access enabled under **Network and login**, save, and click **Start gateway**. Preserve the existing port if you already have a configuration.
 3. Connect the phone to the same LAN. Expand **Scan to sign in** below its address in the App and scan with the phone camera to sign in without typing a password. Alternatively, open the address manually and use the login credentials provided by the App.
 4. Select an existing chat or create a new one in the phone browser. Keep the computer awake with Codex App and the gateway running.
 
-For access outside your LAN, add temporary HTTPS, an own-server connection or a NAS connection in the App. Temporary HTTPS offers in-App installation of `cloudflared`; fixed domains and NAS access need initial server or reverse-proxy setup. See [Parallel connections](#parallel-connections). For source deployment, custom networking or help from an Agent, see the optional [Deployment Agent instructions](#deployment-agent-instructions).
+For access outside your LAN, add temporary HTTPS, an own-server connection or a NAS connection in the App. Desktop builds bundle `cloudflared`. Server profiles connect over SSH after you manually prepare the server; a fixed Cloudflare tunnel also supports private domains without a server. See [Parallel connections](#parallel-connections). For source deployment, custom networking or help from an Agent, see the optional [Deployment Agent instructions](#deployment-agent-instructions).
 
 ### In-app updates
 
@@ -53,7 +59,7 @@ For access outside your LAN, add temporary HTTPS, an own-server connection or a 
 
 Starting with `v0.2.0-beta.5`, use **App updates** to check for a release, read its notes, and select **Update and restart**. The app verifies the signed manifest and package before replacing itself, preserves login, network, notification and watched-chat settings, and restores a previously running gateway. Installation failures attempt to restore the previous app. Older versions need one manual upgrade to a version with this feature. Temporary HTTPS addresses change when the gateway restarts.
 
-**Windows beta.7 / 1.0.0 users:** the old updater may roll back with `WinError 32` because its working directory is locked. Choose **Stop gateway and quit** in the tray, then install **1.2.1 Setup.exe** to the same location. Do not uninstall or delete your data. Version 1.1.0 fixes this working-directory issue for subsequent updates.
+**Windows beta.7 / 1.0.0 users:** the old updater may roll back with `WinError 32` because its working directory is locked. Choose **Stop gateway and quit** in the tray, then install **1.4.0 Setup.exe** to the same location. Do not uninstall or delete your data. Version 1.1.0 fixes this working-directory issue for subsequent updates.
 
 ### Phone reading and display settings
 
@@ -61,6 +67,12 @@ Starting with `v0.2.0-beta.5`, use **App updates** to check for a release, read 
 - Use the arrow beside Model, Notifications and Skill to hide or show the composer and send/stop controls. Drafts are retained; a successful send does not collapse the composer automatically, and a failed send reopens it to show the error.
 - Open **“··· → Display settings”** to independently toggle **Reasoning summaries** and **Execution activity**. Activity includes commands, tools, file changes and intermediate progress updates. Turn both off to focus on replies; user messages, errors and pending requests remain visible. Older replies without phase metadata are also retained.
 - Choose light, dark or system theme, an accent color, text and code sizes, and reading spacing. Settings apply immediately and are saved in the current browser; they also work on desktop browsers.
+
+### Multiple accounts and API connections
+
+v1.3.0 lets you add official accounts and custom APIs or import local configurations in the Bridge desktop app, then switch saved connections on desktop or Web. Switching restarts the official Codex desktop app while keeping the Bridge gateway running. The active connection stays first; official accounts show quota and reset credits, while API chats list models from their upstream. See [usage and recovery](docs/account-switching.md).
+
+The desktop app can scan the current or a specified Codex data directory and import saved official credentials, API providers and profiles. API forms can fetch the provider's model list for selection, with manual model entry still available.
 
 ### Native account limits and usage resets
 
@@ -70,7 +82,10 @@ View remaining percentages, reset times and available usage resets. Missing info
 
 ### Login validity and device access
 
-- Set **Network and login → Login validity (hours)** to an integer from 0 to 87600, then restart the gateway. The default is 12 hours; 0 sets no server expiry. A finite deadline starts at login and does not slide with activity.
+- Web sign-in defaults to **Remember me (7 days)**. It keeps a login cookie, not the plaintext password. Uncheck it to use a browser-session cookie.
+- Five consecutive password failures automatically block the source IP. The page shows remaining attempts; counts and blocks survive restarts. Successful authentication resets the count. Unblock and reset attempts only under **Login devices → Automatically blocked IPs** in the desktop app.
+- **Phone notifications → Login security notifications** is enabled by default and uses enabled PushPlus, Bark and ntfy channels. Disabling alerts does not disable blocking.
+- Set standard login validity under **Network and login → Login validity (hours)** to an integer from 0 to 87600, then restart the gateway. The default is 12 hours; 0 sets no server expiry. A finite deadline starts at login and does not slide with activity.
 - Normal gateway restarts and App updates preserve unexpired logins. Changing the account, password, login mode or validity invalidates earlier logins on restart. Logout, clearing browser cookies or changing hostnames requires signing in again; browsers may also remove long-unused cookies.
 - **Signed-in devices** shows browser login records, IPs, browser identifiers, login/expiry times and last activity (updated at most once a minute). **Revoke login** removes one login; **Block this IP** revokes every login at that IP and prevents new logins.
 - The optional allowlist accepts only listed IPs; the blocklist takes priority. Enter exact IPv4 or IPv6 addresses, one per line. Rules apply immediately and can always be changed in the local desktop App.
@@ -82,10 +97,10 @@ View remaining percentages, reset times and available usage resets. Missing info
 
 The Mac build has an **ad-hoc integrity signature**, but **no Apple Developer ID signature or notarization**. macOS can still block the first launch. The older `v0.2.0-beta.1` also has a bundle-signing defect; use `v1.1.0` or later.
 
-1. Download the DMG or ZIP for your Mac's chip and `SHA256SUMS.txt` from this repository's Release. Calculate the downloaded file's hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app. The example below uses the 1.2.1 Apple Silicon DMG; replace the filename for other downloads.
+1. Download the DMG or ZIP for your Mac's chip and `SHA256SUMS.txt` from this repository's Release. Calculate the downloaded file's hash and compare it with the matching filename in the checksum file. If they differ, download again instead of allowing the app. The example below uses the 1.4.0 Apple Silicon DMG; replace the filename for other downloads.
 
    ```sh
-   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.2.1-macOS-arm64.dmg"
+   shasum -a 256 "$HOME/Downloads/Codex-Mobile-Bridge-1.4.0-macOS-arm64.dmg"
    ```
 
 2. Open the DMG, drag `Codex Mobile Bridge.app` to Applications, then eject the disk image. For a ZIP, extract it and move the App instead. Try opening it from Applications, then go to **System Settings → Privacy & Security → Open Anyway** and confirm.
@@ -113,7 +128,7 @@ The App provides:
 
 - **Overview:** start/stop the gateway, copy/open phone URLs, expand QR sign-in, and locate initial login credentials.
 - **Network and login:** the LAN port, independently enabled connection profiles, extra HTTPS addresses, username/password or explicit passwordless access.
-- **Runtime settings:** Codex data directory, IPC address, executable paths, gateway data directory, and automatic startup when the App opens.
+- **Runtime settings:** automatic gateway startup, gateway data directory and Cloudflare component status. Custom paths, IPC overrides and repair installation are collapsed under advanced settings.
 - **Phone notifications:** independent Bark and ntfy settings, test buttons and delivery status, with a shared click URL and title privacy option.
 - **App updates:** automatic release checks, signed downloads, update and restart, and recovery status.
 - **Runtime logs:** newest records first within each source; stack traces within one error keep their original order. Refresh returns to the newest records.
@@ -122,7 +137,7 @@ If you already use the command-line gateway, choose its existing `.local` direct
 
 Unsaved changes appear as red dots in the affected sidebar section and save bar. Switching pages or languages preserves edits. Saving successfully, or reverting to the original values, clears the indicators.
 
-`cloudflared` remains optional. Under Runtime settings, click Download and install, or select an existing executable. No download happens until you click the install button.
+Desktop builds bundle a pinned cloudflared binary for the target OS and architecture. No first-run download is needed. Runtime settings keep custom executables and source-run installation under **Advanced: custom program and repair**.
 
 ### QR sign-in
 
@@ -140,15 +155,24 @@ Under **Network and login → Additional connections**, choose a type and click 
 | Connection | When to use it | Configuration |
 | --- | --- | --- |
 | LAN | Phone and computer share a reachable network | Enable LAN access and keep the existing port |
-| Temporary Cloudflare HTTPS | No domain or existing public entry | Add a temporary connection and install or select cloudflared under Runtime settings |
-| Own server + SSH | You have a Linux public server and domain; the computer is behind NAT or on a campus network | Enter the fixed HTTPS URL, existing SSH alias or `user@hostname`, and server loopback port |
+| Temporary Cloudflare HTTPS | No domain or existing public entry | Add a connection, save, and start using the bundled program |
+| Fixed Cloudflare tunnel | Private domain, no server | Configure Cloudflare DNS and a public hostname; enter the domain and tunnel token |
+| Own server + SSH | You have a Linux public server and domain; the computer is behind NAT or on a campus network | Manually prepare HTTPS and forwarding permissions, then enter a regular SSH account, check sign-in and connect |
 | NAS / existing proxy / Docker | The NAS can reach the computer and already has an HTTPS reverse proxy | Enter the fixed HTTPS URL and the computer's HTTP address as reachable from the NAS |
 
 LAN, a temporary Cloudflare tunnel and multiple fixed entries can run together. Only one temporary tunnel is needed per gateway. Profiles targeting the same SSH server need different loopback ports. Different SSH aliases pointing to the same server can still conflict; choose their ports accordingly.
 
 All entries reach the same gateway and share the same gateway login. Saved single-entry settings from earlier versions are converted when read; existing files are not rewritten until you save.
 
-Each enabled fixed profile has **Export deployment ZIP**, **Copy for deployment Agent**, and **Check fixed entry** actions. The ZIP contains concrete configuration and Chinese/English deployment instructions, without passwords, notification tokens, Codex data or SSH private keys. Clipboard instructions use the current UI language.
+Server profiles offer **Export manual setup reference**, **Copy manual setup instructions**, and **Check fixed entry**. NAS profiles retain their deployment ZIP and Agent instructions. The ZIP contains concrete configuration and Chinese/English deployment instructions, without passwords, notification tokens, Codex data or SSH private keys. Clipboard instructions use the current UI language.
+
+The username `try2love` and URL `https://codex.try2love.com` are configuration examples, not a live demo site. Replace them with your own settings.
+
+#### Private domain without a server
+
+Choose **Fixed domain · Cloudflare Tunnel**. Use Cloudflare DNS for the domain (keep your registrar), create a tunnel, and publish a hostname such as `codex.try2love.com` pointing to `http://localhost:8787`. Save the hostname and tunnel token in the App, start the gateway, then check the fixed entry. The token runs the existing tunnel; it does not create DNS records. No public server or inbound computer port is needed. Use a dedicated hostname, not a `/codex/` path. Keep the computer, Codex App and gateway online.
+
+See the [complete fixed-domain walkthrough (Chinese)](docs/fixed-domain.md), or expand the first-time setup guide in the Cloudflare connection card. The guide covers nameservers, the tunnel token, the hostname route and verification over phone mobile data.
 
 #### Own server
 
@@ -156,9 +180,13 @@ Each enabled fixed profile has **Export deployment ZIP**, **Copy for deployment 
 Phone → server HTTPS → server loopback port → SSH → computer gateway → original Codex App
 ```
 
-The computer initiates SSH, so the server does not need direct access to the computer's private IP. SSH forwarding starts/stops with the gateway and retries after disconnection. It uses existing system OpenSSH keys or an unlocked ssh-agent. Verify the server fingerprint in a terminal first; the App does not save SSH passwords or bypass host verification.
+The computer initiates SSH, so the server does not need direct access to the computer's private IP. SSH forwarding starts/stops with the gateway and retries after disconnection. New profiles support password, private key with optional passphrase, SSH agent, and existing SSH configuration. Confirm the host fingerprint in the App; changed keys are rejected. Legacy OpenSSH aliases remain supported. Passwords and tunnel tokens can be stored in the native OS credential store or held only for this app session, never in ordinary configuration or exported packages.
 
 The server must allow remote forwarding and keep the listening socket on loopback (`GatewayPorts no` or `clientspecified`, not `yes`). For the generated Caddy configuration, DNS must point to the server and public TCP 80/443 must be reachable and free. Caddy obtains and renews certificates. Its generated Docker service uses host networking on Linux Docker Engine, on the same host as SSH; it is not a Mac/Windows Docker Desktop deployment.
+
+Everyday SSH forwarding can use a regular user such as `try2love`, without root or sudo. Follow the [server SSH walkthrough (Chinese)](docs/server-ssh.md): manually prepare DNS, HTTPS and forwarding permissions; save the app settings and check SSH sign-in; start the connection and check the fixed entry, then verify over phone mobile data.
+
+Server software installation, firewall rules and SSH permissions must be configured manually by you or your administrator. The app does not accept sudo passwords or run remote installation commands. Preserve existing sites and use their reverse proxy. SSH sign-in success does not verify forwarding or public HTTPS access. Export or copy setup references for manual use; any administrative commands must be run by the user.
 
 If an existing proxy already owns 80/443, keep it. Use the upstream printed in the deployment instructions and preserve the public Host header instead of starting another Caddy instance.
 
@@ -176,7 +204,7 @@ The overview lists all enabled fixed URLs. With the notification click URL empty
 
 ### What are “Additional HTTPS addresses”?
 
-This is the gateway's **address allowlist**. Add a URL only when its HTTPS reverse proxy or tunnel is already configured elsewhere and you need another domain to reach the gateway. Enter one origin per line, such as `https://codex.example.com`, without a path.
+This is the gateway's **address allowlist**. Add a URL only when its HTTPS reverse proxy or tunnel is already configured elsewhere and you need another domain to reach the gateway. Enter one origin per line, such as `https://codex.try2love.com`, without a path.
 
 Adding a URL does **not** create a tunnel, configure DNS or obtain a certificate. The proxy must reach the gateway and preserve the public Host header. Fixed URLs in connection profiles are added automatically. Leave this field empty when using only LAN or temporary Cloudflare.
 
@@ -194,9 +222,17 @@ The desktop App and phone website each have a **Language / 语言** selector and
 6. Each watched chat has an optional **Notify when a run completes** checkbox, off by default. Enable it for the current running turn and future successful runs. Failed, stopped and already completed historical runs do not trigger it. Turning only this option off keeps confirmation reminders enabled.
 7. In the desktop App, **Phone notifications → Watched chats** shows each chat's name, device, directory and ID. Toggle completion notifications or **Remove watch**; changes save immediately. Removing a watch stops that chat's reminders without deleting the chat. Add new watches from the phone. Saved watches remain manageable when the gateway is stopped or notification channels are disabled. Remote names use the last available title; the device and chat ID remain visible when the name is unavailable.
 
-Watched chats remain monitored after the phone page closes, provided the computer, gateway, original App and relevant SSH connections stay online. Delivery and retries are tracked separately per channel, destination, chat and event, including after restart. Failure in one channel does not affect the other. New channels or destinations do not replay completed history; runs observed in progress on their first live connection and future completions can notify. Existing ntfy configuration and delivery records are preserved. Failed delivery retries with backoff and rechecks whether the request is still pending. Completion retries continue while that chat has the option enabled and stop when it is disabled. Completed history from before the first live connection is not replayed. Strict exactly-once delivery is not guaranteed during network failures.
+Watched chats remain monitored after the phone page closes, provided the computer, gateway, original App and relevant SSH connections stay online. Delivery and retries are tracked separately per channel, destination, chat and event, including after restart. Failure in one channel does not affect the other. New channels or destinations do not replay completed history; runs observed in progress on their first live connection and future completions can notify. Existing ntfy configuration and delivery records are preserved. Failed delivery retries with backoff, but stops after three failures per notification, channel and destination; restarting the gateway does not reset the failure count. Before retrying, it rechecks whether the request is still pending. Completion retries continue while that chat has the option enabled and stop when it is disabled. Completed history from before the first live connection is not replayed. Strict exactly-once delivery is not guaranteed during network failures.
 
 An explicitly configured notification click URL takes priority over automatic selection. Old notifications retain their old URLs after a temporary domain changes. Self-hosted ntfy needs an APNs upstream for instant iPhone delivery; Android delivery also depends on background/battery permissions. See the official [phone subscription guide](https://docs.ntfy.sh/subscribe/phone/) and [iOS instant notification setup](https://docs.ntfy.sh/config/#ios-instant-notifications).
+
+### Gateway startup and entry notifications
+
+In the desktop App, open **Phone notifications → Gateway startup and entry notifications** and enable sending addresses on every gateway start and entry change. Optionally name the gateway. Enable at least one PushPlus, Bark or ntfy channel, save, start the gateway and send a current-entry test. Confirm receipt on your phone.
+
+New configurations enable address notifications by default; saved opt-outs survive upgrades. Configure at least one notification channel for delivery. Every gateway start sends the enabled addresses, even when unchanged: LAN, NAS / existing reverse-proxy domains, personal servers once SSH forwarding connects, and temporary HTTPS once ready. Later-ready entries and address changes trigger an update. Disabled interfaces, disabled entries and loopback addresses are excluded. LAN links require the same network; fixed domains require completed deployment.
+
+The switch is off by default and independent of chat notifications. Messages use current entries rather than the chat click URL, contain no passwords or login tokens, and retry per channel. Stopping the gateway or disabling the switch stops new sends. Configure and test after upgrading to v1.3.2 or later before relying on notifications for subsequent restarts; earlier versions do not support this feature.
 
 ## Features
 
@@ -226,7 +262,7 @@ Large history pages also have a byte budget, so a large reply may require multip
 - Desktop App development and packaging additionally require Node.js and the build dependencies below.
 - Keep the computer awake, network reachable and gateway running.
 - For SSH chats: the host is configured in the App, the SSH alias works non-interactively, and remote Python 3 is available. Model/Skill discovery also needs the remote Codex runtime. On Windows, OpenSSH `ssh.exe` must be on PATH.
-- Optional temporary tunnel: an installed `cloudflared` executable.
+- Desktop builds include cloudflared. Source runs install it separately; new SSH profiles and native credential storage also require the relevant dependencies from `requirements-desktop.txt`.
 
 ## Command-line LAN setup (advanced)
 
@@ -268,7 +304,7 @@ Without `--lan`, the gateway listens only on `127.0.0.1`. It does not install a 
 
 ## Temporary HTTPS and existing proxies
 
-**Desktop App:** add a Temporary HTTPS · Cloudflare connection and open its Installation and setup button. Under Runtime settings, choose Download and install. The App downloads the matching official GitHub Release, verifies its SHA-256 digest, installs it in the gateway data directory and checks `--version`. It needs no admin privileges, does not change system PATH and does not start a tunnel during installation.
+**Desktop App:** add a Temporary HTTPS · Cloudflare connection, save and start. The matching program is bundled. For source runs or repair, expand **Runtime settings → Cloudflare component → Advanced: custom program and repair** to find Download and install. The App downloads the matching official GitHub Release, verifies its SHA-256 digest, installs it in the gateway data directory and checks `--version`. It needs no admin privileges, does not change system PATH and does not start a tunnel during installation.
 
 The detected path is filled in as an unsaved change. Save settings, then start the gateway from the overview. Temporary HTTPS has a separate status; its URL and login QR code appear when connected. An existing executable can be selected and checked instead. Supported installer targets: macOS arm64 / x64 and Windows x64 / x86. Other architectures use the linked official guide. Downloads time out after 3 minutes; failed verification, missing digests or network failures leave existing binaries and settings unchanged. The App includes manual steps and an official download link. If a running gateway’s tunnel fails, LAN access remains available; see the Cloudflare section in Runtime logs.
 
@@ -283,7 +319,7 @@ On Windows, use `py -3 -B .\run.py` and the path to `cloudflared.exe`. Quick Tun
 For an already configured HTTPS reverse proxy:
 
 ```sh
-python3 -B run.py --lan --origin https://codex.example.com
+python3 -B run.py --lan --origin https://codex.try2love.com
 ```
 
 Preserve the external Host header, Origin, cookies and CSRF header; disable proxy caching/buffering and allow long requests. Use a dedicated hostname root, not `/codex/`. The proxy must reach the computer. TLS termination and DNS are configured on your own infrastructure. The App's profile export is the guided route for own-server SSH and NAS deployments.
@@ -294,8 +330,8 @@ Preserve the external Host header, Origin, cookies and CSRF header; disable prox
 - **Model/Skills:** settings follow the current chat's host and project. Custom model availability depends on the provider. Changing a model does not change authentication or permission policy. Select up to eight Skills to send with the next message.
 - **Fast mode:** the model panel shows a toggle when the chat's host uses official ChatGPT login and its model and workspace allow Fast. Toggle it and select **Apply to this chat**; changes take effect from the next turn. Turning it off explicitly selects standard speed. The panel reads desktop settings and retains them after a refresh. Leaving the toggle untouched preserves the existing speed tier, including when changing model or reasoning effort. API/custom providers and unsupported models hide it; SSH chats use their remote account and workspace. Fast uses more allowance; see the [official speed guide](https://learn.chatgpt.com/docs/agent-configuration/speed).
 - **Long model names:** the toolbar truncates the name while keeping reasoning effort visible. Open the model panel to read the full ID, or hover over the button on a computer.
-- **Work mode:** choose Default, Plan or Goal between the send-type selector and Send. Plan mode discusses the task first; its completion card lets you view the plan, implement it in Default mode, or send requested changes in Plan mode.
-- **Goal mode:** enter an objective of up to 4,000 characters after the current turn ends. The original chat is asked to call native `create_goal`. The browser shows a pending request until desktop goal state confirms activation, then displays the objective, status and token usage. If the tool is unavailable or no goal is created, check the Codex reply. An unfinished goal or unresolved goal request prevents another start.
+- **Work mode:** choose Default, Plan or Goal between the send-type selector and Send. Plan mode discusses the task first; its completion card lets you view the plan, implement it in Default mode, or send requested changes in Plan mode. Entering revision feedback emphasizes further planning and disables immediate implementation, so feedback cannot be silently ignored.
+- **Goal mode:** enter an objective of up to 4,000 characters after the current turn ends. The bridge sets the goal through the local native Goal API, then starts execution through the original desktop chat owner. The browser displays the confirmed objective, status and token usage; uncertain operations keep their request identity and are not automatically replayed. An unfinished goal or unresolved goal request prevents another start.
 - **Goal panel:** use × to hide it while the goal keeps running. Select **Goal progress** beside Send to restore it; narrow screens use a target icon. The same goal stays hidden after refreshing the current browser tab, and new goals are shown automatically.
 - **Attachments:** select the paperclip to the left of the send-type selector to add multiple files or images. Up to 10 files per message, 1 byte–20 MiB each and 100 MiB total. Uploads can be removed from the draft or retried individually; drafts stay with their chat and host. Send, queue and steer retain attachments, including after a failed send. Default messages can contain attachments without text. PNG, JPEG, GIF and WebP use native image inputs; other files supply original file paths, subject to model/tool capabilities and chat permissions. Remote chats upload through their configured SSH connection. Uploading does not start a model turn.
 - **Chat indicators:** green means running, blue means completed and unread, amber means failed or stopped. Entering the chat clears its completion marker; a running marker stays. A previously running chat with unavailable live state turns gray. Disable markers under **Display settings → Chat list**. Preferences and read state are stored in this browser. Existing completed history is not marked unread on first use; loaded list entries refresh about every five seconds while the page is visible. Phone push notifications use their separate watch settings.
@@ -303,7 +339,7 @@ Preserve the external Host header, Origin, cookies and CSRF header; disable prox
 - **Confirmations:** respond to supported command, file, permission and question requests. Unsupported requests should be handled in the desktop App.
 - **Unknown result:** inspect chat history before trying again. The gateway does not automatically replay an uncertain submission.
 
-Work mode follows the chat unless manually selected. Default and Plan messages can be queued; steering retains the running turn's mode. Modes preserve the original host, model, provider and permissions. After a goal request is accepted, subsequent messages return to ordinary input without cancelling the goal. The browser currently supports starting and displaying goals; use existing Codex controls for pausing, resuming or managing budgets. These features require desktop runtime support; see [verification scope](VERIFICATION.md).
+Work mode follows the chat unless manually selected. Default and Plan messages can be queued; steering retains the running turn's mode. Modes preserve the original host, model, provider and permissions. After a goal request is accepted, subsequent messages return to ordinary input without cancelling the goal. Local chats support pausing, resuming, editing and closing goals from the browser; these controls are not yet supported for SSH chats. Pause before editing. Saving replaces the objective and resets usage while retaining the token budget and paused state; resume to continue. Pausing or closing a goal does not interrupt an active reply; use Stop for that. Manage budgets with existing Codex controls. These features require desktop runtime support; see [verification scope](VERIFICATION.md).
 
 ## Login settings
 
@@ -317,13 +353,13 @@ Use `py -3 -B .\run.py --set-password` on Windows. Passwords must contain at lea
 
 ## Architecture and stored data
 
-The bridge reads desktop chat metadata/history and forwards actions through the App's original IPC owner. It does not need a matching mobile OpenAI login and does not copy model API keys. Empty-chat creation uses a short-lived official app-server helper and then hands ownership to the App. See [architecture](ARCHITECTURE.md).
+The bridge reads desktop chat metadata/history and forwards actions through the App's original IPC owner. It does not need a matching mobile OpenAI login. Explicit account management stores and switches credentials locally; it never sends them to the phone. Empty-chat creation uses a short-lived official app-server helper and then hands ownership to the App. See [architecture](ARCHITECTURE.md).
 
 Gateway data stays in its configured directory, normally `.local`. It includes login hashes, desktop preferences, notification settings/tokens, watched chats, submission/creation deduplication records, caches, process control records and logs. Each SSH connection has separate status/log files. Do not publish this directory or `.tmp`. Keep backups private and use the App's directory selector to adopt an existing installation.
 
 Uploaded files are retained in `uploads/` or `hosts/<host hash>/uploads/` inside gateway data, separated by chat. Remote copies are stored under that host's `$CODEX_HOME/mobile-bridge/uploads/` (default `~/.codex/mobile-bridge/uploads/`). Removing a draft attachment does not delete uploaded files, and automatic cleanup is not provided. Manually deleting a file can break historical or queued references to it.
 
-The local desktop management interface uses guarded Electron IPC and a private stdio worker. It is not exposed through the phone HTTP API. Public HTTP access remains constrained by authentication, allowed Host/Origin checks and CSRF validation.
+The local desktop management interface uses guarded Electron IPC and a private stdio worker. Gateway start/stop, updates and network configuration are not exposed through the phone HTTP API. Signed-in web clients can change the global PushPlus settings. Public HTTP access remains constrained by authentication, allowed Host/Origin checks and CSRF validation.
 
 ## Known limits
 
@@ -339,7 +375,7 @@ The local desktop management interface uses guarded Electron IPC and a private s
 An Agent is optional for everyday App use. For source deployment, custom network setup or troubleshooting, copy this to an Agent on the computer:
 
 ```text
-Deploy and run https://github.com/try2love/codex-mobile-bridge for me. Identify whether this computer runs Windows or macOS and read the repository's deployment Agent instructions. Prefer a published desktop App or reuse an existing installation; configure, start and verify it for my needs. Reuse existing Codex App chats and their model authentication. Keep username/password authentication and LAN access enabled by default, preserving any existing LAN port. For external access, reuse an existing NAS/HTTPS reverse proxy when available; with an owned server and domain, use an SSH return tunnel and fixed HTTPS; otherwise configure a temporary HTTPS tunnel. Connection methods may run together. Verify chat reading, live updates and the available interaction paths. Keep the service running, then return clickable phone URLs, how to obtain login credentials, App start/stop actions or commands, verified results and any steps I still need to complete.
+Deploy and run https://github.com/try2love/codex-mobile-bridge for me. Identify whether this computer runs Windows or macOS and read the repository's deployment Agent instructions. Prefer a published desktop App or reuse an existing installation; configure, start and verify it for my needs. Reuse existing Codex App chats and their model authentication. Keep username/password authentication and LAN access enabled by default, preserving any existing LAN port. For external access, reuse an existing NAS/HTTPS reverse proxy when available; with an owned server and domain, prepare references for SSH forwarding and fixed HTTPS, leaving administrative server operations for me to perform manually; otherwise configure a temporary HTTPS tunnel. Connection methods may run together. Verify chat reading, live updates and the available interaction paths. Keep the service running, then return clickable phone URLs, how to obtain login credentials, App start/stop actions or commands, verified results and any steps I still need to complete.
 ```
 
 ### 1. Inspect the environment
@@ -352,7 +388,7 @@ Choose connections based on actual reachability: LAN, temporary tunnel, an exist
 
 Use the packaged App for the guided workflow, or the OS-specific CLI commands above. Keep default password authentication unless the user explicitly chooses otherwise. Preserve the current port. Use an independent temporary directory for tests, and never commit it.
 
-For fixed entries, export the selected profile's deployment ZIP or copy its Agent instructions. Inspect existing sites and ports before applying them. If server access is unavailable, deliver the configuration and explain what remains unconfigured. Do not claim a service is deployed solely because the files were generated.
+For SSH server entries, export or copy the manual setup reference. The user must perform all administrative server operations manually; Agents may explain and review the configuration. NAS entries retain their deployment ZIP and Agent instructions. Inspect existing sites and ports before applying configuration. If server access is unavailable, deliver the configuration and explain what remains unconfigured. Do not claim a service is deployed solely because the files were generated.
 
 Keep the process running using the user's chosen launcher or an authorized process-management method. Verify which process actually owns the port. Stop through the project's control mechanism; do not kill arbitrary processes based on stale PIDs.
 
@@ -434,6 +470,8 @@ Report the OS, App/runtime version, branch/commit and redacted reproduction step
 
 Thanks to the [LINUX DO](https://linux.do/) community and its members for their support.
 
+Thanks to [@qybgh (Luoran Yau)](https://github.com/qybgh) for contributing mobile Plan and Goal support, attachment previews and UI improvements in [PR #8](https://github.com/try2love/codex-mobile-bridge/pull/8). Version 1.3.1 builds on that contribution with Goal controls, notification preferences and interaction refinements.
+
 ## License and references
 
 [MIT License](LICENSE).
@@ -444,3 +482,32 @@ Thanks to the [LINUX DO](https://linux.do/) community and its members for their 
 - [Docker Compose documentation](https://docs.docker.com/compose/)
 - [Caddy documentation](https://caddyserver.com/docs/)
 - [Nginx proxy module](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)
+
+
+### Choose which adapters allow access
+
+In the desktop App, open **Network & login**, choose **Selected IPv4 addresses only**, and select the addresses you want to use. Exclude unwanted WSL or VMware adapters. Stop the gateway, save, and restart; unselected addresses do not listen on the gateway port. Selections bind to current IPs: reselect after a DHCP address change. The gateway does not fall back to opening all adapters. **All IPv4 addresses** retains the previous behavior.
+
+**Allow local browser access** independently controls `127.0.0.1 / localhost`. Turning it off hides local URLs and blocks local browser/API access while keeping a private loopback path for desktop status checks and HTTPS tunnels. Turning off LAN access does not disable configured external entries.
+
+The desktop sidebar links to this project's GitHub home, issues, and pull requests for source code, feedback, and contributions.
+
+### PushPlus notifications and chat names
+
+PushPlus delivers notifications through WeChat and **requires paid real-name verification, starting at CNY 3.90**. Verified users can use the basic allowance without purchasing a membership. This is a verification fee charged by PushPlus, not an unlimited messaging plan. Check the [official verification page](https://www.pushplus.plus/center/real-auth?source=push) for current pricing and the [verification guide](https://www.pushplus.plus/doc/function/verify.html) for requirements.
+
+1. Sign in to [PushPlus](https://www.pushplus.plus/) with WeChat, follow its service account, and complete real-name verification under Personal center → Profile.
+2. Copy the user token from your [profile](https://www.pushplus.plus/uc-profile.html). If you have changed the default channel, select WeChat under Function settings → Default delivery settings.
+3. Save the token and send a test as described below, then enable reminders in each chat. An accepted API request does not guarantee delivery; confirm that the test arrives in WeChat.
+
+**Limits:** the WeChat channel allows ordinary verified users 200 requests per day and 5 per minute; members receive 2,000 per day and 5 per 10 seconds. Both allow up to 3 identical messages per hour. Failed requests count toward the allowance, and exceeding limits may suspend delivery. All chats and other apps using the same account share this allowance. See the official [quota guide](https://www.pushplus.plus/doc/guide/use.html) and [delivery restrictions](https://www.pushplus.plus/doc/help/limit.html).
+
+- Click **PushPlus notifications** below the web chat list, enter the token from [PushPlus](https://www.pushplus.plus/), enable the channel, save, and test the saved settings. The desktop notification panel also supports PushPlus.
+- PushPlus settings are shared across the gateway. Changing the token changes the PushPlus recipient for all watched chats. Every signed-in device can edit these settings; passwordless access also grants this permission to devices that can reach the gateway.
+- Enable reminders in each chat you want to follow, optionally including successful run completion. Notifications continue after closing the page while the gateway remains running.
+- Saved tokens are never returned to the page. Leave the token blank to keep it, or disable the channel and select the clear option to remove it.
+- Click a chat title, choose **Rename chat**, and save a name of up to 120 characters. The name is saved to Codex on the chat's execution host, including SSH hosts, and the web list and heading update.
+
+### Notification failure handling in this fork
+
+Chat, gateway-entry and IP-block alerts stop after three failures per message. Chat retry counts and retry counts for the same entry event survive gateway restarts. PushPlus code 900 pauses that channel across all automatic senders while preserving its token; other enabled channels are unaffected. Resolve the account restriction with PushPlus before manually re-enabling it. Changing a token does not necessarily lift an account restriction. Diagnostics use fixed messages and never echo untrusted server text or tokens.

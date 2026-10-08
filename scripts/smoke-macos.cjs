@@ -49,16 +49,20 @@ async function main(){
         if(devicesBusy||!devicesState)throw Error('Device management did not load');
         document.getElementById('ip-allowlist').value='192.0.2.7';document.getElementById('allowlist-enabled').checked=true;
         await changeDevices({action:'save',policy:devicePolicy()});
-        return {deviceOverflow:document.documentElement.scrollWidth>innerWidth,directory:snapshot.dataDir,running:snapshot.runtime.running,notifications:snapshot.notifications.enabled,
+        return {accounts:typeof AccountsPanel==='function'&&typeof window.bridgeDesktop.accounts==='function',deviceOverflow:document.documentElement.scrollWidth>innerWidth,directory:snapshot.dataDir,running:snapshot.runtime.running,notifications:snapshot.notifications.enabled,
           sessionHours:document.getElementById('session-hours').value,devices:await window.bridgeDesktop.devices({action:'list'}),
           barkEnabled:snapshot.notifications.barkEnabled,barkServer:document.getElementById('bark-server').value,
-          barkKeyType:document.getElementById('bark-key').type,barkTest:!!document.getElementById('test-bark'),node:typeof require};
+          barkKeyType:document.getElementById('bark-key').type,barkTest:!!document.getElementById('test-bark'),
+          pushplusEnabled:snapshot.notifications.pushplusEnabled,pushplusToken:snapshot.notifications.pushplusToken,
+          pushplusTokenType:document.getElementById('pushplus-token').type,pushplusTest:!!document.getElementById('test-pushplus'),node:typeof require};
       })()`}}));
     });
-    assert.equal(state.directory,data);assert.equal(state.running,false);assert.equal(state.notifications,false);assert.equal(state.node,'undefined');
+    assert.equal(state.directory,data);assert.equal(state.running,false);assert.equal(state.notifications,false);assert.equal(state.node,'undefined');assert.equal(state.accounts,true);
     assert.equal(state.sessionHours,'12');assert.equal(state.devices.sessions.length,0);assert.equal(state.devices.policy.allowlistEnabled,true);assert.deepEqual(state.devices.policy.allowlist,['192.0.2.7']);assert.equal(state.deviceOverflow,false);
     assert.equal(state.barkEnabled,false);assert.equal(state.barkServer,'https://api.day.app');
     assert.equal(state.barkKeyType,'password');assert.equal(state.barkTest,true);
+    assert.equal(state.pushplusEnabled,false);assert.equal(state.pushplusToken,'');
+    assert.equal(state.pushplusTokenType,'password');assert.equal(state.pushplusTest,true);
     console.log('PASS: signed packaged App opens, renderer and bundled worker load, isolated data, gateway remains stopped.');
   }finally{
     socket?.close();child.kill();

@@ -45,7 +45,7 @@ class FastCapabilityTests(unittest.TestCase):
 
     def test_catalog_keeps_model_tier_ids_defaults_and_filters_unknown_capabilities(self):
         reader = Catalog('/unused', 'unused')
-        reader._fetch = lambda cwd: {'models': [
+        reader._fetch = lambda cwd, provider=None: {'models': [
             {'model': 'one', 'serviceTiers': [{'id': 'priority', 'name': 'Fast'}, {'id': 'ultrafast', 'name': 'Ultrafast'}], 'defaultServiceTier': 'priority'},
             {'model': 'two', 'serviceTiers': [{'id': 'fast', 'name': 'Fast'}]},
             {'model': 'other', 'serviceTiers': []}], 'skillEntries': [], 'fastMode': {'allowed': True}}
@@ -71,12 +71,22 @@ class FastSettingsTests(unittest.TestCase):
         self.fixture.state.update(modelProvider='openai', latestModel='official-model', latestThreadSettings={'serviceTier': tier})
         self.catalog = {'models': [copy.deepcopy(MODEL)], 'skills': [], 'fastMode': {'allowed': True, 'defaultServiceTier': 'priority'}}
         self.reads = []
-        def get(cwd, refresh=False):
+        def get(cwd, refresh=False, provider=None):
             self.reads.append(refresh);return copy.deepcopy(self.catalog)
         self.bridge.catalog_reader.get = get
 
     def calls(self):
         return [r for r in self.fixture.requests if r['method'] == 'thread-follower-update-thread-settings']
+
+    def test_split_catalog_keeps_current_tier_and_provider_boundary(self):
+        self.prepare('default')
+        self.bridge.catalog_reader.get_kind = lambda *args, **kwargs: copy.deepcopy(self.catalog)
+        value = self.bridge.catalog(THREAD, kind='models')
+        self.assertTrue(value['fastMode']['allowed'])
+        self.assertEqual(value['currentServiceTier'], 'default')
+        self.fixture.state.update(modelProvider='custom')
+        self.bridge.session(THREAD).state['modelProvider'] = 'custom'
+        self.assertFalse(self.bridge.catalog(THREAD, kind='models')['fastMode']['allowed'])
 
     def test_enable_disable_rechecks_and_updates_original_owner_without_starting_turn(self):
         self.prepare('default')

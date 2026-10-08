@@ -3,6 +3,7 @@
 No credentials are read by the bridge and no thread or login RPC is permitted.
 The desktop's reset permission is enforced here as well as in its own UI.
 """
+import copy
 import hashlib
 import json
 import math
@@ -146,6 +147,7 @@ class Account:
         self.executable = executable or Catalog.find_runtime()
         self.path = Path(data_dir) / 'account-resets.json'
         self.lock = threading.Lock()
+        self.usage_cache = {}
 
     def rpc(self):
         return AccountRPC(self.home, self.executable)
@@ -157,7 +159,7 @@ class Account:
         provider = profile.get('model_provider', config.get('model_provider')) or 'openai'
         definition = (config.get('model_providers') or {}).get(provider) or {}
         # A custom provider can use ChatGPT-shaped credentials. It is not native login.
-        if provider != 'openai' or any(definition.get(key) for key in
+        if provider != 'openai' or profile.get('openai_base_url', config.get('openai_base_url')) or any(definition.get(key) for key in
                 ('base_url', 'env_key', 'experimental_bearer_token', 'http_headers', 'env_http_headers', 'auth', 'gateway_oauth')):
             return {'loginType': 'api'}
         auth = rpc.request('account/read', {'refreshToken': False})
@@ -173,12 +175,22 @@ class Account:
                 'email': account.get('email'), 'planType': account.get('planType'),
                 'canReset': (config.get('desktop') or {}).get('agent-usage-reset-enabled') is True}
 
+    def limits(self, rpc, context, refresh=False):
+        # Called under the shared account lock by both account views.
+        key = context['accountKey']
+        cached = self.usage_cache.get(key)
+        if not refresh and cached and time.time()-cached['checkedAt'] < 300:
+            return copy.deepcopy(cached['value'])
+        value = normalize_limits(rpc.request('account/rateLimits/read'))
+        self.usage_cache[key] = {'checkedAt':time.time(), 'value':value}
+        return copy.deepcopy(value)
+
     def _status(self, rpc, context):
         if not context.get('accountKey'):
             return {'visible': False, 'loginType': context['loginType']}
         result = {'visible': True, **context, 'limits': [], 'resetCredits': None, 'error': None}
         try:
-            result.update(normalize_limits(rpc.request('account/rateLimits/read')))
+            result.update(self.limits(rpc, context))
         except AccountError as exc:
             result['error'] = str(exc)
         current = self.context(rpc)
@@ -192,9 +204,12 @@ class Account:
         result['updatedAt'] = time.time()
         return result
 
-    def read(self):
+    def read(self, refresh=True):
         with self.lock, self.rpc() as rpc:
-            return self._status(rpc, self.context(rpc))
+            context = self.context(rpc)
+            if refresh:
+                self.usage_cache.pop(context.get('accountKey'), None)
+            return self._status(rpc, context)
 
     def consume(self, value):
         if value.get('confirmed') is not True:
@@ -207,6 +222,7 @@ class Account:
         if credit_id is not None and (not isinstance(credit_id, str) or not 1 <= len(credit_id) <= 1024):
             raise ValueError('重置卡标识无效')
         with self.lock, self.rpc() as rpc:
+            self.usage_cache.clear()
             context = self.context(rpc)
             if not context.get('accountKey'):
                 raise PermissionError('仅官方 ChatGPT 账号可使用重置卡')
@@ -251,12 +267,13 @@ class Account:
                 raise AccountError('重置结果尚未确认，请刷新并重试原请求')
             ledger[request_id]['outcome'] = outcome
             write_json(self.path, ledger)
+            self.usage_cache.pop(account_key, None)
             return {'outcome': outcome, 'account': self._status(rpc, context)}
 
     def control(self, value):
         action = value.get('action', 'read')
         if action == 'read':
-            return self.read()
+            return self.read(refresh=value.get('refresh', True) is not False)
         if action == 'consume':
             return self.consume(value)
         raise ValueError('不支持的账号操作')

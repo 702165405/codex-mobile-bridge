@@ -9,7 +9,7 @@ const {Readable}=require('node:stream');
 const RELEASE='https://api.github.com/repos/cloudflare/cloudflared/releases/latest';
 const LIMIT=128*1024*1024;
 function assetName(platform=process.platform,arch=process.arch){
-  const suffix={darwin:{arm64:'darwin-arm64.tgz',x64:'darwin-amd64.tgz'},win32:{x64:'windows-amd64.exe',ia32:'windows-386.exe'}}[platform]?.[arch];
+  const suffix={darwin:{arm64:'darwin-arm64.tgz',x64:'darwin-amd64.tgz'},win32:{x64:'windows-amd64.exe',ia32:'windows-386.exe'},linux:{x64:'linux-amd64',arm64:'linux-arm64'}}[platform]?.[arch];
   if(!suffix)throw Error('此系统暂不支持一键安装，请按官方教程手动安装。');
   return 'cloudflared-'+suffix;
 }
@@ -62,7 +62,7 @@ async function download(fetch,url,limit,signal,progress=()=>{}){
   throw Error('官方下载跳转次数过多。');
 }
 function executableFromArchive(bytes,name){
-  if(name.endsWith('.exe'))return bytes;
+  if(name.endsWith('.exe')||['cloudflared-linux-amd64','cloudflared-linux-arm64'].includes(name))return bytes;
   // Read the single regular executable into memory. Never extract archive paths.
   const tar=gunzipSync(bytes,{maxOutputLength:LIMIT});let found;
   for(let offset=0;offset+512<=tar.length;){

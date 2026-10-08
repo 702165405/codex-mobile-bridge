@@ -19,6 +19,16 @@ import run
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class LineStream:
+    def __init__(self, lines, gate):
+        self.lines = lines
+        self.gate = gate
+
+    def __iter__(self):
+        yield from self.lines
+        self.gate.wait()
+
+
 class AccessTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=ROOT/'.tmp')
@@ -284,3 +294,90 @@ class ConcurrentRuntimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, '隧道已停止'): tunnel.start()
             self.assertTrue(errors)
             tunnel.on_origin.assert_not_called()
+
+    def test_quick_tunnel_keeps_waiting_while_cloudflared_retries_api(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as directory:
+            data = Path(directory)
+            executable = data/'cloudflared';executable.touch()
+            api_ready = threading.Event()
+            first_failure = threading.Event()
+            class RetryStream:
+                def __init__(self): self.lines = iter([
+                    'failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": EOF',
+                    'https://late.trycloudflare.com',
+                    'Registered tunnel connection',
+                ])
+                def __iter__(self):
+                    yield next(self.lines)
+                    first_failure.set()
+                    api_ready.wait(3)
+                    yield from self.lines
+            process = MagicMock(stdout=RetryStream(), poll=lambda: None)
+            process.terminate.side_effect = api_ready.set
+            tunnel = QuickTunnel(executable, 8787, data, MagicMock())
+            starter = threading.Thread(target=tunnel.start)
+            try:
+                with patch('bridge.tunnel.subprocess.Popen', return_value=process):
+                    starter.start()
+                    # A slow Quick Tunnel must remain explicitly connecting instead
+                    # of turning into a false failure while cloudflared retries.
+                    self.assertTrue(first_failure.wait(2))
+                    self.assertFalse(tunnel.ready.is_set())
+                    self.assertEqual(json.loads((data/'cloudflare-status.json').read_text(encoding='utf-8'))['state'], 'connecting')
+                    api_ready.set();starter.join(3)
+                    self.assertFalse(starter.is_alive())
+                    self.assertEqual(tunnel.url, 'https://late.trycloudflare.com')
+                    self.assertEqual(tunnel.on_origin.call_args.args, ('https://late.trycloudflare.com',))
+            finally:
+                tunnel.close();starter.join(3)
+            self.assertFalse(starter.is_alive())
+            process.terminate.assert_called_once()
+
+    def test_quick_tunnel_creates_new_url_after_tunnel_not_found(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as directory:
+            data = Path(directory)
+            executable = data/'cloudflared'
+            executable.touch()
+            old_gate, new_gate = threading.Event(), threading.Event()
+            old_process = MagicMock(stdout=LineStream([
+                'https://old.trycloudflare.com',
+                'Registered tunnel connection',
+                'ERR Connection terminated error="Unauthorized: Tunnel not found"',
+            ], old_gate))
+            old_process.poll.return_value = None
+            old_process.terminate.side_effect = old_gate.set
+            new_process = MagicMock(stdout=LineStream([
+                'https://new.trycloudflare.com',
+                'Registered tunnel connection',
+            ], new_gate))
+            new_process.poll.return_value = None
+            new_process.terminate.side_effect = new_gate.set
+            tunnel = QuickTunnel(executable, 8787, data, MagicMock())
+            tunnel.RESTART_DELAY = 0
+
+            replaced = threading.Event()
+            tunnel.on_origin.side_effect = lambda url: replaced.set() if url == 'https://new.trycloudflare.com' else None
+            real_is_set = tunnel.ready.is_set
+            def ready_after_loss():
+                # Force the reader to report loss before the supervisor checks
+                # readiness, as can happen on a busy Windows runner.
+                if tunnel.process is old_process:
+                    tunnel.broken.wait(3)
+                return real_is_set()
+
+            with patch('bridge.tunnel.subprocess.Popen', side_effect=[old_process, new_process]), \
+                 patch.object(tunnel.ready, 'is_set', side_effect=ready_after_loss):
+                starter = threading.Thread(target=tunnel.start)
+                try:
+                    starter.start()
+                    self.assertTrue(replaced.wait(5), 'Lost tunnel was not replaced promptly')
+                    starter.join(3)
+                    self.assertFalse(starter.is_alive())
+                    self.assertEqual(tunnel.url, 'https://new.trycloudflare.com')
+                    self.assertEqual(tunnel.on_origin.call_args_list[0].args, ('https://old.trycloudflare.com',))
+                    self.assertEqual(tunnel.on_origin.call_args_list[-1].args, ('https://new.trycloudflare.com',))
+                finally:
+                    tunnel.close()
+                    starter.join(3)
+                old_process.terminate.assert_called_once()
+                new_process.terminate.assert_called_once()

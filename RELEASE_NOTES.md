@@ -1,47 +1,48 @@
-## v1.2.1 · 消息编辑、会话分支与完整复制
+## v1.4.0 · 连接更简单，远程使用更顺畅
 
-### 本次更新
+- **开箱即用的外网连接**：App 内置 cloudflared，临时 HTTPS 无需额外安装；完善固定 Cloudflare 域名、普通用户 SSH 和 NAS / 已有反代方案。
+- **更清晰的配置体验**：每种连接均可折叠并直接打开对应在线指引；地址框自动补入 HTTPS 前缀，错误字段自动展开定位，短期通知显示 5 秒。保存的凭据可遮罩查看，SSH 私钥选择器支持隐藏目录。
+- **更完整的登录保护**：支持记住登录 7 天、密码尝试次数提示、IP 封禁及电脑端解除，可选发送安全通知。
+- **模型和 Skill 更易用**：保留原生 Fast 和自定义 API 模型目录，模型与 Skill 独立加载；Skill 支持缓存、搜索分页和完整描述，兼容正常安装的符号链接。
+- **聊天与更新更稳定**：改善图片预览、临时隧道重试和更新交接；修复过期接入记录误拦发送。App 和网页均可忽略未确认发送提示，不会自动重发消息。
+- **更直观的教程**：临时 HTTPS 标注“推荐”，固定域名、服务器和 NAS 标注“进阶”，提供分步图示及参考命令的适用条件说明。服务器管理员操作由用户自行完成，App 不执行 sudo。
 
-- **编辑最近消息**：用户消息下方选择“编辑并重新发送”，确认后由原 Codex 会话重新生成回答；任务运行中需要先停止。
-- **编辑历史消息**：选择“编辑并新建分支”，保留原会话，在新会话中修改并重新生成选定轮次。
-- **从这里分支**：在已完成的回答下创建新会话，只保留截至该轮的上下文，等待你继续输入。聊天详情可返回来源会话。
-- **复制完整回复与代码**：复制 Markdown 原文或单独代码块，长回复自动取齐正文。浏览器限制剪贴板时提供选中文本的手动复制方式。
-- **可靠的操作恢复**：过期消息会被拒绝，重复请求不重复执行；分支已创建但连接失败时保留修改草稿。中英文与手机窄屏同步适配。
-- 修复停止网关时双方竞争清理控制文件的问题，避免已成功停止却被报告为升级失败。
+合并 PR #11，并包含 Preview 测试期间的兼容性与体验修复。
 
-编辑和分支不会自动撤销已经执行的文件修改或命令；新旧会话共享工作目录。分支沿用原主机、模型提供商与认证，创建分支本身不发送模型请求。分支需要 Codex 运行时支持指定轮次及目标续跑延迟，旧版会提示更新电脑 Codex App。
+**升级**：在正式版 App 的“应用更新”中检查更新，或先停止网关并退出，再安装对应平台的新包；保留原数据目录。Preview 用户请手动安装正式版并确认使用原数据目录。更新后重新加载手机页面。临时 HTTPS 地址可能因重启变化，请提前开启入口变化通知。
 
-### 安装与升级
+**English**
 
-提供 Apple Silicon Mac arm64 DMG、Intel Mac x64 DMG、Windows x64 Setup.exe，以及三个 ZIP 更新包。
+**v1.4.0 makes remote setup and everyday access easier.** The App bundles cloudflared and provides guided Cloudflare domains, regular-user SSH and NAS/reverse-proxy setups. Connection cards collapse, link directly to online guides, and expand when a field needs attention. Saved credentials remain masked and revealable.
 
-**v1.1.0 / v1.2.0 用户**：桌面 App → 应用更新 → 更新并重启，然后刷新网页。保留原数据目录即可保留登录、网络、通知和关注聊天配置；临时 HTTPS 地址可能随重启变化。
+Remember sign-in for seven days, see remaining password attempts, and manage blocked IPs from the desktop. Native Fast and provider-specific model discovery are preserved. Skills load independently with caching, search, pagination, full descriptions and support for installed symlinks. Image previews, tunnel retries and update handoff improve. Stale account records no longer block existing chats; both interfaces can dismiss unconfirmed send records without resending messages.
 
-**Windows beta.7 / 1.0.0 用户**：在托盘选择“停止网关并退出”，再用 1.2.1 Setup.exe 安装到原位置，无需卸载或删除数据。beta.5 / beta.6 用户也需要手动安装一次新版。
+Includes PR #11 and fixes validated during Preview testing. Update through the stable App or stop the gateway and install manually, retaining the data directory. Preview users should install the stable App manually and select their existing data directory. Reload the phone page after upgrading. Mac packages are ad-hoc signed and not notarized; Windows packages have no certificate signature. Linux remains experimental.
 
-若旧版 Windows 客户端升级时提示 `gateway.stop` 访问被拒绝，退出 App 后用 1.2.1 Setup.exe 覆盖安装，保留原数据目录。
+---
 
-Mac 包使用 ad-hoc 完整性签名，尚无 Apple Developer ID 签名与公证；Windows 包未做证书签名。使用 `SHA256SUMS.txt` 校验下载，应用内更新使用签名清单 `bridge-update.json`。
+## v1.3.3 · 能耗与通知优化
 
-### English
+- **按需监控会话**：持续监听运行中和等待处理的会话，结束后解除通知订阅；通过实时事件和每 30 秒的变更元数据检查发现新任务，减少反复读取历史会话。
+- **通知重试更独立**：完成通知发送失败时保留重试记录，不必持续订阅已结束会话。补齐会话再次运行、断线恢复、通知开关变化及完成状态先后到达的处理。
+- **优化能耗**：状态查询复用进程；窗口隐藏时暂停刷新，状态不变时不重绘界面。
+- **稳定窗口标题**：统一管理原生窗口标题，避免页面标题反复覆盖；切换语言时按需更新。
 
-**v1.2.1 adds message editing, conversation branches and complete copying.**
+Mac / Windows v1.1.0 及后续版本可在“应用更新”选择“更新并重启”。保留数据目录即可保留登录、网络和通知设置。通过临时 HTTPS 远程升级前，请确认 v1.3.2 引入的“网关启动与入口通知”已开启且手机能够收到。Linux 仍为实验性支持，请停止网关并退出 App 后手动安装新版。
 
-- **Edit and resend** the latest user message through the original desktop chat. Stop the active turn first.
-- **Edit in new branch** for an older user message. Keep the original conversation and regenerate the selected turn in a new chat.
-- **Branch from here** under a completed answer. Keep history through that turn, wait for the next message and return to the source through chat details.
-- Copy complete Markdown replies or individual code blocks, including long content. When clipboard access is restricted, select the text and use the system Copy action.
-- Stale messages are rejected, repeated requests do not replay operations, and an edit draft is retained if a new branch cannot connect. Chinese, English and narrow mobile layouts are supported.
-- Fix competing shutdown-file cleanup so a successful gateway stop does not get reported as an update failure.
+提供 Mac Apple Silicon / Intel 的 DMG、ZIP，Windows x64 的 Setup.exe、ZIP，以及 Ubuntu x64 / ARM64 的 DEB、AppImage。使用 `SHA256SUMS.txt` 校验下载；Mac / Windows 应用内更新使用签名的 `bridge-update.json`。Mac 仍为 ad-hoc 签名、未公证；Windows 无证书签名。
 
-Editing and branching do not undo previous file changes or commands. Both chats share the working directory. Branches retain the original execution host, model provider and authentication; creating a branch does not send a model request. Branching requires a Codex runtime with turn-specific forks and deferred goal continuation. Update Codex App if prompted.
+---
 
-**Installers:** Apple Silicon arm64 DMG, Intel x64 DMG and Windows x64 Setup.exe, plus ZIPs for all three targets.
+## English
 
-**From v1.1.0 / v1.2.0:** App updates → Update and restart, then refresh the browser. Keep the data directory; temporary HTTPS addresses may change after restart.
+**v1.3.3 reduces notification monitoring and desktop refresh overhead.**
 
-**Older Windows versions:** beta.7 / 1.0.0 users should stop the gateway and quit, then install 1.2.1 at the same location. Beta.5 / beta.6 users also need one manual update. Do not uninstall or delete data.
+- Monitor running chats and pending requests, then release notification subscriptions when idle. Live events and a metadata check every 30 seconds discover new activity without repeatedly loading historical chats.
+- Retry failed completion alerts independently of subscriptions. Handle resumed chats, reconnection, notification preference changes, and completion updates arriving in separate steps.
+- Reuse the desktop status worker, pause refreshes while the window is hidden, and skip unchanged UI renders.
+- Keep the native window title stable and update it only when the language changes.
 
-If an older Windows client reports access denied for `gateway.stop` while updating, quit the App and install the 1.2.1 Setup.exe over the existing installation. Keep the data directory.
+**Upgrade:** Mac / Windows v1.1.0 and later support App updates → Update and restart. Retain the data directory to preserve settings. Before a remote update over temporary HTTPS, enable and test the startup and entry notifications introduced in v1.3.2. Linux remains experimental and requires a manual upgrade after stopping the gateway and quitting the App.
 
-Mac packages are ad-hoc signed but not Apple-notarized; Windows packages have no certificate signature. Verify downloads with `SHA256SUMS.txt`; in-app updates use the signed `bridge-update.json` manifest.
+Packages include Mac arm64/x64 DMG and ZIP, Windows x64 installer and ZIP, and Ubuntu x64/ARM64 DEB and AppImage. Verify downloads with `SHA256SUMS.txt`; Mac/Windows in-app updates use the signed manifest. Mac builds are ad-hoc signed, not notarized; Windows builds have no certificate signature.
