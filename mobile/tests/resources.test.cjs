@@ -6,7 +6,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const read = value => fs.readFileSync(path.join(root, value), 'utf8');
 const shared = ['mobile-ui.js', 'mobile-clipboard.js'];
-const android = [...shared, 'mobile-session.js'];
+const android = [...shared, 'mobile-session.js', 'mobile-system-bars.js'];
 
 function xcodeObjects() {
   const source = read('mobile/ios/BridgePreview.xcodeproj/project.pbxproj');
