@@ -1,4 +1,4 @@
-"""Serve only artifacts referenced by this chat inside its workspace/visualizations."""
+"""Serve local artifacts explicitly referenced by this chat."""
 import hashlib
 import ntpath
 import os
@@ -68,9 +68,8 @@ def _is_plain_reference(value):
 def _model_image_references(state):
     """Map model image references and return the trusted runtime-view identities.
 
-    ImageView rows are runtime-generated evidence and may point at desktop-side
-    screenshots outside a workspace. Markdown image links are model-authored
-    text and must not grant that broader filesystem trust.
+    Desktop image previews use runtime-generated ImageView evidence separately
+    from model-authored Markdown references.
     """
     result = {}
     trusted_views = set()
@@ -107,7 +106,7 @@ def referenced_model_images(state, image_views_only=False):
     return trusted_views if image_views_only else result
 
 
-def artifact_paths(state, codex_home):
+def artifact_paths(state, codex_home, *, max_file_size=50 * 1024 * 1024):
     roots = [Path(codex_home) / 'visualizations'] if codex_home else []
     if state.get('cwd'):
         roots.append(Path(state['cwd']))
@@ -126,15 +125,15 @@ def artifact_paths(state, codex_home):
     result = {}
     model_images, trusted_views = _model_image_references(state)
     for raw in candidates:
-        # Model-authored Markdown and response attachments remain bound to the
-        # workspace/visualization roots even when they name an image suffix.
         value = re.sub(r':\d+$', '', raw)
         path = reference_path(value, allow_relative=bool(state.get('cwd')))
         if not path:
             continue
         try:
             path = ((Path(state['cwd']) / path) if not path.is_absolute() and state.get('cwd') else path).resolve(strict=True)
-            if not any(root in path.parents for root in roots) or not (path.is_file() or path.is_dir()):
+            if (not (path.is_file() or path.is_dir())
+                    or (path.is_dir() and not any(root in path.parents for root in roots))
+                    or (path.is_file() and max_file_size is not None and path.stat().st_size > max_file_size)):
                 continue
         except OSError:
             continue
@@ -142,10 +141,8 @@ def artifact_paths(state, codex_home):
         artifact = result.setdefault(key, {'path': path, 'reference': raw,
             'references': [], 'name': path.name, 'kind': 'directory' if path.is_dir() else 'file', 'image': path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES})
         artifact['references'].append(raw)
-    # A path can be shown once as ImageView and embedded later with another text
-    # form (usually a plain absolute path versus file://). Only the runtime view
-    # grants the outside-workspace exception; collect all references so Markdown
-    # can still resolve to the same authenticated artifact ID.
+    # ImageView and Markdown may use different references for the same file;
+    # merge them so both resolve to the same authenticated artifact ID.
     for path, references in model_images.items():
         if path not in trusted_views:
             continue
@@ -175,4 +172,5 @@ def workspace_references(messages, cwd):
     root = Path(cwd).resolve()
     return [{'id': key, 'name': value['name'], 'reference': value['reference'],
              'path': value['path'].relative_to(root).as_posix(), 'kind': value['kind'], 'image': False}
-            for key, value in artifact_paths(state, None).items()]
+            for key, value in artifact_paths(state, None, max_file_size=None).items()
+            if root in value['path'].parents]
