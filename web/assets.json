@@ -73,5 +73,7 @@
   ],
   "/host.js": "hosts/environment.js",
   "/layout.js": "layouts/viewport.js",
-  "/file-actions.js": "features/workspace/file-actions.js"
+  "/file-actions.js": "features/workspace/file-actions.js",
+  "/text-viewer.js": "features/workspace/text-viewer.js",
+  "/text-viewer.css": "features/workspace/text-viewer.css"
 }
