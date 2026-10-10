@@ -37,7 +37,7 @@ window.BridgeFileActions = (() => {
         if(info.size<=info.clickDownloadMiB*1024*1024)download(box,anchor.href,info.name);
         else box.append(node('p',t('文件超过点击下载阈值，请在文件标签页中定位后长按下载。'),'muted'));
       }
-      if(locate.disabled)box.append(node('p',t('此文件位于聊天项目之外，无法在当前文件标签页中定位。'),'muted'));
+      if(locate.disabled)box.append(node('p',t('此文件位于项目外，仅支持下载。'),'muted'));
     }catch(error){status.textContent=t(error.message);status.className='error';}
   }
   document.addEventListener('click',event=>{

@@ -8,6 +8,13 @@ const read = value => fs.readFileSync(path.join(root, value), 'utf8');
 const shared = ['mobile-ui.js', 'mobile-clipboard.js'];
 const android = [...shared, 'mobile-session.js', 'mobile-system-bars.js'];
 
+test('both Android variants register the downloaded-file viewer provider', () => {
+  for (const manifest of ['mobile/android/AndroidManifest.xml', 'mobile/android-push/AndroidManifest.xml']) {
+    const source = read(manifest);
+    assert.match(source, /<provider[^>]*android:name="io\.github\.try2love\.codexbridge\.DownloadProvider"[^>]*android:exported="false"[^>]*android:grantUriPermissions="true"/);
+  }
+});
+
 function xcodeObjects() {
   const source = read('mobile/ios/BridgePreview.xcodeproj/project.pbxproj');
   return new Map([...source.matchAll(/([A-F0-9]{24})(?: \/\*[^*]*\*\/)? = \{([\s\S]*?)\};/g)]

@@ -24,6 +24,23 @@ def path_identity(value):
         return Path(os.path.normcase(os.path.abspath(str(path))))
 
 
+def workspace_relative_path(path, cwd):
+    """Locate a resolved artifact inside the same resolved workspace."""
+    if not cwd:
+        return None
+    def comparable(value):
+        value = str(Path(value).resolve())
+        # Codex stores extended Windows paths while file links use ordinary paths.
+        if os.name == 'nt':
+            if value.startswith('\\\\?\\UNC\\'):
+                value = '\\\\' + value[8:]
+            elif value.startswith('\\\\?\\') and re.match(r'[A-Za-z]:\\', value[4:]):
+                value = value[4:]
+        return Path(value)
+    path, root = comparable(path), comparable(cwd)
+    return path.relative_to(root).as_posix() if root in path.parents else None
+
+
 def reference_path(value, allow_relative=False):
     """Resolve a local file reference without allowing remote URL access."""
     if not isinstance(value, str) or not value:

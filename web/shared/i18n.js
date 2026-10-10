@@ -2,14 +2,6 @@
 // UI messages only. Never translate chat content, commands, model IDs or user input.
 const BridgeI18n=(()=>{
 const en={
-"关闭文本预览":"Close text preview",
-"正在加载文件…":"Loading file…",
-"文件为空。":"This file is empty.",
-"登录已失效，请重新登录后查看。":"Sign-in expired. Sign in again to view this file.",
-"文件读取失败，请重试或下载。":"Could not read the file. Retry or download it.",
-"文件超过 1 MiB 预览限制，请下载查看。":"File exceeds the 1 MiB preview limit. Download it to view.",
-"文件编码无法预览，请下载查看。":"This file encoding cannot be previewed. Download it to view.",
-"文件内容无法作为文本预览，请下载查看。":"This file cannot be previewed as text. Download it to view.",
 "手机访问地址（可选）":"Phone access URL (optional)",
 "留空使用服务器公网 IP":"Leave blank to use the server public IP",
 "使用域名时，需要自行将域名解析到服务器公网 IP，并配置 HTTPS 证书和反向代理；填写完整地址，例如 https://bridge.example.com。":"For a domain, point its DNS record to the server public IP and configure an HTTPS certificate and reverse proxy. Enter the full URL, such as https://bridge.example.com.",
@@ -140,7 +132,7 @@ const en={
 "定位并打开所在文件夹":"Locate in Files",
 "文件夹将打包为 ZIP，准备完成后显示下载总量。":"The folder will be prepared as a ZIP. The total size appears when ready.",
 "文件超过点击下载阈值，请在文件标签页中定位后长按下载。":"This file exceeds the click-to-download limit. Locate it in Files, then long-press to download.",
-"此文件位于聊天项目之外，无法在当前文件标签页中定位。":"This file is outside the chat workspace and cannot be located in this Files tab.",
+"此文件位于项目外，仅支持下载。":"This file is outside the project. Download only.",
 "浏览器存储不可用，无法暂存大文件；请使用手机 App 下载。":"Browser storage is unavailable for large files. Use the mobile app to download.",
 "无法暂存下载文件，请检查浏览器存储空间。":"Unable to store the download. Check browser storage space.",
 "下载阈值须为 1–1048576 MiB 的整数":"Enter a whole number from 1 to 1048576 MiB.",

@@ -1,5 +1,6 @@
 import hashlib
 import http.client
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -188,6 +189,12 @@ class DownloadHttpTests(unittest.TestCase):
                 self.assertEqual((status, data), (200, apk.read_bytes()))
                 self.assertIn('Bridge', headers['Content-Disposition'])
                 self.assertEqual(self.get({**auth, 'Range': 'bytes=0-2'}, url)[::2], (206, b'APK'))
+                with patch.object(self.server.bridge, 'store', SimpleNamespace(get=lambda _: {'cwd': str(workspace)}), create=True):
+                    status, _, payload = self.get(auth, url + '?info=1')
+                self.assertEqual(status, 200)
+                info = json.loads(payload)
+                self.assertFalse(info['locatable'])
+                self.assertIsNone(info['path'])
         session.state['turns'] = []
         self.assertEqual(self.get(auth, url)[0], 404)
 
@@ -278,6 +285,19 @@ class FileActionsTests(unittest.TestCase):
             with self.workspace.archive('linked'): pass
 
 class WorkspaceReferenceTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Windows extended paths')
+    def test_artifact_location_accepts_extended_workspace_and_keeps_boundary(self):
+        from bridge.features.workspace.files import workspace_relative_path
+        with tempfile.TemporaryDirectory(dir=support.ROOT / '.tmp') as directory:
+            root = Path(directory).resolve()
+            project = root / 'project'; project.mkdir()
+            artifact = project / 'dist' / 'app.apk'; artifact.parent.mkdir(); artifact.write_bytes(b'apk')
+            extended = '\\\\?\\' + str(project)
+            self.assertEqual(workspace_relative_path(artifact, extended), 'dist/app.apk')
+            self.assertEqual(workspace_relative_path('\\\\?\\' + str(artifact), project), 'dist/app.apk')
+            self.assertIsNone(workspace_relative_path(root / 'private.txt', extended))
+            self.assertIsNone(workspace_relative_path(root / 'project-other' / 'app.apk', extended))
+
     def test_relative_large_references_stay_inside_own_workspace(self):
         from bridge.features.workspace.files import workspace_references
         with tempfile.TemporaryDirectory(dir=support.ROOT / '.tmp') as directory:
