@@ -237,6 +237,43 @@ test('failed continuation retains rows and retries the same page on a new scroll
   assert.equal(ui.listRequests[2],ui.listRequests[1]);assert.equal(root.children.length,110);
 });
 
+test('failed refresh keeps the loaded page available for scroll continuation',async()=>{
+  const ui=await fixture(),root=ui.nodes.get('sessions');ui.nodes.get('app').hidden=false;
+  Object.assign(root,{clientHeight:400,scrollHeight:12000});
+  ui.setList(()=>ui.response(sessionPage(0,100)));await ui.run('loadList(true)');
+  ui.setList(()=>ui.response({error:'Offline'},503));await assert.rejects(ui.run('loadList(true)'),/Offline/);
+  assert.equal(root.children.length,100);
+  ui.setList(()=>ui.response(sessionPage(100,20)));root.scrollTop=11500;root.dispatchEvent({type:'scroll'});await new Promise(setImmediate);
+  assert.match(ui.listRequests[2]||'',/offset=100/);assert.equal(root.children.length,120);
+});
+
+test('new filters start at the top, including a retry after their first request fails',async()=>{
+  const ui=await fixture(),root=ui.nodes.get('sessions');ui.nodes.get('app').hidden=false;
+  Object.assign(root,{clientHeight:400,scrollHeight:12000});
+  ui.setList(()=>ui.response(sessionPage(0,100)));await ui.run('loadList(true)');root.scrollTop=9000;
+  await ui.run('loadList(true)');assert.equal(root.scrollTop,9000);
+  ui.nodes.get('search').value='new';ui.setList(()=>ui.response({error:'Offline'},503));
+  await assert.rejects(ui.run('loadList(true)'),/Offline/);
+  root.dispatchEvent({type:'scroll'});assert.equal(ui.listRequests.length,3);
+  ui.setList(()=>ui.response(sessionPage(200,20)));await ui.run('loadList(true)');assert.equal(root.scrollTop,0);
+  root.scrollTop=1200;ui.nodes.get('archived').checked=true;await ui.run('loadList(true)');assert.equal(root.scrollTop,0);
+});
+
+test('horizontal, cancelled and multi-touch gestures do not load a page',async()=>{
+  const ui=await fixture(),root=ui.nodes.get('sessions');ui.nodes.get('app').hidden=false;
+  Object.assign(root,{clientHeight:400,scrollHeight:200});
+  ui.setList(()=>ui.response(sessionPage(0,100)));await ui.run('loadList(true)');
+  for(const kind of ['horizontal','cancel','multi']){
+    root.dispatchEvent({type:'touchstart',touches:[{clientX:20,clientY:100}]});
+    if(kind==='horizontal')root.dispatchEvent({type:'touchmove',touches:[{clientX:220,clientY:50}]});
+    if(kind==='cancel')root.dispatchEvent({type:'touchcancel',touches:[]});
+    if(kind==='multi')root.dispatchEvent({type:'touchmove',touches:[{clientX:20,clientY:50},{clientX:40,clientY:50}]});
+    root.dispatchEvent({type:'touchmove',touches:[{clientX:20,clientY:40}]});
+    root.dispatchEvent({type:'touchend',touches:[]});
+  }
+  await new Promise(setImmediate);assert.equal(ui.listRequests.length,1);
+});
+
 test('changed search and archive conditions block old continuation and discard its late response',async()=>{
   const ui=await fixture(),root=ui.nodes.get('sessions');ui.nodes.get('app').hidden=false;
   Object.assign(root,{clientHeight:400,scrollHeight:12000});

@@ -142,13 +142,14 @@ function renderList(){
 }
 async function loadList(reset=false){
   if(!reset&&(listLoading||!listHasMore))return;
-  if(reset)listHasMore=false;
   const generation=++listGeneration,offset=reset?0:listOffset;
-  listQuery=$('search').value;listArchived=$('archived').checked;
+  const query=$('search').value,archived=$('archived').checked;
   let result;listLoading++;
-  try{result=await api('/api/sessions?q='+encodeURIComponent(listQuery)+'&offset='+offset+'&archived='+listArchived);}
+  try{result=await api('/api/sessions?q='+encodeURIComponent(query)+'&offset='+offset+'&archived='+archived);}
   finally{listLoading--;}
   if(generation!==listGeneration)return;
+  if(reset&&(query!==listQuery||archived!==listArchived))$('sessions').scrollTop=0;
+  listQuery=query;listArchived=archived;
   const rows=new Map((reset?[]:listRows).map(row=>[chatKey(row.id,row.host),row]));
   for(const row of result.sessions){const key=chatKey(row.id,row.host);row.recency=Math.max(row.recency,recentInteractions.get(key)||0);rows.set(key,row);}
   listRows=[...rows.values()];listRows.sort((a,b)=>b.recency-a.recency);
@@ -164,11 +165,17 @@ function loadMoreSessions(){
 $('sessions').addEventListener('scroll',loadMoreSessions,{passive:true});
 // Collapsed project groups may leave too little content for a scroll event.
 $('sessions').addEventListener('wheel',event=>{if(event.deltaY>0)loadMoreSessions();},{passive:true});
-let listTouchY=null;
-$('sessions').addEventListener('touchstart',event=>{listTouchY=event.touches.length===1?event.touches[0].clientY:null;},{passive:true});
-$('sessions').addEventListener('touchmove',event=>{if(listTouchY!==null&&event.touches.length===1&&listTouchY-event.touches[0].clientY>40){listTouchY=null;loadMoreSessions();}},{passive:true});
-$('sessions').addEventListener('touchend',()=>{listTouchY=null;},{passive:true});
-$('sessions').addEventListener('touchcancel',()=>{listTouchY=null;},{passive:true});
+let listTouch=null;
+$('sessions').addEventListener('touchstart',event=>{listTouch=event.touches.length===1?{x:event.touches[0].clientX,y:event.touches[0].clientY}:null;},{passive:true});
+$('sessions').addEventListener('touchmove',event=>{
+  if(!listTouch)return;
+  if(event.touches.length!==1){listTouch=null;return;}
+  const dx=event.touches[0].clientX-listTouch.x,dy=listTouch.y-event.touches[0].clientY;
+  if(Math.abs(dx)>Math.max(10,Math.abs(dy))){listTouch=null;return;}
+  if(dy>40){listTouch=null;loadMoreSessions();}
+},{passive:true});
+$('sessions').addEventListener('touchend',()=>{listTouch=null;},{passive:true});
+$('sessions').addEventListener('touchcancel',()=>{listTouch=null;},{passive:true});
 $('search').oninput=()=>{clearTimeout(loadList.timer);loadList.timer=setTimeout(()=>loadList(true).catch(e=>toast(e.message)),300);};$('refresh').onclick=()=>loadList(true).catch(e=>toast(e.message));
 $('archived').onchange=()=>loadList(true).catch(e=>toast(e.message));
 const listSync=window.BridgeListSync=new ListSync({root:$('sessions'),status:$('list-sync'),refresh:()=>loadList(true),visible:()=>!$('app').hidden&&$('sidebar').getBoundingClientRect().width>0,ready:()=>!listLoading&&document.activeElement!==$('search')});
