@@ -179,6 +179,27 @@ class DownloadHttpTests(unittest.TestCase):
         self.assertEqual(status, 403 if os.name == 'nt' else 400)
         self.assertNotIn(b'forbidden', body)
 
+    def test_chat_artifact_over_50_mib_respects_configured_download_limit(self):
+        from bridge.features.workspace.files import artifact_paths
+        from bridge.features.workspace.preferences import transfer_settings
+        with self.file.open('wb') as stream:
+            stream.truncate(60 * 1024 * 1024)
+        state = {'cwd': str(self.root), 'turns': [{'items': [
+            {'type': 'agentMessage', 'text': '[file](<' + str(self.file) + '>)'}]}]}
+        files = artifact_paths(state, None)
+        self.assertEqual(len(files), 1)
+        identifier = next(iter(files))
+        self.server.bridge.artifact = lambda thread, key: artifact_paths(state, None)[key]
+        self.server.transfer_directory = self.root / 'policy'
+        url = '/api/sessions/' + support.THREAD + '/files/' + identifier
+        auth = self.login()
+        transfer_settings(self.server.transfer_directory, {'clickDownloadMiB': 100})
+        status, headers, body = self.get({**auth, 'Range': 'bytes=0-2'}, url)
+        self.assertEqual((status, body), (206, b'\0' * 3))
+        self.assertEqual(headers['Content-Range'], 'bytes 0-2/62914560')
+        transfer_settings(self.server.transfer_directory, {'clickDownloadMiB': 20})
+        self.assertEqual(self.get({**auth, 'Range': 'bytes=0-2'}, url)[0], 400)
+
 class FileActionsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=support.ROOT / '.tmp')

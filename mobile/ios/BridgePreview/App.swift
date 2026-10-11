@@ -4,13 +4,17 @@ import AVFoundation
 import UserNotifications
 import UniformTypeIdentifiers
 
+final class BridgeNavigationController: UINavigationController {
+    override var childForStatusBarStyle: UIViewController? { topViewController }
+}
+
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     var window: UIWindow?
     let controller = BridgeController()
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        let window = UIWindow(frame: UIScreen.main.bounds); window.rootViewController = UINavigationController(rootViewController: controller); window.makeKeyAndVisible(); self.window = window
+        let window = UIWindow(frame: UIScreen.main.bounds); window.rootViewController = BridgeNavigationController(rootViewController: controller); window.makeKeyAndVisible(); self.window = window
         if let url = options?[.url] as? URL { DispatchQueue.main.async { self.controller.openLink(url) } }
         return true
     }
@@ -65,7 +69,7 @@ final class GatewayReachability: NSObject, URLSessionDataDelegate {
     }
 }
 
-final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelegate, UIDocumentPickerDelegate {
+final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelegate, UIDocumentPickerDelegate, UIDocumentInteractionControllerDelegate {
     private var web: WKWebView?
     private var origin = ""
     private var routeDiscovery: ConnectionDiscovery?
@@ -76,6 +80,7 @@ final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelega
     private var downloadState = DownloadManager.Snapshot()
     private let downloadPanel = DownloadPanel()
     private var exportPicker: UIDocumentPickerViewController?
+    private var openDocument: UIDocumentInteractionController?
     private var downloadBottom: NSLayoutConstraint?
     private lazy var downloads: DownloadManager = {
         let manager = DownloadManager()
@@ -109,6 +114,9 @@ final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelega
     private var generation = 0
     private let defaults = UserDefaults.standard
     private let page = UIStackView()
+    private let topBackground = UIView()
+    private var pageStatusBarStyle: UIStatusBarStyle = .default
+    override var preferredStatusBarStyle: UIStatusBarStyle { pageStatusBarStyle }
     private let subtitle = UILabel()
     private let gatewayMenu = UIButton(type: .system)
     private var gatewayMenuTop: NSLayoutConstraint?
@@ -134,6 +142,9 @@ final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelega
         navigationController?.navigationBar.scrollEdgeAppearance = appearance
         navigationController?.navigationBar.prefersLargeTitles = true
         page.axis = .vertical; page.spacing = 0; page.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(page)
+        topBackground.translatesAutoresizingMaskIntoConstraints = false; topBackground.isUserInteractionEnabled = false
+        topBackground.backgroundColor = .systemGroupedBackground; view.insertSubview(topBackground, belowSubview: page)
+        NSLayoutConstraint.activate([topBackground.topAnchor.constraint(equalTo: view.topAnchor), topBackground.bottomAnchor.constraint(equalTo: page.topAnchor), topBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor), topBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor)])
         pageBottom = page.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         NSLayoutConstraint.activate([page.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), pageBottom!, page.leadingAnchor.constraint(equalTo: view.leadingAnchor), page.trailingAnchor.constraint(equalTo: view.trailingAnchor)])
         subtitle.font = .preferredFont(forTextStyle: .caption1); subtitle.textColor = .secondaryLabel; subtitle.textAlignment = .center; subtitle.numberOfLines = 2; page.addArrangedSubview(subtitle)
@@ -151,6 +162,7 @@ final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelega
         }
         downloadPanel.onCancel = { [weak self] in self?.downloads.cancel() }
         downloadPanel.onSave = { [weak self] in self?.saveDownload() }
+        downloadPanel.onOpen = { [weak self] in self?.openDownload() }
         downloadBottom = downloadPanel.bottomAnchor.constraint(equalTo: page.bottomAnchor, constant: -16)
         let downloadWidth = downloadPanel.widthAnchor.constraint(equalToConstant: 360); downloadWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([downloadBottom!, downloadWidth,
@@ -268,7 +280,7 @@ final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelega
         let inbox = UIBarButtonItem(image: UIImage(systemName: "bell"), style: .plain, target: self, action: #selector(self.inbox)); inbox.accessibilityLabel = MobileStrings.text("通知")
         navigationItem.rightBarButtonItems = [settings, inbox]
     }
-    private func clear() { pendingStorage = nil; routeDiscovery?.cancel(); routeDiscovery = nil; cancelSync(); finishUpload(nil); stopComputerChecks(); computerStates.removeAll(); computerNotifications.removeAll(); gatewayMenuTop?.isActive = false; gatewayMenuTop = nil; generation += 1; web?.stopLoading(); web?.navigationDelegate = nil; web?.uiDelegate = nil; web = nil; for v in page.arrangedSubviews where v !== subtitle { page.removeArrangedSubview(v); v.removeFromSuperview() } }
+    private func clear() { updateSystemBars(reset: true); pendingStorage = nil; routeDiscovery?.cancel(); routeDiscovery = nil; cancelSync(); finishUpload(nil); stopComputerChecks(); computerStates.removeAll(); computerNotifications.removeAll(); gatewayMenuTop?.isActive = false; gatewayMenuTop = nil; generation += 1; web?.stopLoading(); web?.navigationDelegate = nil; web?.uiDelegate = nil; web = nil; for v in page.arrangedSubviews where v !== subtitle { page.removeArrangedSubview(v); v.removeFromSuperview() } }
     @objc func home() {
         clear(); navigation(home: true); subtitle.isHidden = true
         let container = UIView(); page.addArrangedSubview(container); let content = scrollContent(in: container)
@@ -469,6 +481,8 @@ final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelega
         configuration.userContentController.addUserScript(WKUserScript(source: appearanceScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         let clipboardScript = scripts.clipboard.replacingOccurrences(of: "__BRIDGE_CLIPBOARD_TOKEN__", with: clipboardToken)
         configuration.userContentController.addUserScript(WKUserScript(source: clipboardScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        let systemBarsScript = scripts.systemBars.replacingOccurrences(of: "__BRIDGE_CLIPBOARD_TOKEN__", with: clipboardToken)
+        configuration.userContentController.addUserScript(WKUserScript(source: systemBarsScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         let web = WKWebView(frame: .zero, configuration: configuration); self.web = web; web.scrollView.contentInsetAdjustmentBehavior = .never; web.navigationDelegate = self; web.uiDelegate = self; web.allowsBackForwardNavigationGestures = true; web.customUserAgent = nil; page.addArrangedSubview(web); gatewayMenuTop = gatewayMenu.topAnchor.constraint(equalTo: web.topAnchor, constant: 4); gatewayMenuTop?.isActive = true; web.load(URLRequest(url: url))
         web.scrollView.pinchGestureRecognizer?.isEnabled = false
     }
@@ -503,6 +517,15 @@ final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelega
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) { let a = UIAlertController(title: nil, message: message, preferredStyle: .alert); a.addAction(UIAlertAction(title: MobileStrings.text("好"), style: .default) { _ in completionHandler() }); present(a, animated: true) }
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) { let a = UIAlertController(title: nil, message: message, preferredStyle: .alert); a.addAction(UIAlertAction(title: MobileStrings.text("取消"), style: .cancel) { _ in completionHandler(false) }); a.addAction(UIAlertAction(title: MobileStrings.text("确认"), style: .default) { _ in completionHandler(true) }); present(a, animated: true) }
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        if prompt == "codexbridge-system-bars:" + clipboardToken {
+            guard webView === web, UIApplication.shared.applicationState == .active, frame.isMainFrame,
+                  let source = frame.request.url, GatewayURL.same(source, origin),
+                  let current = webView.url, GatewayURL.same(current, origin),
+                  let text = defaultText, text.utf16.count < 100, let data = text.data(using: .utf8),
+                  let colors = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+                  let top = Self.barColor(colors["top"]), let bottom = Self.barColor(colors["bottom"]) else { completionHandler(nil); return }
+            updateSystemBars(top: top, bottom: bottom); completionHandler("saved"); return
+        }
         if prompt == "codexbridge-computer:" + clipboardToken {
             guard webView === web, frame.isMainFrame, let source = frame.request.url, GatewayURL.same(source, origin),
                   let current = webView.url, GatewayURL.same(current, origin) else { completionHandler(nil); return }
@@ -521,6 +544,22 @@ final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelega
         UIPasteboard.general.string = text
         completionHandler("copied")
     }
+    private static func barColor(_ value: String?) -> UIColor? {
+        guard let value, value.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil,
+              let rgb = UInt32(value.dropFirst(), radix: 16) else { return nil }
+        return UIColor(red: CGFloat((rgb >> 16) & 255) / 255, green: CGFloat((rgb >> 8) & 255) / 255, blue: CGFloat(rgb & 255) / 255, alpha: 1)
+    }
+    private func updateSystemBars(top: UIColor = .systemGroupedBackground, bottom: UIColor = .systemGroupedBackground, reset: Bool = false) {
+        view.backgroundColor = bottom; topBackground.backgroundColor = top
+        let appearance = UINavigationBarAppearance(); appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = top; appearance.shadowColor = .clear
+        navigationController?.navigationBar.standardAppearance = appearance
+        navigationController?.navigationBar.scrollEdgeAppearance = appearance
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        top.resolvedColor(with: traitCollection).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        pageStatusBarStyle = reset ? .default : (red * 0.299 + green * 0.587 + blue * 0.114 >= 0.5 ? .darkContent : .lightContent)
+        setNeedsStatusBarAppearanceUpdate(); navigationController?.setNeedsStatusBarAppearanceUpdate()
+    }
     private func isArtifact(_ url: URL) -> Bool {
         DownloadManager.allows(url, origin: origin)
     }
@@ -529,6 +568,17 @@ final class BridgeController: UIViewController, WKNavigationDelegate, WKUIDelega
         guard let url = request.url, isArtifact(url) else { return }
         downloadPanel.expand(); downloads.start(url, origin: origin)
     }
+    private func openDownload() {
+        guard downloadState.phase == .complete, let file = downloadState.file, presentedViewController == nil else { return }
+        let document = UIDocumentInteractionController(url: file)
+        document.delegate = self; openDocument = document
+        // The menu transfers the document to the receiving app; the active task retains its source.
+        if !document.presentOpenInMenu(from: downloadPanel.bounds, in: downloadPanel, animated: true),
+           !document.presentPreview(animated: true) {
+            openDocument = nil; info(MobileStrings.text("暂无可打开此文件的应用"))
+        }
+    }
+    func documentInteractionControllerViewControllerForPreview(_ controller: UIDocumentInteractionController) -> UIViewController { self }
     private func saveDownload() {
         guard downloadState.phase == .complete, let file = downloadState.file, presentedViewController == nil else { return }
         let picker = UIDocumentPickerViewController(forExporting: [file], asCopy: true); picker.delegate = self
@@ -925,6 +975,7 @@ final class DownloadPanel: UIView {
     var onToggle: (() -> Void)?
     var onCancel: (() -> Void)?
     var onSave: (() -> Void)?
+    var onOpen: (() -> Void)?
     private let title = UILabel()
     private let detail = UILabel()
     private let status = UILabel()
@@ -932,6 +983,7 @@ final class DownloadPanel: UIView {
     private let content = UIStackView()
     private let toggle = UIButton(type: .system)
     private let save = UIButton(type: .system)
+    private let open = UIButton(type: .system)
     private let cancel = UIButton(type: .system)
     private let collapse = UIButton(type: .system)
     private var collapsed = false
@@ -957,7 +1009,7 @@ final class DownloadPanel: UIView {
         progress.progressTintColor = tintColor; progress.trackTintColor = .tertiarySystemFill
         content.addArrangedSubview(detail); content.addArrangedSubview(progress); content.addArrangedSubview(status)
         let actions = UIStackView(); actions.axis = .horizontal; actions.spacing = 8; actions.distribution = .fillEqually; content.addArrangedSubview(actions)
-        for button in [toggle, save, cancel] {
+        for button in [toggle, open, save, cancel] {
             var config = UIButton.Configuration.tinted(); config.cornerStyle = .medium
             config.baseForegroundColor = tintColor; config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in var output = incoming; output.font = .systemFont(ofSize: 14, weight: .medium); return output }
             button.configuration = config; button.heightAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true; actions.addArrangedSubview(button)
@@ -965,13 +1017,14 @@ final class DownloadPanel: UIView {
         toggle.addAction(UIAction { [weak self] _ in self?.onToggle?() }, for: .touchUpInside)
         cancel.addAction(UIAction { [weak self] _ in self?.onCancel?() }, for: .touchUpInside)
         save.addAction(UIAction { [weak self] _ in self?.onSave?() }, for: .touchUpInside)
+        open.addAction(UIAction { [weak self] _ in self?.onOpen?() }, for: .touchUpInside)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func expand() { collapsed = false; render(state) }
     func render(_ state: DownloadManager.Snapshot) {
         self.state = state; isHidden = !state.visible; content.isHidden = collapsed
         let percentage = state.total.map { $0 == 0 ? 100 : min(100, Int(Double(state.received) / Double($0) * 100)) }
-        let phases: [DownloadManager.Phase: String] = [.connecting: "正在连接…", .downloading: "正在下载…", .paused: "已暂停", .failed: "下载未完成", .complete: "下载完成，待保存", .saved: "已保存", .idle: "", .cancelled: "已取消"]
+        let phases: [DownloadManager.Phase: String] = [.connecting: "正在连接…", .downloading: "正在下载…", .paused: "已暂停", .failed: "下载未完成", .complete: "下载完成，可打开或保存", .saved: "已保存", .idle: "", .cancelled: "已取消"]
         let phase = MobileStrings.text(phases[state.phase] ?? "")
         title.text = state.name + (collapsed ? " · " + (state.phase == .downloading ? percentage.map { "\($0)%" } ?? phase : phase) : "")
         title.accessibilityLabel = state.name
@@ -986,7 +1039,8 @@ final class DownloadPanel: UIView {
         toggle.isHidden = ![.connecting, .downloading, .paused, .failed].contains(state.phase)
         toggle.configuration?.title = MobileStrings.text([.connecting, .downloading].contains(state.phase) ? "暂停" : state.canResume ? "继续下载" : "重新下载")
         save.isHidden = state.phase != .complete; save.configuration?.title = MobileStrings.text("保存到文件")
-        cancel.configuration?.title = MobileStrings.text(state.phase == .saved ? "关闭" : "取消下载")
+        open.isHidden = state.phase != .complete; open.configuration?.title = MobileStrings.text("打开")
+        cancel.configuration?.title = MobileStrings.text([.complete, .saved].contains(state.phase) ? "关闭" : "取消下载")
     }
 }
 
@@ -1023,7 +1077,8 @@ enum MobileStrings {
         "正在连接…": "Connecting…",
         "已暂停": "Paused",
         "下载未完成": "Download incomplete",
-        "下载完成，待保存": "Downloaded · ready to save",
+        "下载完成，可打开或保存": "Downloaded · open or save",
+        "暂无可打开此文件的应用": "No app is available to open this file.",
         "已保存": "Saved",
         "已取消": "Cancelled",
         "展开下载": "Expand download",

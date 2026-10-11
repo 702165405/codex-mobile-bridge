@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build a local debug APK using project-local JDK/SDK; never installs tools."""
 import hashlib
+import argparse
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,9 @@ import subprocess
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output-dir', type=Path, default=ROOT/'dist/mobile-preview')
+options = parser.parse_args()
 tools = ROOT/'.tmp/mobile-tools'
 jdks = list((tools/'jdk').glob('*/Contents/Home'))
 if not jdks:
@@ -51,7 +55,7 @@ key = tools/'preview-debug.p12'
 if not key.exists():
     run(jdk/'bin/keytool','-genkeypair','-keystore',key,'-storepass','android','-keypass','android','-alias','preview','-keyalg','RSA','-keysize','2048','-validity','3650','-dname','CN=Bridge Local Preview')
 run(build_tools/'zipalign','-f','4',work/'unsigned.apk',work/'aligned.apk')
-out = ROOT/'dist/mobile-preview'
+out = options.output_dir.resolve()
 out.mkdir(parents=True,exist_ok=True)
 version = json.loads((ROOT/'package.json').read_text())['version']
 apk = out/('Codex-Mobile-Bridge-'+version+'-Android.apk')

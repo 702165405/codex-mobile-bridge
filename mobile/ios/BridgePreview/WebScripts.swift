@@ -4,10 +4,12 @@ import Foundation
 struct WebScripts {
     let appearance: String
     let clipboard: String
+    let systemBars: String
 
     init(bundle: Bundle = .main) throws {
         appearance = try Self.source("mobile-ui", bundle: bundle)
         clipboard = try Self.source("mobile-clipboard", bundle: bundle)
+        systemBars = try Self.source("mobile-system-bars", bundle: bundle)
     }
 
     private static func source(_ name: String, bundle: Bundle) throws -> String {
