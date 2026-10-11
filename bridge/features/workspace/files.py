@@ -19,15 +19,36 @@ def path_identity(value):
     """Return the host-normalized identity used to link duplicate references."""
     path = value if isinstance(value, Path) else Path(value)
     try:
-        return Path(os.path.normcase(str(path.resolve(strict=False))))
+        return Path(os.path.normcase(_without_windows_prefix(str(path.resolve(strict=False)))))
     except (OSError, RuntimeError):
-        return Path(os.path.normcase(os.path.abspath(str(path))))
+        return Path(os.path.normcase(_without_windows_prefix(os.path.abspath(str(path)))))
+
+
+def _without_windows_prefix(value):
+    if os.name == 'nt':
+        if value.startswith('\\\\?\\UNC\\'):
+            return '\\\\' + value[8:]
+        if value.startswith('\\\\?\\') and re.match(r'[A-Za-z]:\\', value[4:]):
+            return value[4:]
+    return value
+
+
+def workspace_relative_path(path, cwd):
+    """Locate an artifact inside the resolved workspace, including Windows aliases."""
+    if not cwd:
+        return None
+    path = Path(_without_windows_prefix(str(Path(path).resolve())))
+    root = Path(_without_windows_prefix(str(Path(cwd).resolve())))
+    return path.relative_to(root).as_posix() if root in path.parents else None
 
 
 def reference_path(value, allow_relative=False):
     """Resolve a local file reference without allowing remote URL access."""
     if not isinstance(value, str) or not value:
         return None
+    # Chat links may prefix Windows drive paths with a URL-style slash.
+    if os.name == 'nt' and re.fullmatch(r'/[A-Za-z]:[\\/].*', value):
+        value = value[1:]
     try:
         parsed = urlsplit(value)
         if parsed.scheme == 'file':
@@ -122,7 +143,7 @@ def artifact_paths(state, codex_home):
                         candidates.add(value)
     result = {}
     model_images, trusted_views = _model_image_references(state)
-    for raw in candidates:
+    for raw in sorted(candidates):
         # Model-authored Markdown and response attachments remain bound to the
         # workspace/visualization roots even when they name an image suffix.
         value = re.sub(r':\d+$', '', raw)
@@ -131,14 +152,15 @@ def artifact_paths(state, codex_home):
             continue
         try:
             path = ((Path(state['cwd']) / path) if not path.is_absolute() and state.get('cwd') else path).resolve(strict=True)
-            if not any(root in path.parents for root in roots) or not (path.is_file() or path.is_dir()):
+            if not any(workspace_relative_path(path, root) is not None for root in roots) or not (path.is_file() or path.is_dir()):
                 continue
         except OSError:
             continue
         key = hashlib.sha256(str(path_identity(path)).encode()).hexdigest()
-        result[key] = {'path': path, 'reference': raw, 'name': path.name,
+        artifact = result.setdefault(key, {'path': path, 'reference': raw, 'references': [], 'name': path.name,
                        'kind': 'directory' if path.is_dir() else 'file',
-                       'image': path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES}
+                       'image': path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES})
+        artifact['references'].append(raw)
     # A path can be shown once as ImageView and embedded later with another text
     # form (usually a plain absolute path versus file://). Only the runtime view
     # grants the outside-workspace exception; collect all references so Markdown
@@ -158,7 +180,8 @@ def artifact_paths(state, codex_home):
         file_refs = sorted(ref for ref in references if urlsplit(ref).scheme == 'file')
         reference = plain[0] if plain else (file_refs[0] if file_refs else next(iter(references)))
         key = hashlib.sha256(str(path).encode()).hexdigest()
-        result[key] = {'path': path, 'reference': reference, 'name': path.name,
+        references.update(result.get(key, {}).get('references', []))
+        result[key] = {'path': path, 'reference': reference, 'references': sorted(references), 'name': path.name,
                        'kind': 'directory' if path.is_dir() else 'file',
                        'image': path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES}
     return result
@@ -171,5 +194,6 @@ def workspace_references(messages, cwd):
              for row in messages if row.get('role') == 'assistant']} ]}
     root = Path(cwd).resolve()
     return [{'id': key, 'name': value['name'], 'reference': value['reference'],
-             'path': value['path'].relative_to(root).as_posix(), 'kind': value['kind'], 'image': False}
+             'references': value['references'], 'path': workspace_relative_path(value['path'], root),
+             'kind': value['kind'], 'image': False}
             for key, value in artifact_paths(state, None).items()]

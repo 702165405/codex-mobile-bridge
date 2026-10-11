@@ -9,7 +9,17 @@
   window.renderMarkdown = function(node, text, files = [], fileUrl = () => '', options = {}) {
     const body = document.createElement('div');
     body.className = 'markdown-body';
-    const artifacts = new Map(files.map(file => [markdown.normalizeLink(file.reference), file]));
+    const artifacts = new Map(files.flatMap(file =>
+      [file.reference, ...(file.references || [])].flatMap(reference =>
+        [reference, markdown.utils.unescapeAll(reference)].map(value => [markdown.normalizeLink(value), file]))));
+    function parse(source) {
+      const validate = markdown.validateLink;
+      // Only server-authorized file URLs may pass the parser's local-URL filter.
+      // Rendering still replaces them with authenticated gateway routes below.
+      markdown.validateLink = reference => validate(reference) || /^file:\/\//i.test(reference) && artifacts.has(reference);
+      try { return markdown.parse(source, {}); }
+      finally { markdown.validateLink = validate; }
+    }
     function target(reference) {
       const file = artifacts.get(reference);
       if (file) return {url:fileUrl(file), file};
@@ -71,7 +81,7 @@
             button.onclick=()=>window.BridgeClipboard?.copy(async()=>{
               if(!options.fullText)return token.content;
               const complete=await options.fullText();
-              const blocks=markdown.parse(complete,{}).filter(t=>t.type==='fence'||t.type==='code_block');
+              const blocks=parse(complete).filter(t=>t.type==='fence'||t.type==='code_block');
               if(!blocks[index])throw Error('读取完整正文失败，请重试');
               return blocks[index].content;
             },button);
@@ -122,7 +132,7 @@
         }
       }
     }
-    appendTokens(markdown.parse(String(text || ''), {}), body);
+    appendTokens(parse(String(text || '')), body);
     node.append(body);
   };
 })();
