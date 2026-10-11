@@ -347,7 +347,7 @@ class Catalog:
             raise ValueError('Linux permission discovery is unavailable on this host')
         return self._fetch(cwd, kind='linux-permissions', request_timeout=5, permission_reader=reader)
 
-    def _fetch(self, cwd, provider=None, kind='catalog', request_timeout=90, permission_reader=None):
+    def _fetch(self, cwd, provider=None, kind='catalog', request_timeout=90, permission_reader=None, legacy_catalog=False):
         executable = self.executable
         if not executable:
             raise CatalogError("找不到桌面 App 的 Codex 运行时")
@@ -356,7 +356,7 @@ class Catalog:
         options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
         command = [str(executable)]
         ccs_catalog = self.home/'cc-switch-model-catalog.json'
-        if ccs_catalog.is_file():
+        if legacy_catalog and ccs_catalog.is_file():
             command += ['-c', 'model_catalog_json=' + json.dumps(str(ccs_catalog))]
         command += ['app-server', '--listen', 'stdio://']
         try:
@@ -473,6 +473,13 @@ class Catalog:
                 and active_url.path.rstrip('/') in ('/v1', '/backend-api/codex')):
             result = {'models': [], 'modelSource': 'api', 'modelAccessName': 'Magpie',
                       'currentEffort': effective.get('model_reasoning_effort')}
+            if active_url.path.rstrip('/') == '/backend-api/codex' and not effective.get('model_catalog_json'):
+                try:
+                    result['models'] = self.runtime_models(request)
+                    if result['models']:
+                        return result
+                except CatalogError:
+                    pass
             try:
                 # This loopback endpoint is public: never forward an account
                 # token or Magpie's actor-authorization header to it.
@@ -483,6 +490,10 @@ class Catalog:
             except ValueError as exc:
                 result['modelError'] = str(exc)
             return result
+        if not effective.get('model_catalog_json') and (self.home/'cc-switch-model-catalog.json').is_file():
+            # Read effective config before enabling legacy catalogs, so a
+            # residual CC Switch file cannot replace Magpie's native list.
+            return self._fetch(cwd, provider, kind='models', legacy_catalog=True)
         custom = provider != 'openai' or base or any(definition.get(k) for k in
             ('env_key', 'experimental_bearer_token', 'http_headers', 'env_http_headers', 'auth', 'gateway_oauth'))
         auth = {} if custom else request('account/read', {'refreshToken': False}).get('account') or {}
@@ -515,6 +526,11 @@ class Catalog:
             except ValueError as exc:
                 result['modelError'] = str(exc)
             return result
+        return {'models': self.runtime_models(request), 'modelSource': 'codex',
+                'currentEffort': effective.get('model_reasoning_effort')}
+
+    @staticmethod
+    def runtime_models(request):
         models, cursor = [], None
         for _ in range(10):
             response = request('model/list', {'cursor': cursor, 'limit': 100, 'includeHidden': False})
@@ -522,7 +538,7 @@ class Catalog:
             cursor = response.get('nextCursor')
             if not cursor:
                 break
-        return {'models': models, 'modelSource': 'codex', 'currentEffort': effective.get('model_reasoning_effort')}
+        return models
 
     @staticmethod
     def fast_mode(request, cwd):

@@ -147,9 +147,22 @@ class ApiCatalogTests(unittest.TestCase):
         catalog.write_text('{"models": []}')
         with patch('bridge.clients.codex.catalog.subprocess.Popen', side_effect=RuntimeError('stop before launch')) as spawn:
             with self.assertRaisesRegex(RuntimeError, 'stop before launch'):
-                self.reader._fetch(str(self.home), kind='models')
+                self.reader._fetch(str(self.home), kind='models', legacy_catalog=True)
         command = spawn.call_args.args[0]
         self.assertIn('model_catalog_json=' + json.dumps(str(catalog)), command)
+
+    def test_runtime_starts_without_implicitly_overriding_magpie_with_cc_switch(self):
+        (self.home/'cc-switch-model-catalog.json').write_text('{"models": []}')
+        with patch('bridge.clients.codex.catalog.subprocess.Popen', side_effect=RuntimeError('stop before launch')) as spawn:
+            with self.assertRaisesRegex(RuntimeError, 'stop before launch'):
+                self.reader._fetch(str(self.home), kind='models')
+        self.assertFalse(any(arg.startswith('model_catalog_json=') for arg in spawn.call_args.args[0]))
+
+    def test_cc_switch_fallback_is_enabled_only_after_effective_config_is_read(self):
+        (self.home/'cc-switch-model-catalog.json').write_text('{"models": []}')
+        with patch.object(self.reader, '_fetch', return_value={'models': [], 'modelSource': 'codex'}) as legacy:
+            self.reader.read_models(self.request, str(self.home), 'bridge_api')
+        legacy.assert_called_once_with(str(self.home), 'bridge_api', kind='models', legacy_catalog=True)
 
     def test_explicit_ccs_catalog_uses_runtime_instead_of_upstream(self):
         self.config['model_catalog_json'] = str(self.home/'cc-switch-model-catalog.json')
@@ -188,6 +201,34 @@ class ApiCatalogTests(unittest.TestCase):
                              [{'reasoningEffort': 'low'}, {'reasoningEffort': 'ultra'}])
         self.assertNotIn('model/list', [method for method, _ in self.calls])
         self.assertNotIn('private-fixture', json.dumps(result))
+
+    def test_magpie_official_route_preserves_native_official_and_routed_models(self):
+        self.magpie_config()
+        self.config.pop('model_catalog_json')
+        def request(method, params):
+            if method == 'model/list':
+                if not params.get('cursor'):
+                    return {'data': [{'model': 'gpt-official'}], 'nextCursor': 'next'}
+                return {'data': [{'model': 'cccc/gpt-routed'}]}
+            return self.request(method, params)
+        with patch('bridge.clients.codex.catalog.model_catalog') as public:
+            result = self.reader.read_models(request, str(self.home), 'openai')
+        public.assert_not_called()
+        self.assertEqual([m['model'] for m in result['models']], ['gpt-official', 'cccc/gpt-routed'])
+        self.assertEqual(result['modelAccessName'], 'Magpie')
+
+    def test_magpie_native_failure_can_use_only_the_live_public_api_catalog(self):
+        self.magpie_config()
+        self.config.pop('model_catalog_json')
+        def request(method, params):
+            if method == 'model/list':
+                raise CatalogError('Native catalog unavailable')
+            return self.request(method, params)
+        with patch('bridge.clients.codex.catalog.model_catalog', return_value=[
+                {'id': 'cccc/gpt-live', 'name': 'GPT Live', 'efforts': ['max']}]) as public:
+            result = self.reader.read_models(request, str(self.home), 'openai')
+        public.assert_called_once_with('http://127.0.0.1:3425/v1', '')
+        self.assertEqual([m['model'] for m in result['models']], ['cccc/gpt-live'])
 
     def test_magpie_failure_never_shows_stale_cc_switch_models(self):
         self.magpie_config()
