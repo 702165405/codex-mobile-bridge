@@ -142,7 +142,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun removeConnection(row: Connection) {
         if(selected?.id == row.id) { disconnect(); selected = null; store.put("selected",null) }
-        store.removeConnection(row.id); connections = store.connections()
+        Workbench.removeComputer(row.origin); connections = store.connections()
     }
     fun moveConnection(id: String,delta: Int) {
         val rows = connections.toMutableList(); val from = rows.indexOfFirst { it.id == id }; val to = (from + delta).coerceIn(0,rows.lastIndex)
@@ -176,6 +176,8 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun resume() {
+        connections=store.connections();api?.reloadCookies()
+        val storedSelection=store.get("selected");if(storedSelection!=selected?.id)connections.find{it.id==storedSelection}?.let{select(it)}
         foreground = true;LiveNotifications.foreground=true;visibleChat();appNotifications=store.get("appNotifications")=="true"
         if(selected != null && api == null) select(selected!!)
         else if(authenticated) { if(target != null) startPolling(); startListPolling();startReminders() }
@@ -208,7 +210,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     fun showSessions() { LiveNotifications.visible=null;saveDraft(); cancelScope(); tool = null; target = null; timeline = TimelineState(); screen = "sessions"; refreshList() }
     fun logout() = action {
         LiveNotifications.stop(getApplication())
-        api!!.api("/api/logout",payload()); api!!.clearSession(); selected?.let {store.put("activity:${it.id}",null)}; activities=emptyMap(); authenticated = false; target = null
+        api!!.api("/api/logout",payload()); api!!.clearSession(); selected?.let{Workbench.forget(it.origin)}; selected?.let {store.put("activity:${it.id}",null)}; activities=emptyMap(); authenticated = false; target = null
         polling?.cancel(); listPolling?.cancel(); screen = "login"; sessions = emptyList(); tool = null
     }
     private fun failure(e: Exception) {

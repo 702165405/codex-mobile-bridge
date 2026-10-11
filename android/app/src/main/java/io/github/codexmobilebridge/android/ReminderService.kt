@@ -30,6 +30,7 @@ class ReminderService:Service() {
         val api=gatewayFactory(connection,store);gateway=api
         job=scope.launch {
             var listed=emptyList<JsonObject>();var refreshAt=0L;var authorized=false
+            var mobileCursor=store.get("mobile-cursor:${connection.id}")?.toLongOrNull();var mobileStream=store.get("mobile-stream:${connection.id}")
             while(isActive && store.get("appNotifications")=="true" && store.get("selected")==connection.id) {
                 // Foreground UI already synchronizes and emits events. No duplicate polling.
                 if(LiveNotifications.foreground) {delay(1000);continue}
@@ -39,6 +40,15 @@ class ReminderService:Service() {
                         if(!auth.bool("authenticated"))throw GatewayError(401,"Login expired")
                         authorized=true
                     }
+                    try {
+                        val events=api.api("/api/mobile/events"+(mobileCursor?.let{"?after=$it"} ?: ""))
+                        val stream=events.str("streamId");val cursor=events["cursor"]?.jsonPrimitive?.longOrNull
+                        if(events.bool("enabled") && mobileCursor!=null && stream==mobileStream)for(event in events.rows("events").filter{it.str("provider")=="claude"||it.str("host")=="desktop:claude"}) {
+                            val sequence=event["sequence"]?.jsonPrimitive?.longOrNull ?: continue
+                            if(sequence>mobileCursor!!&&store.get("selected")==connection.id)LiveNotifications.post(this@ReminderService,connection,event.str("title","Claude Code"),if(event.str("kind") in listOf("approval","request"))"approval" else "completed","claude:"+event.str("id",sequence.toString()))
+                        }
+                        if(cursor!=null){mobileCursor=cursor;mobileStream=stream;store.put("mobile-cursor:${connection.id}",cursor.toString());store.put("mobile-stream:${connection.id}",stream)}
+                    }catch(e:GatewayError){if(e.status!=404)throw e}
                     if(System.currentTimeMillis()>=refreshAt) {
                         listed=api.api("/api/sessions?offset=0&archived=false").rows("sessions")
                         refreshAt=System.currentTimeMillis()+30000

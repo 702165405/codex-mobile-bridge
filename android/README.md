@@ -1,10 +1,22 @@
 # Codex Mobile Bridge Android
 
-Kotlin / Jetpack Compose Material 3 原生客户端，无 WebView。Android 8.0+，版本 1.0.8，包名 `io.github.codexmobilebridge.android`。基于上游 v1.4.0，已整合到自有仓库 `702165405/codex-mobile-bridge` 的 `main`；`codex/android-native` 保留原开发历史。
+Kotlin / Jetpack Compose Material 3 原生 Codex 客户端，项目工作台采用受控 WebView。Android 8.0+，版本 1.1.0，包名 `io.github.codexmobilebridge.android`。已合入上游 v2.0.1，提供原生 Codex 与新版工作台，已整合到自有仓库 `702165405/codex-mobile-bridge` 的 `main`；`codex/android-native` 保留原开发历史。
+
+## 1.1.0 试用说明
+
+原生 Codex 聊天列表、加密记住账号密码、草稿、后台提醒和自有仓库更新继续保留。首页「新版工作台」可扫码和管理多台电脑；已登录后从菜单「项目工作台 · 文件 / Git / 终端」进入当前 Codex 聊天对应的工作台，或选择「Claude Code」。工作台菜单可返回原生页面。
+
+工作台完整复用新版网关的文件浏览/预览/上传、目录 ZIP 与大文件续传、图片缩放、Git 差异/历史/暂存/提交/本地分支合并、连续终端、Codex 临时侧边聊天与子智能体历史、上下文用量和宽屏分屏。只提供 Codex 与 Claude Code；DeepSeek/Harness 和 Cowork 的发现、启用与 HTTP 接口均关闭。
+
+需配套本分支 v2 网关，旧 v1.4 网关无法提供这些工具。Claude Code 首次接入可能需要在电脑端确认权限、开发者模式或目录信任；不支持普通 Claude Chat。侧边聊天结束或网关重启后清除。
+
+工作台禁止 WebView 保存 Cookie，通过现有的 HTTPS/OkHttp 客户端读取和写入 Keystore 加密状态；本地存储由桥接层加密保存。公网/局域网均保持 HTTPS、证书验证和同源限制；写请求保留 CSRF，结果未知不自动重放。原生和工作台共用电脑登录，重命名、移除和退出会同步；后台提醒仍需用户主动开启。
+
+本次为个人试用包，同一包名与原签名，允许从 1.0.8 覆盖安装。尚无厂商/FCM 后台推送配置；Windows/Linux 与其他安卓机型需另行验证。
 
 ## 安装与连接
 
-安装 `dist/android/Codex-Mobile-Bridge-1.0.8.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
+安装 `dist/android/Codex-Mobile-Bridge-1.1.0.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
 
 首页添加多台电脑，保存名称、排序和最近使用时间。点击卡片独立登录；聊天顶部电脑图标切换连接。可粘贴网页扫码登录链接，也可通过安卓系统分享将链接传入 App。账号密码登录可勾选「记住账号和密码」，登录成功后按连接独立保存，使用 Android Keystore 加密；重新登录时自动填入，不自动提交。取消勾选或删除连接会清除该连接保存的账号密码。免密网关显示免密连接按钮。扫码登录链接只在首次打开或新分享时消费，旋转不会重复兑换。
 

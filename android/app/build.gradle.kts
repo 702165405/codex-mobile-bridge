@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.codexmobilebridge.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.0.8"
+        versionCode = 10
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     val keyPath = providers.environmentVariable("CMB_ANDROID_KEYSTORE").orNull
@@ -27,6 +27,12 @@ android {
     }
     buildTypes.getByName("release") { isMinifyEnabled = false }
     buildTypes.getByName("debug") { applicationIdSuffix = ".debug"; versionNameSuffix = "-debug" }
+    sourceSets.getByName("main") {
+        java.srcDir("../../mobile/android/src")
+        res.srcDir("../../mobile/android/res")
+        assets.exclude("deepseek.png", "deepseek.js")
+        assets.srcDirs("../../mobile/shared/web", "../../mobile/android/assets", "../../web/client-icons")
+    }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
@@ -34,6 +40,7 @@ android {
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 dependencies {
+    implementation("com.google.zxing:core:3.5.3")
     implementation(platform("androidx.compose:compose-bom:2025.03.01"))
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.material3:material3")

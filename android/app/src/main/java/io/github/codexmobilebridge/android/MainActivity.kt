@@ -11,12 +11,15 @@ class MainActivity : ComponentActivity() {
     private lateinit var bridge: BridgeViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Workbench.initialize(this)
         enableEdgeToEdge()
         bridge = ViewModelProvider(this)[BridgeViewModel::class.java]
         setContent { BridgeApp(bridge) }
         if(savedInstanceState == null) importSharedLink(intent)
     }
     private fun importSharedLink(value: Intent) {
+        value.getStringExtra("openTool")?.let(bridge::openTool)
+        if(value.action==Intent.ACTION_VIEW && value.data?.scheme=="codexbridge")startActivity(Intent(this,io.github.try2love.codexbridge.MainActivity::class.java).setData(value.data))
         if(value.action==LiveNotifications.OPEN) {
             val id=value.getStringExtra("noticeConnection")
             bridge.connections.find {it.id==id}?.let {bridge.select(it)}

@@ -27,3 +27,9 @@ android/**/build/
 android/local.properties
 *.jks
 *.keystore
+
+# Local native push platform credentials
+/mobile/android-push/google-services.json
+/mobile/android-push/.gradle/
+/mobile/android-push/build/
+/mobile/android-push/local.properties

@@ -32,6 +32,7 @@ class Gateway(val connection: Connection, private val readState: (String) -> Str
             @Synchronized override fun loadForRequest(url: HttpUrl) = if(url.host == origin.host && url.port == origin.port && url.isHttps)
                 cookies.filter { it.matches(url) && it.expiresAt > System.currentTimeMillis() } else emptyList()
         }).apply(customize).build()
+    fun reloadCookies() { cookies = readState(cookieKey)?.lines()?.mapNotNull { Cookie.parse(origin,it) } ?: emptyList() }
     fun cancel() = client.dispatcher.cancelAll()
     fun clearSession() { cookies = emptyList(); csrf = ""; writeState(cookieKey,null) }
     private fun request(path: String, data: JsonObject?, raw: RequestBody? = null): Request {

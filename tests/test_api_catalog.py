@@ -9,15 +9,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from bridge.catalog import Catalog, CatalogError
-from bridge.account_models import model_ids
+from bridge.clients.codex.catalog import Catalog, CatalogError
+from bridge.features.accounts.models import model_ids
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class ModelResponseTests(unittest.TestCase):
     def read(self, value):
-        with patch('bridge.account_models.build_opener') as factory:
+        with patch('bridge.features.accounts.models.build_opener') as factory:
             factory.return_value.open.return_value = io.BytesIO(json.dumps(value).encode())
             return model_ids('https://fixture.invalid/v1', 'fixture-key')
 
@@ -31,6 +31,13 @@ class ModelResponseTests(unittest.TestCase):
     def test_empty_cc_switch_catalog_explains_no_available_models(self):
         with self.assertRaisesRegex(ValueError, '未返回可用模型'):
             self.read({'models': []})
+
+    def test_existing_formats_keep_id_semantics(self):
+        self.assertEqual(self.read([{'id': 'array-model'}]), ['array-model'])
+        self.assertEqual(self.read({'data': [{'id': 'openai-model'}],
+                                    'models': [{'slug': 'native-model'}]}), ['openai-model'])
+        with self.assertRaisesRegex(ValueError, '未返回可用模型'):
+            self.read({'data': [], 'models': [{'slug': 'native-model'}]})
 
 
 class ApiCatalogTests(unittest.TestCase):
@@ -54,12 +61,23 @@ class ApiCatalogTests(unittest.TestCase):
         raise AssertionError(method)
 
     def test_custom_provider_does_not_trust_unscoped_native_models(self):
-        with patch('bridge.catalog.model_ids', return_value=['provider-fixture']) as upstream:
+        with patch('bridge.clients.codex.catalog.model_ids', return_value=['provider-fixture']) as upstream:
             result = self.reader.read_models(self.request, str(self.home), 'bridge_api')
         upstream.assert_called_once_with('https://fixture.invalid/v1', 'fixture-key')
         self.assertEqual([m['model'] for m in result['models']], ['provider-fixture'])
         self.assertNotIn('model/list', [method for method, _ in self.calls])
         self.assertEqual(result['modelSource'], 'api')
+
+    def test_native_upstream_uses_the_same_public_catalog_as_openai(self):
+        results = []
+        for payload in ({'data': [{'id': 'provider-fixture'}]},
+                        {'models': [{'slug': 'provider-fixture'}, {'slug': 'hidden', 'visibility': 'hide'}]}):
+            with patch('bridge.features.accounts.models.build_opener') as factory:
+                factory.return_value.open.return_value = io.BytesIO(json.dumps(payload).encode())
+                results.append(self.reader.read_models(self.request, str(self.home), 'bridge_api'))
+        self.assertEqual(results[0], results[1])
+        self.assertEqual([m['model'] for m in results[1]['models']], ['provider-fixture'])
+        self.assertNotIn('fixture-key', json.dumps(results))
 
     def test_api_uses_upstream_ids_when_runtime_has_no_native_catalog(self):
         def request(method,params):
@@ -68,7 +86,7 @@ class ApiCatalogTests(unittest.TestCase):
             if method=='account/read':return {'account':{'type':'apiKey'}}
             if method=='model/list':raise CatalogError('runtime has no catalog')
             raise AssertionError(method)
-        with patch('bridge.catalog.model_ids',return_value=['gemini-fixture']) as upstream:
+        with patch('bridge.clients.codex.catalog.model_ids',return_value=['gemini-fixture']) as upstream:
             result = self.reader.read_models(request,str(self.home),'bridge_api')
         upstream.assert_called_once_with('https://fixture.invalid/v1','fixture-key')
         self.assertEqual([m['model'] for m in result['models']],['gemini-fixture'])
@@ -87,7 +105,7 @@ class ApiCatalogTests(unittest.TestCase):
                 if method=='account/read':return {'account':{'type':'apiKey'}}
                 if method=='model/list':raise CatalogError('no runtime catalog')
                 raise AssertionError(method)
-            with patch('bridge.catalog.model_ids',return_value=['gemini-fixture']) as upstream:
+            with patch('bridge.clients.codex.catalog.model_ids',return_value=['gemini-fixture']) as upstream:
                 self.reader.read_models(request,str(self.home),provider)
                 upstream.assert_called_once_with(url,key)
 
@@ -98,7 +116,7 @@ class ApiCatalogTests(unittest.TestCase):
             if method=='account/read':return {'account':{'type':'apiKey'}}
             if method=='model/list':raise CatalogError('runtime has no catalog')
             raise AssertionError(method)
-        with patch('bridge.catalog.model_ids',side_effect=ValueError('无法连接上游，请检查 API 地址、网络和证书后重试')):
+        with patch('bridge.clients.codex.catalog.model_ids',side_effect=ValueError('无法连接上游，请检查 API 地址、网络和证书后重试')):
             result = self.reader.read_models(request,str(self.home),'bridge_api')
         self.assertEqual(result['models'],[])
         self.assertEqual(result['modelSource'],'api');self.assertIn('无法连接上游',result['modelError'])
@@ -107,7 +125,7 @@ class ApiCatalogTests(unittest.TestCase):
     def test_ccs_catalog_is_passed_to_runtime_without_global_config(self):
         catalog = self.home/'cc-switch-model-catalog.json'
         catalog.write_text('{"models": []}')
-        with patch('bridge.catalog.subprocess.Popen', side_effect=RuntimeError('stop before launch')) as spawn:
+        with patch('bridge.clients.codex.catalog.subprocess.Popen', side_effect=RuntimeError('stop before launch')) as spawn:
             with self.assertRaisesRegex(RuntimeError, 'stop before launch'):
                 self.reader._fetch(str(self.home), kind='models')
         command = spawn.call_args.args[0]
@@ -115,7 +133,7 @@ class ApiCatalogTests(unittest.TestCase):
 
     def test_explicit_ccs_catalog_uses_runtime_instead_of_upstream(self):
         self.config['model_catalog_json'] = str(self.home/'cc-switch-model-catalog.json')
-        with patch('bridge.catalog.model_ids') as upstream:
+        with patch('bridge.clients.codex.catalog.model_ids') as upstream:
             result = self.reader.read_models(self.request, str(self.home), 'bridge_api')
         upstream.assert_not_called()
         self.assertEqual(result['models'][0]['model'], 'gpt-fixture')
@@ -126,7 +144,7 @@ class ApiCatalogTests(unittest.TestCase):
         def request(method,params):
             if method=='account/read':return {'account':{'type':'chatgpt'}}
             return self.request(method,params)
-        with patch('bridge.catalog.model_ids') as upstream:
+        with patch('bridge.clients.codex.catalog.model_ids') as upstream:
             result=self.reader.read_models(request,str(self.home),'openai')
         upstream.assert_not_called();self.assertEqual(result['models'][0]['model'],'gpt-fixture')
 
@@ -138,7 +156,7 @@ class ApiCatalogTests(unittest.TestCase):
                 if method=='account/read':return {'account':{'type':'apiKey'}}
                 if method=='model/list':raise CatalogError('runtime has no catalog')
                 raise AssertionError(method)
-            with patch('bridge.catalog.model_ids') as upstream:
+            with patch('bridge.clients.codex.catalog.model_ids') as upstream:
                 result=self.reader.read_models(request,str(self.home),'bridge_api')
             upstream.assert_not_called();self.assertEqual(result['models'],[]);self.assertTrue(result['modelError'])
 
@@ -275,7 +293,7 @@ class ApiCatalogTests(unittest.TestCase):
 
 class RemoteCatalogTests(unittest.TestCase):
     def test_remote_source_includes_helpers_and_keeps_provider_cache_separate(self):
-        from bridge.remote import RemoteCatalog
+        from bridge.clients.codex.remote import RemoteCatalog
         sources=[]
         def read(alias,source,timeout):
             self.assertEqual(alias,'fixture-host');sources.append(source)
@@ -288,7 +306,7 @@ class RemoteCatalogTests(unittest.TestCase):
             compile(source,'<remote-catalog>','exec')
             return {'models':[],'skills':[],'modelSource':'api'}
         reader=RemoteCatalog('fixture-host')
-        with patch('bridge.remote.ssh_read',side_effect=read):
+        with patch('bridge.clients.codex.remote.ssh_read',side_effect=read):
             reader.get('/project',provider='first');reader.get('/project',provider='second');reader.get('/project',provider='first')
         self.assertEqual(len(sources),2)
         self.assertNotEqual(sources[0],sources[1])
@@ -296,14 +314,14 @@ class RemoteCatalogTests(unittest.TestCase):
 
 
     def test_remote_skill_queries_use_host_local_sqlite_and_ignore_provider(self):
-        from bridge.remote import RemoteCatalog
+        from bridge.clients.codex.remote import RemoteCatalog
         sources=[]
         def read(alias,source,timeout):
             sources.append(source)
             compile(source,'<remote-skill-catalog>','exec')
             return {'kind':'skills','skills':[],'selectedSkills':[],'errors':[],'total':0,'offset':0,'limit':200,'cache':{'state':'fresh'}}
         reader=RemoteCatalog('fixture-host')
-        with patch('bridge.remote.ssh_read',side_effect=read):
+        with patch('bridge.clients.codex.remote.ssh_read',side_effect=read):
             reader.get_kind('skills','/project',provider='first')
             reader.get_kind('skills','/project',provider='second')
             reader.get_kind('skills','/project',provider='second',query='fixture')

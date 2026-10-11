@@ -7,8 +7,8 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from bridge.notifications import Notifications, publish, publish_bark, publish_pushplus, settings, save_settings, write_json, read_json
-from bridge.service import LiveSession
+from bridge.features.notifications.channels import Notifications, publish, publish_bark, publish_pushplus, settings, save_settings, write_json, read_json
+from bridge.app.service import LiveSession
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,7 +41,7 @@ class NotificationTests(unittest.TestCase):
         self.source.notification_session = lambda identifier: self.session
         self.source.store = type('Store', (), {'get': lambda _, identifier: {}})()
         self.manager.watch(self.thread, 'remote', False)
-        with patch.object(self.source, 'session', side_effect=AssertionError('history read')), patch('bridge.notifications.publish') as send:
+        with patch.object(self.source, 'session', side_effect=AssertionError('history read')), patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan()
             self.assertEqual(send.call_count, 1)
             self.manager.policy(other, 'local', {'requests': 'off', 'completion': 'on'})
@@ -83,7 +83,7 @@ class NotificationTests(unittest.TestCase):
 
     def test_pushplus_delivery_deduplicates_and_new_recipient_gets_alert(self):
         save_settings(self.directory, {'enabled': False, 'pushplusEnabled': True, 'pushplusToken': 'first'})
-        with patch('bridge.notifications.publish_pushplus') as send:
+        with patch('bridge.features.notifications.channels.publish_pushplus') as send:
             self.manager.scan(); self.manager.scan()
             self.assertEqual(send.call_count, 1)
             save_settings(self.directory, {'pushplusToken': 'second'})
@@ -95,11 +95,11 @@ class NotificationTests(unittest.TestCase):
 
     def test_pushplus_known_error_codes_are_useful_without_echoing_server_secrets(self):
         from unittest.mock import MagicMock
-        from bridge.notifications import PushplusError
+        from bridge.features.notifications.channels import PushplusError
         response = MagicMock()
         response.status = 200
         for code in (401, 403, 888, 900, 903, 905, 999):
-            with self.subTest(code=code), patch('bridge.notifications.build_opener') as opener:
+            with self.subTest(code=code), patch('bridge.features.notifications.channels.build_opener') as opener:
                 opener.return_value.open.return_value.__enter__.return_value = response
                 response.read.return_value = json.dumps({'code': code, 'msg': 'secret-pushplus'}).encode()
                 with self.assertRaises(PushplusError) as caught:
@@ -110,14 +110,14 @@ class NotificationTests(unittest.TestCase):
                     self.assertIn(str(code), str(caught.exception))
 
     def test_pushplus_restriction_pauses_all_events_and_survives_restart(self):
-        from bridge.notifications import PushplusError
+        from bridge.features.notifications.channels import PushplusError
         save_settings(self.directory, {'pushplusEnabled': True, 'pushplusToken': 'private-token'})
         self.turns(('run', 'inProgress'))
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
         self.turns(('run', 'completed'))
         self.session.state['requests'] = [{'id': 'question', 'method': 'item/tool/requestUserInput', 'params': {}}]
-        with patch('bridge.notifications.publish') as ntfy, \
-             patch('bridge.notifications.publish_pushplus', side_effect=PushplusError(900)) as push:
+        with patch('bridge.features.notifications.channels.publish') as ntfy, \
+             patch('bridge.features.notifications.channels.publish_pushplus', side_effect=PushplusError(900)) as push:
             self.manager.scan()
             self.manager.scan()
             self.assertEqual(push.call_count, 1)
@@ -129,12 +129,12 @@ class NotificationTests(unittest.TestCase):
         self.assertNotIn('private-token', json.dumps(status))
         restarted = Notifications(self.source, self.directory)
         self.addCleanup(restarted.close)
-        with patch('bridge.notifications.publish_pushplus') as push:
+        with patch('bridge.features.notifications.channels.publish_pushplus') as push:
             restarted.scan()
             push.assert_not_called()
 
     def test_restriction_for_old_token_does_not_pause_replacement_recipient(self):
-        from bridge.notifications import PushplusError, delivery_error, destination
+        from bridge.features.notifications.channels import PushplusError, delivery_error, destination
         save_settings(self.directory, {'pushplusEnabled': True, 'pushplusToken': 'old-token'})
         old_target = destination(settings(self.directory), 'pushplus')
         save_settings(self.directory, {'pushplusToken': 'replacement-token'})
@@ -142,10 +142,10 @@ class NotificationTests(unittest.TestCase):
         self.assertTrue(settings(self.directory)['pushplusEnabled'])
 
     def test_manual_pushplus_test_reports_restriction_and_pauses_channel(self):
-        from bridge.notifications import PushplusError
-        from bridge.desktop import Desktop
+        from bridge.features.notifications.channels import PushplusError
+        from bridge.app.desktop import Desktop
         save_settings(self.directory, {'pushplusEnabled': True, 'pushplusToken': 'private-token'})
-        with patch('bridge.desktop.publish_pushplus', side_effect=PushplusError(900)):
+        with patch('bridge.app.desktop.publish_pushplus', side_effect=PushplusError(900)):
             with self.assertRaisesRegex(ValueError, '900'):
                 Desktop(self.directory).test_notification({'channel': 'pushplus'})
         self.assertFalse(settings(self.directory)['pushplusEnabled'])
@@ -154,7 +154,7 @@ class NotificationTests(unittest.TestCase):
         from unittest.mock import MagicMock
         config = {**settings(self.directory), 'pushplusToken': 'secret-pushplus'}
         response = MagicMock(); response.status = 200; response.read.return_value = b'{"code":200}'
-        with patch('bridge.notifications.build_opener') as opener:
+        with patch('bridge.features.notifications.channels.build_opener') as opener:
             opener.return_value.open.return_value.__enter__.return_value = response
             publish_pushplus(config, 'Title', 'Body', 'https://example.com/#chat')
             request = opener.return_value.open.call_args.args[0]
@@ -170,7 +170,7 @@ class NotificationTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_watch_runs_without_viewers_and_deduplicates_after_restart(self):
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan(); self.manager.scan()
             self.assertEqual(send.call_count, 1)
             self.assertTrue(self.session.watched)
@@ -201,7 +201,7 @@ class NotificationTests(unittest.TestCase):
                     else:
                         self.session.state = {'requests': [{'id': event,
                             'method': 'item/tool/requestUserInput', 'params': {}}]}
-                    with patch('bridge.notifications.' + sender, side_effect=OSError('private-token')) as send:
+                    with patch('bridge.features.notifications.channels.' + sender, side_effect=OSError('private-token')) as send:
                         for _ in range(6):
                             for record in self.manager.ledger.values():
                                 record['next'] = 0
@@ -215,7 +215,7 @@ class NotificationTests(unittest.TestCase):
                     self.assertNotIn('private-token', status)
                     self.manager.close()
                     self.manager = Notifications(self.source, self.directory)
-                    with patch('bridge.notifications.' + sender) as send:
+                    with patch('bridge.features.notifications.channels.' + sender) as send:
                         self.manager.scan()
                         send.assert_not_called()
                         if completed:
@@ -229,31 +229,31 @@ class NotificationTests(unittest.TestCase):
                         send.assert_called_once()
 
     def test_existing_failures_above_limit_are_not_retried_after_restart(self):
-        with patch('bridge.notifications.publish', side_effect=OSError('offline')):
+        with patch('bridge.features.notifications.channels.publish', side_effect=OSError('offline')):
             self.manager.scan()
         for record in self.manager.ledger.values():
             record.update(attempts=120, next=0)
         write_json(self.directory/'notification-delivery.json', self.manager.ledger)
         self.manager.close()
         self.manager = Notifications(self.source, self.directory)
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan()
             send.assert_not_called()
         self.assertTrue(all(record['attempts'] == 120 for record in self.manager.ledger.values()))
 
     def test_new_request_notifies_and_completed_request_does_not_retry(self):
-        with patch('bridge.notifications.publish', side_effect=OSError('offline')) as send:
+        with patch('bridge.features.notifications.channels.publish', side_effect=OSError('offline')) as send:
             self.manager.scan()
             self.assertEqual(send.call_count, 1)
         for record in self.manager.ledger.values(): record['next'] = 0
         self.session.state['requests'] = []
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan();self.assertFalse(send.called)
             self.session.state['requests'] = [{'id': 'another', 'method': 'item/tool/requestUserInput', 'params': {'questions': []}}]
             self.manager.scan();self.assertEqual(send.call_count, 1)
 
     def test_disabled_or_offline_history_never_pushes(self):
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.session.connected = False
             self.manager.scan();self.assertFalse(send.called)
             save_settings(self.directory, {'enabled': False})
@@ -262,7 +262,7 @@ class NotificationTests(unittest.TestCase):
 
     def test_coalesces_pending_requests_and_unwatch_releases(self):
         self.session.state['requests'].append({'id': 2, 'method': 'item/permissions/requestApproval', 'params': {}})
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan();self.assertEqual(send.call_count, 1)
             self.assertIn('2 项', send.call_args.args[2])
             self.manager.watch(self.thread, 'remote', False)
@@ -271,7 +271,7 @@ class NotificationTests(unittest.TestCase):
     def test_async_question_is_detected(self):
         self.session.state = {'turns': [{'turnId': 't', 'status': 'inProgress', 'items': [
             {'type': 'agentMessage', 'id': 'q', 'questions': [{'title': 'Choose', 'options': None}]}]}]}
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan();self.assertEqual(send.call_count, 1)
 
     def turns(self, *rows):
@@ -288,7 +288,7 @@ class NotificationTests(unittest.TestCase):
         self.assertFalse(self.manager.watch(self.thread, 'local')['notifyOnCompletion'])
         other = Notifications(self.source, self.directory)
         self.assertTrue(other.watch(self.thread, 'remote')['notifyOnCompletion'])
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             other.scan()
             self.turns(('run', 'completed'))
             other.scan()
@@ -304,7 +304,7 @@ class NotificationTests(unittest.TestCase):
     def test_completion_of_current_run_deduplicates_after_restart_and_hides_content(self):
         self.turns(('old', 'completed'), ('current', 'inProgress'))
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan();self.assertFalse(send.called)
             self.turns(('old', 'completed'), ('current', 'completed'))
             self.manager.scan();self.manager.scan()
@@ -319,7 +319,7 @@ class NotificationTests(unittest.TestCase):
     def test_fast_run_between_scans_notifies_but_paginated_history_does_not(self):
         self.turns(('last', 'completed'))
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.turns(('older', 'completed'), ('last', 'completed'))
             self.manager.scan();self.assertFalse(send.called)
             self.turns(('older', 'completed'))  # Temporary partial snapshot.
@@ -335,7 +335,7 @@ class NotificationTests(unittest.TestCase):
     def test_empty_chat_can_notify_first_fast_run_and_ignores_failed_or_stopped(self):
         self.turns()
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.turns(('failed', 'failed'), ('stopped', 'interrupted'))
             self.manager.scan();self.assertFalse(send.called)
             self.session.state['turns'].append({'turnId': 'ok', 'status': 'completed'})
@@ -346,12 +346,12 @@ class NotificationTests(unittest.TestCase):
         self.turns(('run', 'inProgress'))
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
         self.turns(('run', 'completed'))
-        with patch('bridge.notifications.publish', side_effect=OSError('offline')) as send:
+        with patch('bridge.features.notifications.channels.publish', side_effect=OSError('offline')) as send:
             self.manager.scan();self.manager.scan();self.assertEqual(send.call_count, 1)
         self.turns(('next', 'inProgress'))  # The finished turn has left the live page.
         other = Notifications(self.source, self.directory)
         for record in other.ledger.values(): record['next'] = 0
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             other.scan();self.assertEqual(send.call_count, 1)
             save_settings(self.directory, {'includeTitle': True})
             self.turns(('next', 'completed'))
@@ -360,21 +360,21 @@ class NotificationTests(unittest.TestCase):
         other.close()
         self.manager = Notifications(self.source, self.directory)
         self.turns(('new', 'inProgress'))
-        with patch('bridge.notifications.publish'):
+        with patch('bridge.features.notifications.channels.publish'):
             self.manager.scan()
         self.turns(('new', 'completed'))
-        with patch('bridge.notifications.publish', side_effect=OSError('offline')):
+        with patch('bridge.features.notifications.channels.publish', side_effect=OSError('offline')):
             self.manager.scan()
         self.manager.watch(self.thread, 'remote', notify_on_completion=False)
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan();self.assertFalse(send.called)
 
     def test_completion_offline_baseline_and_reconnect(self):
         self.session.connected = False
         self.turns(('old', 'completed'))
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan()
             self.session.connected = True
             self.manager.scan();self.assertFalse(send.called)
@@ -391,7 +391,7 @@ class NotificationTests(unittest.TestCase):
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
         self.turns(('approval', 'completed'))
         self.session.state['requests'] = [{'id': 'approval', 'method': 'item/tool/requestUserInput', 'params': {}}]
-        with patch('bridge.notifications.publish') as send:
+        with patch('bridge.features.notifications.channels.publish') as send:
             self.manager.scan()
             self.assertEqual([c.args[1] for c in send.call_args_list], ['Codex 需要你的确认', 'Codex 运行已完成'])
             save_settings(self.directory, {'enabled': False})
@@ -415,7 +415,7 @@ class NotificationTests(unittest.TestCase):
         self.turns(('current', 'inProgress'))
         result = self.manager.watch(self.thread, 'remote', True, True)
         self.assertTrue(result['available'])
-        with patch('bridge.notifications.publish') as ntfy, patch('bridge.notifications.publish_bark') as bark:
+        with patch('bridge.features.notifications.channels.publish') as ntfy, patch('bridge.features.notifications.channels.publish_bark') as bark:
             self.turns(('current', 'completed'))
             self.session.state['requests'] = [{'id': 'question', 'method': 'item/tool/requestUserInput', 'params': {}}]
             self.manager.scan();self.manager.scan()
@@ -430,7 +430,7 @@ class NotificationTests(unittest.TestCase):
         self.turns(('current', 'inProgress'))
         result = self.manager.watch(self.thread, 'remote', True, True)
         self.assertTrue(result['available'])
-        with patch('bridge.notifications.publish') as ntfy, patch('bridge.notifications.publish_pushplus') as bark:
+        with patch('bridge.features.notifications.channels.publish') as ntfy, patch('bridge.features.notifications.channels.publish_pushplus') as bark:
             self.turns(('current', 'completed'))
             self.session.state['requests'] = [{'id': 'question', 'method': 'item/tool/requestUserInput', 'params': {}}]
             self.manager.scan();self.manager.scan()
@@ -447,8 +447,8 @@ class NotificationTests(unittest.TestCase):
                 self.manager.watch(self.thread, 'remote', notify_on_completion=False)
                 self.manager.watch(self.thread, 'remote', notify_on_completion=True)
                 self.turns((failing, 'completed'))
-                with patch('bridge.notifications.publish', side_effect=OSError('secret-token') if failing == 'ntfy' else None) as ntfy, \
-                        patch('bridge.notifications.publish_bark', side_effect=OSError('device-key') if failing == 'bark' else None) as bark:
+                with patch('bridge.features.notifications.channels.publish', side_effect=OSError('secret-token') if failing == 'ntfy' else None) as ntfy, \
+                        patch('bridge.features.notifications.channels.publish_bark', side_effect=OSError('device-key') if failing == 'bark' else None) as bark:
                     self.manager.scan();self.manager.scan()
                     self.assertEqual((ntfy.call_count, bark.call_count), (1, 1))
                 status = read_json(self.directory/'notification-status.json', {})
@@ -459,7 +459,7 @@ class NotificationTests(unittest.TestCase):
                 self.manager = Notifications(self.source, self.directory)
                 for record in self.manager.ledger.values(): record['next'] = 0
                 self.turns(('next-'+failing, 'inProgress'))
-                with patch('bridge.notifications.publish') as ntfy, patch('bridge.notifications.publish_bark') as bark:
+                with patch('bridge.features.notifications.channels.publish') as ntfy, patch('bridge.features.notifications.channels.publish_bark') as bark:
                     self.manager.scan();self.manager.scan()
                     self.assertEqual((ntfy.call_count, bark.call_count), (1, 0) if failing == 'ntfy' else (0, 1))
 
@@ -467,7 +467,7 @@ class NotificationTests(unittest.TestCase):
         self.turns(('old', 'completed'))
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
         save_settings(self.directory, {'barkEnabled': True, 'barkKey': 'first-device'})
-        with patch('bridge.notifications.publish') as ntfy, patch('bridge.notifications.publish_bark') as bark:
+        with patch('bridge.features.notifications.channels.publish') as ntfy, patch('bridge.features.notifications.channels.publish_bark') as bark:
             self.manager.scan();self.assertFalse(bark.called)
             self.turns(('old', 'completed'), ('new', 'completed'))
             self.manager.scan()
@@ -481,7 +481,7 @@ class NotificationTests(unittest.TestCase):
 
     def test_request_dedup_is_per_channel_destination_and_host(self):
         save_settings(self.directory, {'barkEnabled': True, 'barkKey': 'first-device'})
-        with patch('bridge.notifications.publish') as ntfy, patch('bridge.notifications.publish_bark') as bark:
+        with patch('bridge.features.notifications.channels.publish') as ntfy, patch('bridge.features.notifications.channels.publish_bark') as bark:
             self.manager.scan();self.manager.scan()
             self.assertEqual((ntfy.call_count, bark.call_count), (1, 1))
             save_settings(self.directory, {'token': 'new-token', 'barkKey': 'second-device'})
@@ -497,7 +497,7 @@ class NotificationTests(unittest.TestCase):
         self.turns(('run', 'inProgress'))
         self.manager.watch(self.thread, 'remote', notify_on_completion=True)
         self.turns(('run', 'completed'))
-        with patch('bridge.notifications.publish') as ntfy, patch('bridge.notifications.publish_bark', side_effect=OSError('offline')) as bark:
+        with patch('bridge.features.notifications.channels.publish') as ntfy, patch('bridge.features.notifications.channels.publish_bark', side_effect=OSError('offline')) as bark:
             self.manager.scan()
             save_settings(self.directory, {'barkEnabled': False})
             self.manager.scan()
@@ -518,7 +518,7 @@ class NotificationTests(unittest.TestCase):
         save_settings(self.directory, {'barkEnabled': True, 'barkKey': 'device-key'})
         self.manager.close()
         self.manager = Notifications(self.source, self.directory)
-        with patch('bridge.notifications.publish') as ntfy, patch('bridge.notifications.publish_bark') as bark:
+        with patch('bridge.features.notifications.channels.publish') as ntfy, patch('bridge.features.notifications.channels.publish_bark') as bark:
             self.manager.scan()
             self.assertEqual(ntfy.call_count, 1)
             self.assertEqual(ntfy.call_args.args[1], 'Codex 运行已完成')

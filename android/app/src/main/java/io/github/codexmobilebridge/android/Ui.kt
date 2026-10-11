@@ -54,6 +54,7 @@ val EmptyObject = JsonObject(emptyMap())
 @Composable fun BridgeApp(vm: BridgeViewModel) {
     val dark = when(vm.theme) { "dark" -> true; "light" -> false; else -> isSystemInDarkTheme() }
     val colors = if(dark) darkColorScheme(primary=Color(0xFF9DCEAC),surface=Color(0xFF141B17)) else lightColorScheme(primary=Color(0xFF285F41),surface=Color(0xFFF8FAF5))
+    val context=LocalContext.current
     val view=LocalView.current
     SideEffect { (view.context as? android.app.Activity)?.let{activity->
         val controller=WindowCompat.getInsetsController(activity.window,view)
@@ -74,11 +75,14 @@ val EmptyObject = JsonObject(emptyMap())
                 } }, navigationIcon={
                     if(vm.screen != "connections") IconButton(onClick={ if(vm.screen=="chat") vm.showSessions() else vm.showConnections() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack,vm.t("返回","Back")) }
                 }, actions={
+                    if(vm.screen == "connections") TextButton(onClick={Workbench.open(context)}) {Text(vm.t("新版工作台","Workbench"))}
                     if(vm.screen != "connections") IconButton(onClick=vm::showConnections) { Icon(Icons.Default.Computer,vm.t("切换电脑","Switch computer")) }
                     if(vm.authenticated && vm.screen != "connections") {
                         var menu by remember { mutableStateOf(false) }
                         IconButton(onClick={ menu=true }) { Icon(Icons.Default.MoreVert,vm.t("更多操作","More actions")) }
                         DropdownMenu(menu,{ menu=false }) {
+                            DropdownMenuItem(text={Text(vm.t("项目工作台 · 文件 / Git / 终端","Project workbench · Files / Git / Terminal"))},onClick={menu=false;Workbench.open(context,vm.selected,vm.target?.id,vm.target?.host)})
+                            DropdownMenuItem(text={Text("Claude Code")},onClick={menu=false;Workbench.open(context,vm.selected,provider="claude")})
                             val options = if(vm.screen=="chat") listOf("details" to vm.t("聊天详情与重命名","Chat details & rename"),"model" to vm.t("模型设置","Model settings"),"skills" to "Skills","notifications" to vm.t("聊天提醒","Chat reminders"),"goal" to vm.t("目标进度","Goal progress")) else emptyList()
                             for((key,label) in options + listOf("new" to vm.t("新建聊天","New chat"),"accounts" to vm.t("账号与接入","Accounts"),"usage" to vm.t("账户与额度","Account usage")))
                                 DropdownMenuItem(text={ Text(label) },onClick={ menu=false;vm.openTool(key) })
