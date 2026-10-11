@@ -25,6 +25,7 @@ class NativeWorkspaceFlowTest {
     private lateinit var server:MockWebServer
     private val calls=CopyOnWriteArrayList<RecordedRequest>()
     private val id="12345678-1234-1234-1234-123456789abc"
+    private var projects=JsonArray(emptyList())
     private var unknown=false
     private var terminalUnavailable=false
     private var catalogFailed=false
@@ -52,6 +53,8 @@ class NativeWorkspaceFlowTest {
             val meta=payload("title" to "Native project","cwd" to "/test/project","connected" to true,"status" to "idle")
             val value=when {
                 path=="/api/auth"->payload("authenticated" to (!liveCookieRequired || request.getHeader("Cookie")?.contains("session=live")==true),"csrf" to "native-csrf")
+                path=="/api/projects"->payload("projects" to projects)
+                path=="/api/sessions" && request.method=="POST"->payload("id" to id,"host" to "local")
                 path=="/api/sessions"->payload("sessions" to JsonArray(listOf(payload("id" to id,"host" to "local","title" to "Native project"))))
                 path=="/api/activity"->payload("sessions" to JsonArray(emptyList()))
                 path.endsWith("/timeline") || path.endsWith("/changes")->payload("epoch" to "native","sequence" to 1,"meta" to meta,"rows" to JsonArray(listOf(payload("key" to "native-msg","order" to 1,"role" to "assistant","text" to "Native history"))))
@@ -75,6 +78,32 @@ class NativeWorkspaceFlowTest {
     @After fun cleanup(){ui.runOnIdle{vm.pause()};server.shutdown()}
     private fun capture(name:String){val bitmap=ui.onRoot().captureToImage().asAndroidBitmap();File(ApplicationProvider.getApplicationContext<Application>().filesDir,name+".png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
     private fun openCodex(){ui.runOnIdle{vm.openChat(id)};ui.waitUntil(10000){vm.timeline.sequence>=0}}
+    @Test fun newCodexChatAllowsNoProjectWithOrWithoutSavedProjects(){
+        for(savedProjects in listOf(JsonArray(emptyList()),JsonArray(listOf(payload("key" to "local|saved","name" to "Saved project","host" to "local","cwd" to "/saved/project"))))){
+            projects=savedProjects
+            ui.runOnIdle{vm.openTool("new")};ui.waitUntil(10000){!vm.toolLoading}
+            ui.onNodeWithText("No project").assertExists()
+            ui.onNodeWithText("Create an independent chat on this computer").assertExists()
+            ui.onNodeWithText("Create chat").assertIsEnabled().performClick()
+            ui.waitUntil(10000){!vm.busy && vm.tool==null && vm.target?.id==id}
+            val request=calls.last{it.requestUrl!!.encodedPath=="/api/sessions" && it.method=="POST"}
+            val body=json.parseToJsonElement(request.body.clone().readUtf8()) as JsonObject
+            assertEquals("local|independent",body.str("project"));assertEquals("New chat",body.str("title"))
+            java.util.UUID.fromString(body.str("id"));assertEquals("native-csrf",request.getHeader("X-CSRF-Token"))
+        }
+        assertEquals(2,calls.count{it.requestUrl!!.encodedPath=="/api/sessions" && it.method=="POST"})
+    }
+    @Test fun newCodexChatCanStillSelectRemoteProject(){
+        projects=JsonArray(listOf(payload("key" to "remote|saved","name" to "Remote project","host" to "remote","cwd" to "/remote/project")))
+        ui.runOnIdle{vm.openTool("new")};ui.waitUntil(10000){!vm.toolLoading}
+        ui.onNodeWithText("No project").performClick();ui.onNodeWithText("Remote project · remote").performClick()
+        ui.onNodeWithText("/remote/project").assertExists()
+        ui.onNodeWithText("Name (optional)").performTextInput("  Remote task  ")
+        ui.onNodeWithText("Create chat").performClick();ui.waitUntil(10000){!vm.busy && vm.tool==null}
+        val request=calls.last{it.requestUrl!!.encodedPath=="/api/sessions" && it.method=="POST"}
+        val body=json.parseToJsonElement(request.body.clone().readUtf8()) as JsonObject
+        assertEquals("remote|saved",body.str("project"));assertEquals("Remote task",body.str("title"))
+    }
     @Test fun claudeUsesNativeChatAndRetriesOnlyOriginalSubmission(){
         ui.runOnIdle{vm.chooseProvider("claude")};ui.waitUntil(10000){!vm.busy && vm.sessions.any{it.str("title")=="Claude native"}}
         ui.onNodeWithText("Claude native",useUnmergedTree=true).performClick();ui.waitUntil(10000){vm.timeline.sequence>=0}

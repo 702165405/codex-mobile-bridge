@@ -101,10 +101,12 @@ import kotlinx.serialization.json.*
         }
         "new" -> {
             if(vm.provider=="claude"){ClaudeNewChat(vm,data);return}
-            val projects=data.rows("projects");var project by remember {mutableStateOf(projects.firstOrNull()?.str("key") ?: "")};var title by remember {mutableStateOf("")}
-            Text(vm.t("选择项目","Choose project"));Choice(project,projects.map{it.str("key") to (it.str("name")+" · "+it.str("host","local"))}){project=it}
+            val projects=data.rows("projects");var project by remember {mutableStateOf("local|independent")};var title by remember {mutableStateOf("")}
+            Text(vm.t("项目（可选）","Project (optional)"))
+            Choice(project,listOf("local|independent" to vm.t("不选择项目","No project"))+projects.map{it.str("key") to (it.str("name")+" · "+it.str("host","local"))},enabled=ready){project=it}
+            Text(if(project=="local|independent")vm.t("在此电脑创建独立聊天","Create an independent chat on this computer") else projects.find{it.str("key")==project}?.str("cwd") ?: "",style=MaterialTheme.typography.bodySmall)
             OutlinedTextField(title,{if(it.length<=120)title=it},label={Text(vm.t("名称（可选）","Name (optional)"))})
-            Button(onClick={vm.perform("/api/sessions",payload("project" to project,"title" to title),durableKey="new:$project:$title")},enabled=ready && project.isNotEmpty()){Text(vm.t("创建聊天","Create chat"))}
+            Button(onClick={val name=title.trim().ifEmpty{vm.t("新聊天","New chat")};vm.perform("/api/sessions",payload("project" to project,"title" to name),durableKey="new:$project:$name")},enabled=ready){Text(vm.t("创建聊天","Create chat"))}
         }
         "model" -> {
             val models=data.rows("models")
