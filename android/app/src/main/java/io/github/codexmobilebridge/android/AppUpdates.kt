@@ -18,7 +18,7 @@ import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 const val GITHUB_RELEASE_ROOT = "https://github.com/702165405/codex-mobile-bridge/releases/"
-const val UPDATE_MANIFEST_URL = GITHUB_RELEASE_ROOT + "latest/download/update.json"
+const val UPDATE_MANIFEST_URL = "https://mac.lqilt.top/android/update.json"
 fun githubReleaseUrl(address:String): Boolean {
     val url=address.toHttpUrl()
     return url.isHttps && url.host=="github.com" && url.port==443 && url.username.isEmpty() && url.password.isEmpty() && url.query==null && url.fragment==null &&
