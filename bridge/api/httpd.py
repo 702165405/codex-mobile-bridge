@@ -51,6 +51,8 @@ GOAL_STATUS_ROUTE = re.compile(r"^/api/sessions/([0-9a-f-]{36})/goal/status$")
 class GatewayServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    # HTTP/2 reverse proxies open the workbench resources in one TCP burst.
+    request_queue_size = 128
 
     def __init__(self, address, bridge, config, web_dir, data_dir=None, shared=None):
         self.transfer_directory = data_dir if shared is None else shared.transfer_directory
