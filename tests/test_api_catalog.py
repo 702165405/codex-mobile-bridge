@@ -164,6 +164,51 @@ class ApiCatalogTests(unittest.TestCase):
             self.reader.read_models(self.request, str(self.home), 'bridge_api')
         legacy.assert_called_once_with(str(self.home), 'bridge_api', kind='models', legacy_catalog=True)
 
+    def test_missing_project_models_start_in_codex_home_without_recreating_project(self):
+        missing = self.home/'moved-project'
+        with patch('bridge.clients.codex.catalog.subprocess.Popen', side_effect=RuntimeError('stop before launch')) as spawn:
+            with self.assertRaisesRegex(RuntimeError, 'stop before launch'):
+                self.reader._fetch(str(missing), kind='models')
+        self.assertEqual(spawn.call_args.kwargs['cwd'], str(self.home))
+        self.assertFalse(missing.exists())
+
+    def test_missing_project_skills_fail_clearly_before_starting_runtime(self):
+        with patch('bridge.clients.codex.catalog.subprocess.Popen') as spawn:
+            with self.assertRaisesRegex(CatalogError, '项目目录不存在或已移动'):
+                self.reader._fetch(str(self.home/'moved-project'), kind='skills')
+        spawn.assert_not_called()
+
+    def test_missing_project_and_codex_home_fail_with_configuration_error(self):
+        self.reader.home = self.home/'missing-home'
+        with patch('bridge.clients.codex.catalog.subprocess.Popen') as spawn:
+            with self.assertRaisesRegex(CatalogError, 'Codex 配置目录不存在'):
+                self.reader._fetch(str(self.home/'moved-project'), kind='models')
+        spawn.assert_not_called()
+
+    def test_existing_project_keeps_its_runtime_working_directory(self):
+        project = self.home/'project'
+        project.mkdir()
+        with patch('bridge.clients.codex.catalog.subprocess.Popen', side_effect=RuntimeError('stop before launch')) as spawn:
+            with self.assertRaisesRegex(RuntimeError, 'stop before launch'):
+                self.reader._fetch(str(project), kind='models')
+        self.assertEqual(spawn.call_args.kwargs['cwd'], str(project))
+
+    def test_missing_project_catalog_remains_selectable_and_labels_global_source(self):
+        from types import SimpleNamespace
+        config = {'model_provider': 'magpie', 'model_providers': {
+            'magpie': {'base_url': 'http://127.0.0.1:3425/v1'}}}
+        process = SimpleNamespace(stdin=io.StringIO(),
+                                  stdout=io.StringIO(json.dumps({'id': 1, 'result': {}})+'\n'+
+                                                     json.dumps({'id': 2, 'result': {'config': config}})+'\n'),
+                                  wait=lambda timeout: 0)
+        with patch('bridge.clients.codex.catalog.subprocess.Popen', return_value=process) as spawn, \
+             patch('bridge.clients.codex.catalog.model_catalog', return_value=[
+                 {'id': 'cccc/gpt-test', 'name': 'GPT Test', 'efforts': ['max']}]):
+            result = self.reader.get_kind('models', self.home/'moved-project')
+        self.assertEqual(result['models'][0]['id'], 'cccc/gpt-test')
+        self.assertEqual(result['modelAccessName'], 'Magpie（全局接入，原项目目录不存在）')
+        self.assertEqual(spawn.call_args.kwargs['cwd'], str(self.home))
+
     def test_explicit_ccs_catalog_uses_runtime_instead_of_upstream(self):
         self.config['model_catalog_json'] = str(self.home/'cc-switch-model-catalog.json')
         with patch('bridge.clients.codex.catalog.model_ids') as upstream:

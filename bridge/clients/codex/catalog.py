@@ -351,6 +351,15 @@ class Catalog:
         executable = self.executable
         if not executable:
             raise CatalogError("找不到桌面 App 的 Codex 运行时")
+        global_models = False
+        if not Path(cwd).is_dir():
+            if kind != 'models':
+                raise CatalogError('聊天项目目录不存在或已移动，请修正项目路径后重新读取目录')
+            if not self.home.is_dir():
+                raise CatalogError('Codex 配置目录不存在，请检查电脑端运行配置')
+            logger.warning('catalog project directory missing; reading global models cwd=%s', cwd)
+            cwd = str(self.home)
+            global_models = True
         env = dict(os.environ)
         env['CODEX_HOME'] = str(self.home)
         options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
@@ -364,6 +373,7 @@ class Catalog:
                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                        text=True, encoding='utf-8', **options)
         except OSError as exc:
+            logger.warning('catalog runtime launch failed errno=%s executable=%s cwd=%s', exc.errno, executable, cwd)
             raise CatalogError('无法启动 Codex 运行时，请检查运行配置中的程序路径、项目目录和访问权限') from exc
         messages = queue.Queue()
         def read():
@@ -413,6 +423,8 @@ class Catalog:
                 return permission_reader(request, cwd)
             if kind == 'models':
                 phase = time.monotonic();catalog = self.read_models(request, cwd, provider)
+                if global_models:
+                    catalog['modelAccessName'] = (catalog.get('modelAccessName') or 'Codex') + '（全局接入，原项目目录不存在）'
                 logger.info('catalog models elapsed=%.3fs source=%s count=%d error=%r',
                             time.monotonic()-phase, catalog.get('modelSource'), len(catalog.get('models', [])), catalog.get('modelError'))
                 logger.info('catalog fetch complete elapsed=%.3fs', time.monotonic()-started)
