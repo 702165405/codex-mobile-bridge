@@ -21,6 +21,15 @@ class NativeProtocolTest {
         assertEquals(id,route.queryParameter("sessionId"));assertEquals("目录/a&b.txt",route.queryParameter("path"));assertEquals("detail",chat.route("timeline").substringBefore('?').substringAfterLast('/'))
         assertNotEquals(chat.key,ChatTarget("computer",id).key)
     }
+    @Test fun modelAndSkillCatalogsAreIndependentAndRespectClientRoute() {
+        val codex=ChatTarget("computer",id,"ssh:project")
+        val models=("https://phone.invalid"+codex.catalogRoute("models")).toHttpUrl()
+        assertEquals("models",models.queryParameter("kind"));assertEquals("ssh:project",models.queryParameter("host"));assertNull(models.queryParameter("refresh"))
+        val skills=("https://phone.invalid"+codex.catalogRoute("skills",true)).toHttpUrl()
+        assertEquals("skills",skills.queryParameter("kind"));assertEquals("true",skills.queryParameter("refresh"))
+        val claude=("https://phone.invalid"+ChatTarget("computer",id,"desktop:claude").catalogRoute("models")).toHttpUrl()
+        assertEquals("/api/desktop-sessions/claude/catalog",claude.encodedPath);assertEquals(id,claude.queryParameter("sessionId"));assertNull(claude.queryParameter("kind"))
+    }
     @Test fun claudeSnapshotPreservesStableKeysAndCapabilities() {
         val detail=payload("session" to payload("id" to id,"title" to "Claude","status" to "active"),"connected" to true,"capabilities" to payload("send" to false),"messages" to JsonArray(listOf(payload("id" to "block","role" to "assistant","text" to "Hi"))))
         val first=claudeTimeline(detail,TimelineState());assertEquals("block",first.messages.single().str("key"));assertFalse(first.meta.obj("capabilities").bool("send"))

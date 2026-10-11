@@ -33,6 +33,13 @@ fun normalizeOrigin(input: String): String {
 data class ChatTarget(val connection: String, val id: String, val host: String = "local") {
     val provider get() = if(host == "desktop:claude") "claude" else "codex"
     val key get() = "$connection|$host|$id"
+    fun catalogRoute(kind: String, refresh: Boolean = false): String {
+        require(kind in listOf("models", "skills"))
+        val params = mutableMapOf<String,String>()
+        if(provider=="codex")params["kind"]=kind
+        if(refresh)params["refresh"]="true"
+        return route("catalog",params)
+    }
     fun route(action: String = "", params: Map<String, String> = emptyMap()): String {
         require(runCatching { UUID.fromString(id) }.isSuccess)
         val endpoint = if(provider == "claude") "/api/desktop-sessions/claude/${if(action in listOf("timeline","changes")) "detail" else action}" else "/api/sessions/$id${if(action.isEmpty()) "" else "/$action"}"

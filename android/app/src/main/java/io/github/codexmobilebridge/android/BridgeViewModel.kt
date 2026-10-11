@@ -71,6 +71,8 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         selected?.let {connection->LiveNotifications.accept(getApplication(),store,connection,rows)}
     }
     var connections by mutableStateOf(store.connections()); private set
+    val connectionStates = mutableStateMapOf<String,String>()
+    private var connectionChecks: Job? = null
     var selected by mutableStateOf<Connection?>(null); private set
     var authenticated by mutableStateOf(false); private set
     var passwordless by mutableStateOf(false); private set
@@ -109,6 +111,8 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var polling: Job? = null
     private var listPolling: Job? = null
+    private var toolRead: Job? = null
+    private var toolRequest = 0
     private var foreground = false
     private var listGeneration = 0
     private val lists=mutableMapOf<String,List<JsonObject>>()
@@ -123,6 +127,38 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         store.get("selected")?.let { id -> connections.find { it.id == id }?.let { selected = it } }
+    }
+    fun connectionStatusText(id:String) = when(connectionStates[id]) {
+        "connected" -> t("网关已连接","Gateway connected")
+        "login" -> t("网关在线 · 待登录","Gateway online · Sign in required")
+        "checking" -> t("正在检测连接…","Checking connection…")
+        "unreachable" -> t("无法连接网关","Gateway unreachable")
+        else -> t("尚未检测连接","Connection not checked")
+    }
+    fun stopConnectionChecks(){connectionChecks?.cancel();connectionChecks=null}
+    fun checkConnections() {
+        stopConnectionChecks()
+        if(!foreground || screen!="connections")return
+        connections.forEach{connectionStates[it.id]="checking"}
+        connectionChecks=viewModelScope.launch {
+            while(isActive && foreground && screen=="connections") {
+                for(batch in connections.chunked(2))coroutineScope {
+                    batch.map{row->async {
+                        val gateway=if(selected?.id==row.id)api ?: gatewayFactory(row) else gatewayFactory(row)
+                        val state=try {
+                            val auth=withTimeout(8000){gateway.api("/api/auth")}
+                            require(auth.containsKey("authenticated"))
+                            if(auth.bool("authenticated"))"connected" else "login"
+                        }catch(e:TimeoutCancellationException){"unreachable"}
+                         catch(e:CancellationException){throw e}
+                         catch(e:Exception){if(e is GatewayError && e.status==401)"login" else "unreachable"}
+                        ensureActive()
+                        if(connections.any{it.id==row.id && it.origin==row.origin})connectionStates[row.id]=state
+                    }}.awaitAll()
+                }
+                delay(15000)
+            }
+        }
     }
     fun clearError() { error = ""; notice = "" }
     fun preference(key: String,value: String) {
@@ -148,13 +184,14 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun removeConnection(row: Connection) {
         if(selected?.id == row.id) { disconnect(); selected = null; store.put("selected",null) }
-        Workbench.removeComputer(row.origin); connections = store.connections()
+        Workbench.removeComputer(row.origin); connectionStates.remove(row.id); connections = store.connections()
     }
     fun moveConnection(id: String,delta: Int) {
         val rows = connections.toMutableList(); val from = rows.indexOfFirst { it.id == id }; val to = (from + delta).coerceIn(0,rows.lastIndex)
         if(from >= 0 && from != to) { val row = rows.removeAt(from); rows.add(to,row); connections = rows; store.saveConnections(rows) }
     }
     private fun cancelScope() {
+        stopConnectionChecks();toolRequest++;toolRead=null
         generation++; scope.cancel(); api?.cancel()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         polling = null; listPolling = null; busy = false; toolLoading = false; historyBusy = false
@@ -171,11 +208,13 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         connections = connections.map { if(it.id == row.id) selected!! else it }; store.saveConnections(connections); store.put("selected",row.id)
         activities=store.get("activity:${row.id}")?.let {runCatching {json.decodeFromString<Map<String,SessionActivity>>(it)}.getOrNull()}?.mapValues {it.value.copy(offline=true)} ?: emptyMap()
         provider=store.get("provider:${row.id}")?.takeIf{it in listOf("codex","claude")} ?: "codex"
+        connectionStates[row.id]="checking"
         api = gatewayFactory(selected!!); screen = "login"; busy = true
         val gateway = api!!; val gen = generation
         scope.launch {
             try {
                 val auth = gateway.api("/api/auth")
+                if(gen==generation)connectionStates[row.id]=if(auth.bool("authenticated"))"connected" else "login"
                 passwordless = auth.bool("passwordless"); notificationsAvailable = auth.bool("notifications")
                 if(pairingToken != null) gateway.api("/api/pair",payload("token" to pairingToken))
                 if(gen == generation && (auth.bool("authenticated") || pairingToken != null)) enter()
@@ -187,10 +226,12 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         connections=store.connections();api?.reloadCookies()
         val storedSelection=store.get("selected");if(storedSelection!=selected?.id)connections.find{it.id==storedSelection}?.let{select(it)}
         foreground = true;LiveNotifications.foreground=true;visibleChat();appNotifications=store.get("appNotifications")=="true"
+        if(screen=="connections")checkConnections()
         if(selected != null && api == null) select(selected!!)
         else if(authenticated) { if(target != null && (screen=="chat" || screen=="workspace" && splitWorkspaceChat)) startPolling(); startListPolling();startReminders() }
     }
     fun pause() {
+        stopConnectionChecks()
         foreground = false;LiveNotifications.foreground=false;LiveNotifications.visible=null; polling?.cancel(); listPolling?.cancel(); api?.cancel()
         saveDraft(); busy = false
     }
@@ -238,6 +279,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         } catch(e: Exception) { error = e.message ?: "Invalid link" }
     }
     private suspend fun enter() {
+        selected?.let{connectionStates[it.id]="connected"}
         authenticated = true; screen = "sessions";sessions=lists["${selected!!.id}|$provider"].orEmpty();refreshListNow()
         pendingNavigation?.let{(_,id,host)->pendingNavigation=null;openChat(id,host)}
         startListPolling();startReminders()
@@ -258,10 +300,11 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     fun showSessions() { LiveNotifications.visible=null;saveDraft(); cancelScope(); tool = null; target = null; timeline = TimelineState(); screen = "sessions"; refreshList() }
     fun logout() = action {
         LiveNotifications.stop(getApplication())
-        api!!.api("/api/logout",payload()); api!!.clearSession(); selected?.let{Workbench.forget(it.origin)}; selected?.let {store.put("activity:${it.id}",null)}; activities=emptyMap(); authenticated = false; target = null
+        api!!.api("/api/logout",payload()); api!!.clearSession(); selected?.let{Workbench.forget(it.origin)}; selected?.let {store.put("activity:${it.id}",null)}; activities=emptyMap(); selected?.let{connectionStates[it.id]="login"}; authenticated = false; target = null
         polling?.cancel(); listPolling?.cancel(); screen = "login"; sessions = emptyList(); tool = null
     }
     private fun failure(e: Exception) {
+        selected?.let{row->if(e is GatewayError && e.status==401)connectionStates[row.id]="login" else if(e is java.io.IOException && e !is GatewayError)connectionStates[row.id]="unreachable"}
         error = e.message ?: t("请求失败","Request failed")
         if(e is GatewayError && e.status == 401) { LiveNotifications.stop(getApplication());authenticated = false; screen = "login"; tool = null; polling?.cancel(); listPolling?.cancel() }
     }
@@ -280,6 +323,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
             .addQueryParameter("q",search).addQueryParameter("offset",offset.toString()).addQueryParameter("archived",archived.toString()).build()
         val value = api!!.api(if(provider=="claude") "/api/desktop-sessions/claude/list" else url.encodedPath+"?"+url.encodedQuery)
         if(gen != listGeneration) return
+        selected?.let{connectionStates[it.id]="connected"}
         val rows = if(provider=="claude")value.rows("sessions").filter{it.str("backend","code")=="code" && (archived||!it.bool("archived")) && (it.str("title")+it.str("cwd")).contains(search,true)}.map{JsonObject(it+payload("host" to "desktop:claude","projectName" to it.str("cwd"),"recency" to it.num("updatedAt")))} else value.rows("sessions")
         sessions = if(more) (sessions+rows).distinctBy { it.str("host")+"|"+it.str("id") } else rows
         lists["${selected!!.id}|$provider"]=sessions
@@ -488,7 +532,8 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
-    fun openTool(name: String, data: JsonObject = payload()) {
+    fun openTool(name: String, data: JsonObject = payload(), refresh: Boolean = false) {
+        toolRead?.cancel();val request=++toolRequest;toolLoading=false
         tool = name; toolData = data; error = ""
         if(name=="app-notifications")appNotifications=store.get("appNotifications")=="true"
         if(name == "message" && target != null) {
@@ -498,26 +543,26 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         }
         val row = target; val gen = generation; val gateway = api ?: return
         val path = when(name) {
-            "new" -> if(provider=="claude")"/api/desktop-sessions/claude/projects" else "/api/projects"; "permissions" -> if(provider=="claude")row?.route("access") else null; "model", "skills" -> row?.route("catalog",mapOf("refresh" to "true"))
+            "new" -> if(provider=="claude")"/api/desktop-sessions/claude/projects" else "/api/projects"; "permissions" -> if(provider=="claude")row?.route("access") else null; "model", "skills" -> row?.catalogRoute(if(name=="model")"models" else "skills",refresh)
             "notifications" -> row?.route("notifications"); "pushplus" -> "/api/notifications/pushplus"
             "defaults" -> "/api/notifications/defaults"; "accounts" -> if(provider=="claude")"/api/desktop-sessions/claude/accounts" else "/api/accounts"; "usage" -> if(provider=="claude")"/api/desktop-sessions/claude/account" else "/api/account"
             else -> null
         } ?: return
         toolLoading = true
-        scope.launch {
+        toolRead=scope.launch {
             try {
-                val value = gateway.api(path)
-                if(gen == generation && tool == name) { toolData = value; toolLoading = false }
+                val value = if(name=="model")withTimeout(30000){gateway.api(path)} else gateway.api(path)
+                if(gen == generation && tool == name && request==toolRequest) { toolData = value; toolLoading = false }
                 if(name == "accounts") {
-                    while(isActive && gen == generation && tool == name && foreground) {
-                        delay(2000); val next = gateway.api(path); if(tool == name) toolData = next
+                    while(isActive && gen == generation && tool == name && request==toolRequest && foreground) {
+                        delay(2000); val next = gateway.api(path); if(gen==generation && tool==name && request==toolRequest) toolData = next
                     }
                 }
-            } catch(e: CancellationException) { throw e } catch(e: Exception) { if(gen == generation && tool == name) failure(e) }
-            finally { if(gen == generation && tool == name) toolLoading = false }
+            } catch(e:TimeoutCancellationException) {if(gen==generation && tool==name && request==toolRequest)error=t("模型读取超时，请重试或检查电脑端接入。","Model request timed out. Retry or check the computer's provider.")} catch(e: CancellationException) { throw e } catch(e: Exception) { if(gen == generation && tool == name && request==toolRequest) failure(e) }
+            finally { if(gen == generation && tool == name && request==toolRequest) toolLoading = false }
         }
     }
-    fun closeTool() { if(!busy) { tool = null; error = "" } }
+    fun closeTool() { if(!busy) { toolRequest++;toolRead?.cancel();toolRead=null;toolLoading=false;tool = null; error = "" } }
     fun perform(path: String,fields: JsonObject,keepOpen: Boolean = false,durableKey: String? = null,idField: String = "id") {
         val gateway = api ?: return; val connection = selected!!.id
         action {

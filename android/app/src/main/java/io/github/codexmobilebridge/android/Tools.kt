@@ -107,8 +107,14 @@ import kotlinx.serialization.json.*
             Button(onClick={vm.perform("/api/sessions",payload("project" to project,"title" to title),durableKey="new:$project:$title")},enabled=ready && project.isNotEmpty()){Text(vm.t("创建聊天","Create chat"))}
         }
         "model" -> {
+            val models=data.rows("models")
+            val source=when(data.str("modelSource")){"api"->vm.t("当前账号的 API 接入","Current account's API provider");"codex"->vm.t("Codex 桌面运行时","Codex desktop runtime");else->if(vm.provider=="claude")"Claude Code" else "Codex"}
+            Text(vm.t("模型来源：","Model source: ")+source+data.str("modelAccessName").let{if(it.isBlank())"" else " · $it"},style=MaterialTheme.typography.bodySmall)
+            if(data.str("modelError").isNotBlank())Text(data.str("modelError"),color=MaterialTheme.colorScheme.error)
+            if(models.isEmpty())Text(vm.t("暂未获取到可用模型，请刷新或检查电脑端接入。","No models available yet. Refresh or check the computer's provider."))
+            OutlinedButton(onClick={vm.openTool("model",refresh=true)},enabled=ready){Text(vm.t(if(models.isEmpty())"重试获取模型" else "刷新模型列表",if(models.isEmpty())"Retry model list" else "Refresh models"))}
             if(vm.provider=="claude"){ClaudeModelSettings(vm,data);return}
-            val models=data.rows("models");var model by remember {mutableStateOf(vm.timeline.meta.str("model",data.str("currentModel")))}
+            var model by remember {mutableStateOf(data.str("currentModel",vm.timeline.meta.str("model")))}
             var custom by remember {mutableStateOf(model)};var effort by remember(model){mutableStateOf(vm.timeline.meta.str("effort",models.find{it.str("id")==model}?.str("defaultEffort","medium") ?: "medium"))}
             var fast by remember {mutableStateOf(vm.timeline.meta.str("serviceTier")=="fast")};var dirty by remember {mutableStateOf(false)}
             Choice(if(models.any{it.str("id")==model})model else "custom",models.map{it.str("id") to it.str("name",it.str("id"))}+listOf("custom" to vm.t("自定义模型","Custom model"))){model=it;dirty=false}

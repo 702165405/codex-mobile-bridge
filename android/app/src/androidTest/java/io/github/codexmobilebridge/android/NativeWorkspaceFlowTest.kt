@@ -27,18 +27,31 @@ class NativeWorkspaceFlowTest {
     private val id="12345678-1234-1234-1234-123456789abc"
     private var unknown=false
     private var terminalUnavailable=false
+    private var catalogFailed=false
+    private var authUnavailable=false
+    private var liveCookieRequired=false
+    private lateinit var serverCertificates:HandshakeCertificates
     @Before fun prepare(){
         val app=ApplicationProvider.getApplicationContext<Application>();app.getSharedPreferences("bridge",0).edit().clear().commit()
         vm=BridgeViewModel(app);vm.preference("language","en")
         val cert=HeldCertificate.Builder().commonName("localhost").addSubjectAlternativeName("localhost").build()
         val trusted=HandshakeCertificates.Builder().addTrustedCertificate(cert.certificate).build()
-        server=MockWebServer();server.useHttps(HandshakeCertificates.Builder().heldCertificate(cert).build().sslSocketFactory(),false)
+        serverCertificates=HandshakeCertificates.Builder().heldCertificate(cert).build()
+        server=MockWebServer();server.useHttps(serverCertificates.sslSocketFactory(),false)
         server.dispatcher=object:Dispatcher(){override fun dispatch(request:RecordedRequest):MockResponse {
             calls.add(request);val path=request.requestUrl!!.encodedPath
             if(terminalUnavailable && path.endsWith("/terminal"))return MockResponse().setResponseCode(404).setBody("{\"error\":\"Terminal expired\"}")
+            if(authUnavailable && path=="/api/auth")return MockResponse().setResponseCode(503).setBody("{\"error\":\"Gateway offline\"}")
+            if(path.endsWith("/catalog")) {
+                if(catalogFailed)return MockResponse().setResponseCode(503).setBody("{\"error\":\"Models temporarily unavailable\"}")
+                val kind=request.requestUrl!!.queryParameter("kind")
+                if(!path.startsWith("/api/desktop-sessions/") && kind==null)return MockResponse().setResponseCode(500).setBody("{\"error\":\"Skills read failed in combined catalog\"}")
+                val rows=JsonArray(listOf(payload("id" to "alpha","name" to "Model Alpha","efforts" to listOf("medium","high")),payload("id" to "beta","name" to "Model Beta","efforts" to listOf("low","medium"))))
+                return MockResponse().setBody(if(kind=="skills")payload("skills" to JsonArray(listOf(payload("id" to "skill-one","name" to "Native Skill")))).toString() else payload("models" to rows,"currentModel" to "alpha","currentEffort" to "medium","modelSource" to "api","modelAccessName" to "Test provider","capabilities" to payload("models" to true,"effort" to true)).toString())
+            }
             val meta=payload("title" to "Native project","cwd" to "/test/project","connected" to true,"status" to "idle")
             val value=when {
-                path=="/api/auth"->payload("authenticated" to true,"csrf" to "native-csrf")
+                path=="/api/auth"->payload("authenticated" to (!liveCookieRequired || request.getHeader("Cookie")?.contains("session=live")==true),"csrf" to "native-csrf")
                 path=="/api/sessions"->payload("sessions" to JsonArray(listOf(payload("id" to id,"host" to "local","title" to "Native project"))))
                 path=="/api/activity"->payload("sessions" to JsonArray(emptyList()))
                 path.endsWith("/timeline") || path.endsWith("/changes")->payload("epoch" to "native","sequence" to 1,"meta" to meta,"rows" to JsonArray(listOf(payload("key" to "native-msg","order" to 1,"role" to "assistant","text" to "Native history"))))
@@ -52,7 +65,7 @@ class NativeWorkspaceFlowTest {
                 path.endsWith("/terminal")->if(request.method=="POST")payload("output" to "Native terminal\r\n","cursor" to 17,"running" to true) else if(request.requestUrl!!.queryParameter("id")!=null)payload("output" to "","cursor" to 17,"running" to true) else payload("mode" to "pty","shell" to "/bin/zsh","cwd" to "/test/project")
                 else->payload()
             }
-            return MockResponse().setBody(value.toString()).let{if(path.endsWith("/changes") || path.endsWith("/detail"))it.setBodyDelay(300,TimeUnit.MILLISECONDS) else it}
+            return MockResponse().setBody(value.toString()).apply{if(path=="/api/auth")addHeader("Set-Cookie","session=live; Secure; HttpOnly; Path=/")}.let{if(path.endsWith("/changes") || path.endsWith("/detail"))it.setBodyDelay(300,TimeUnit.MILLISECONDS) else it}
         }};server.start()
         val address=server.url("/").toString()
         ui.runOnIdle{vm.saveConnection("Native Mac",address);vm.gatewayFactory={row->Gateway(row,vm.store::get,vm.store::put){it.sslSocketFactory(trusted.sslSocketFactory(),trusted.trustManager)}}}
@@ -72,6 +85,44 @@ class NativeWorkspaceFlowTest {
         val bodies=sends.map{json.parseToJsonElement(it.body.clone().readUtf8()) as JsonObject}
         assertEquals(bodies[0].str("id"),bodies[1].str("id"));assertEquals(id,bodies[0].str("sessionId"));assertEquals("native-csrf",sends[0].getHeader("X-CSRF-Token"))
         ui.runOnIdle{vm.showSessions()};ui.waitUntil(10000){!vm.busy};ui.runOnIdle{vm.openChat(id,"desktop:claude");assertEquals(-1,vm.timeline.sequence);assertTrue(vm.timeline.messages.isNotEmpty());assertFalse(vm.timeline.meta.bool("connected"));assertTrue(vm.timeline.meta.rows("requests").isEmpty())}
+    }
+    @Test fun nativeModelPickerDoesNotLoadSkillsAndAppliesSelectedModel(){
+        openCodex();ui.runOnIdle{vm.openTool("model")};ui.waitUntil(10000){!vm.toolLoading && vm.toolData.rows("models").size==2}
+        val request=calls.last{it.requestUrl!!.encodedPath.endsWith("/catalog")}
+        assertEquals("models",request.requestUrl!!.queryParameter("kind"));assertNull(request.requestUrl!!.queryParameter("refresh"))
+        ui.onNodeWithText("Model source: Current account's API provider · Test provider").assertExists()
+        ui.onNodeWithText("Model Alpha").performClick();ui.onNodeWithText("Model Beta").performClick();ui.onNodeWithText("Apply settings").performClick()
+        ui.waitUntil(10000){calls.any{it.requestUrl!!.encodedPath.endsWith("/settings")}}
+        val settings=calls.last{it.requestUrl!!.encodedPath.endsWith("/settings")}
+        assertEquals("beta",(json.parseToJsonElement(settings.body.clone().readUtf8()) as JsonObject).str("model"))
+        ui.waitUntil(10000){!vm.busy};ui.runOnIdle{vm.openTool("skills")};ui.waitUntil(10000){!vm.toolLoading && vm.toolData.rows("skills").isNotEmpty()}
+        assertEquals("skills",calls.last{it.requestUrl!!.encodedPath.endsWith("/catalog")}.requestUrl!!.queryParameter("kind"))
+    }
+    @Test fun modelErrorsCanBeRetriedAndClaudeUsesDesktopCatalog(){
+        openCodex();catalogFailed=true;ui.runOnIdle{vm.openTool("model")};ui.waitUntil(10000){!vm.toolLoading && vm.error=="Models temporarily unavailable"}
+        ui.onNodeWithText("Models temporarily unavailable").assertExists();catalogFailed=false
+        ui.onNodeWithText("Retry model list").performClick();ui.waitUntil(10000){!vm.toolLoading && vm.toolData.rows("models").size==2}
+        assertEquals("true",calls.last{it.requestUrl!!.encodedPath.endsWith("/catalog")}.requestUrl!!.queryParameter("refresh"))
+        ui.runOnIdle{vm.closeTool();vm.chooseProvider("claude")};ui.waitUntil(10000){!vm.busy};ui.runOnIdle{vm.openChat(id,"desktop:claude")};ui.waitUntil(10000){vm.timeline.sequence>=0}
+        ui.runOnIdle{vm.openTool("model")};ui.waitUntil(10000){!vm.toolLoading && vm.toolData.rows("models").size==2}
+        val request=calls.last{it.requestUrl!!.encodedPath.endsWith("/catalog")};assertEquals("/api/desktop-sessions/claude/catalog",request.requestUrl!!.encodedPath);assertEquals(id,request.requestUrl!!.queryParameter("sessionId"));assertNull(request.requestUrl!!.queryParameter("kind"))
+        ui.onNodeWithText("Model Alpha").performClick();ui.onNodeWithText("Model Beta").performClick();ui.onNodeWithText("Apply settings").performClick()
+        ui.waitUntil(10000){calls.any{it.requestUrl!!.encodedPath=="/api/desktop-sessions/claude/settings"}}
+        val body=json.parseToJsonElement(calls.last{it.requestUrl!!.encodedPath=="/api/desktop-sessions/claude/settings"}.body.clone().readUtf8()) as JsonObject
+        assertEquals("beta",body.str("model"));assertEquals(id,body.str("sessionId"));assertTrue(body.str("id").isNotEmpty())
+    }
+    @Test fun homeShowsEachGatewayAndRefreshesFailureWithoutSigningIn(){
+        val other=MockWebServer();other.useHttps(serverCertificates.sslSocketFactory(),false);other.enqueue(MockResponse().setBody("{\"authenticated\":false}"));other.start()
+        val address=other.url("/").toString()
+        try{
+            ui.runOnIdle{assertTrue(vm.store.get("cookies:${vm.selected!!.id}").isNullOrBlank());liveCookieRequired=true;vm.showConnections();vm.saveConnection("Other Mac",address)}
+            ui.waitUntil(10000){vm.connectionStates.values.containsAll(listOf("connected","login"))}
+            ui.onNodeWithText("Gateway connected").assertExists();ui.onNodeWithText("Gateway online · Sign in required").assertExists()
+            val probe=other.takeRequest(2,TimeUnit.SECONDS)!!;assertEquals("GET",probe.method);assertEquals("/api/auth",probe.requestUrl!!.encodedPath);assertNull(probe.getHeader("Cookie"));assertEquals(0,probe.bodySize)
+            authUnavailable=true;other.enqueue(MockResponse().setBody("{\"authenticated\":false}"))
+            ui.onNodeWithText("Refresh status").performClick();ui.waitUntil(10000){vm.connectionStates[vm.selected!!.id]=="unreachable"};ui.onNodeWithText("Gateway unreachable").assertExists()
+            ui.runOnIdle{vm.pause()};val count=calls.size;Thread.sleep(500);assertEquals(count,calls.size)
+        }finally{ui.runOnIdle{vm.stopConnectionChecks()};other.shutdown()}
     }
     @Test fun filesAndGitAreNativeAndMutationsCarryFreshVersion(){
         openCodex();ui.runOnIdle{vm.openWorkspace("files")}

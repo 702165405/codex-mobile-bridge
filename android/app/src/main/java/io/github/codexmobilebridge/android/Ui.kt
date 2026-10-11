@@ -72,7 +72,7 @@ val EmptyObject = JsonObject(emptyMap())
             Scaffold(topBar = {
                 TopAppBar(title={ Column {
                     Text(if(vm.screen in listOf("chat","workspace")) vm.timeline.meta.str("title",vm.t("聊天","Chat")) else if(vm.screen=="connections")vm.t("我的电脑","My computers") else vm.t("工作台","Workbench"),maxLines=1)
-                    if(vm.selected != null && vm.screen != "connections") Text(vm.selected!!.name,style=MaterialTheme.typography.labelMedium)
+                    if(vm.selected != null && vm.screen != "connections") Text(vm.selected!!.name+" · "+vm.connectionStatusText(vm.selected!!.id),style=MaterialTheme.typography.labelMedium)
                 } }, navigationIcon={
                     if(vm.screen != "connections") IconButton(onClick={ if(vm.screen=="workspace")vm.closeWorkspace() else if(vm.screen=="chat") vm.showSessions() else vm.showConnections() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack,vm.t("返回","Back")) }
                 }, actions={
@@ -129,6 +129,7 @@ val EmptyObject = JsonObject(emptyMap())
     var editing by remember { mutableStateOf<Connection?>(null) }; var add by remember { mutableStateOf(false) }
     var delete by remember { mutableStateOf<Connection?>(null) }; var paste by remember { mutableStateOf(false) }
     val context=LocalContext.current
+    DisposableEffect(vm.connections){vm.checkConnections();onDispose{vm.stopConnectionChecks()}}
     val scan=rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()){result->result.data?.getStringExtra("code")?.let(vm::importNavigation)}
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal=20.dp,vertical=8.dp)) {Text(vm.t("电脑上的工作，带在身边。","Your work, wherever you are."),style=MaterialTheme.typography.headlineMedium);Text(vm.t("连接电脑，继续 Codex 和 Claude Code。","Connect a computer to continue Codex and Claude Code."),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
@@ -136,7 +137,7 @@ val EmptyObject = JsonObject(emptyMap())
             Button(onClick={ editing=null;add=true },Modifier.weight(1f)) { Icon(Icons.Default.Add,null);Text(vm.t("添加电脑","Add computer")) }
             OutlinedButton(onClick={paste=true}) { Text(vm.t("粘贴登录链接","Paste login link")) }
         }
-        Row(Modifier.padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {OutlinedButton(onClick={scan.launch(android.content.Intent(context,io.github.try2love.codexbridge.ScanActivity::class.java))}){Icon(Icons.Default.QrCodeScanner,null);Text(vm.t("扫码连接","Scan to connect"))}}
+        Row(Modifier.padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {OutlinedButton(onClick={scan.launch(android.content.Intent(context,io.github.try2love.codexbridge.ScanActivity::class.java))}){Icon(Icons.Default.QrCodeScanner,null);Text(vm.t("扫码连接","Scan to connect"))};TextButton(onClick=vm::checkConnections){Icon(Icons.Default.Refresh,null);Text(vm.t("刷新状态","Refresh status"))}}
         if(vm.connections.isEmpty()) Column(Modifier.fillMaxWidth().padding(32.dp),horizontalAlignment=Alignment.CenterHorizontally) {
             Icon(Icons.Default.Devices,null,Modifier.size(64.dp),tint=MaterialTheme.colorScheme.primary)
             Text(vm.t("把电脑上的工作带到手机","Continue computer work on your phone"),style=MaterialTheme.typography.titleLarge)
@@ -150,6 +151,11 @@ val EmptyObject = JsonObject(emptyMap())
                             Icon(Icons.Default.Computer,null,Modifier.size(36.dp)); Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) { Text(row.name,style=MaterialTheme.typography.titleMedium);Text(row.origin,style=MaterialTheme.typography.bodySmall) }
                             Icon(Icons.Default.ChevronRight,vm.t("连接","Connect"))
+                        }
+                        Row(Modifier.padding(top=10.dp),verticalAlignment=Alignment.CenterVertically) {
+                            val state=vm.connectionStates[row.id]
+                            Box(Modifier.size(8.dp).background(when(state){"connected"->Color(0xFF33825C);"unreachable"->MaterialTheme.colorScheme.error;"checking"->MaterialTheme.colorScheme.primary;else->MaterialTheme.colorScheme.onSurfaceVariant},RoundedCornerShape(4.dp)))
+                            Spacer(Modifier.width(8.dp));Text(vm.connectionStatusText(row.id),style=MaterialTheme.typography.labelMedium)
                         }
                         if(row.lastUsed>0) Text(vm.t("最近使用：","Last used: ")+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(row.lastUsed)),style=MaterialTheme.typography.labelSmall,modifier=Modifier.padding(top=12.dp))
                         Row {

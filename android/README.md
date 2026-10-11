@@ -1,8 +1,10 @@
 # Codex Mobile Bridge Android
 
-Kotlin / Jetpack Compose Material 3 原生客户端，Android 8.0+，版本 **1.2.0 / versionCode 12**，包名 `io.github.codexmobilebridge.android`。基于上游 v2.0.1 功能接口，以自有仓库 `main` 和原生安卓为主。
+Kotlin / Jetpack Compose Material 3 原生客户端，Android 8.0+，版本 **1.2.1 / versionCode 13**，包名 `io.github.codexmobilebridge.android`。基于上游 v2.0.1 功能接口，以自有仓库 `main` 和原生安卓为主。
 
-## 1.2.0 原生工作台
+## 1.2.1 原生工作台
+
+1.2.1 修复原生模型目录获取：Codex 模型和 Skills 分别按 `kind=models`／`kind=skills` 读取，首次打开使用网关缓存，手动刷新才强制重新读取。模型页显示当前账号接入／桌面运行时的实际来源，提供错误说明与重试；Claude Code 沿用其桌面目录。首页逐台电脑显示网关已连接、在线待登录、检测中或无法连接，支持手动刷新；首页可见时每 15 秒检测，后台停止，最多并发两台、每次 8 秒超时，不自动提交密码。
 
 日常入口全部使用原生页面：扫码与多电脑卡片、Codex／Claude Code 会话切换、聊天、文件、Git、连续终端、临时侧边聊天与子智能体历史。采用新版的蓝色强调、白／灰卡片、深色模式和工具标签设计，保持原生消息、Markdown、输入和滚动。
 
@@ -21,7 +23,7 @@ Kotlin / Jetpack Compose Material 3 原生客户端，Android 8.0+，版本 **1.
 
 ## 安装与连接
 
-安装 `dist/android/Codex-Mobile-Bridge-1.2.0.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
+安装 `dist/android/Codex-Mobile-Bridge-1.2.1.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
 
 首页添加多台电脑，保存名称、排序和最近使用时间。点击卡片独立登录；聊天顶部电脑图标切换连接。可粘贴网页扫码登录链接，也可通过安卓系统分享将链接传入 App。账号密码登录可勾选「记住账号和密码」，登录成功后按连接独立保存，使用 Android Keystore 加密；重新登录时自动填入，不自动提交。取消勾选或删除连接会清除该连接保存的账号密码。免密网关显示免密连接按钮。扫码登录链接只在首次打开或新分享时消费，旋转不会重复兑换。
 
@@ -91,7 +93,7 @@ android/gradlew -p android :app:connectedDebugAndroidTest
 
 详见 [测试结果](TEST_RESULTS.md)。提供源码与签名 APK，不发布应用商店版本。
 
-## App 内更新（1.2.0：原生工作台，个人域名）
+## App 内更新（1.2.1：原生工作台，个人域名）
 
 打开右上角设置 →「版本与更新」，无需连接电脑即可查看版本、检查、下载和安装更新。默认读取 `https://mac.lqilt.top/android/update.json`，APK 来自同一域名 `/android/` 目录。更新 HTTP 客户端与聊天登录隔离，不发送网关 Cookie、CSRF 或登录凭据。
 
@@ -99,7 +101,7 @@ android/gradlew -p android :app:connectedDebugAndroidTest
 
 发布步骤：增加 versionCode／versionName，用同一签名运行 `build-release.py`；运行 `python3 android/scripts/create-update-manifest.py --notes '中文更新说明'`。先上传 APK 到现有域名的 `/android/` 静态目录，校验后最后原子替换 update.json。只部署到自己的服务器，不推送或发布 GitHub；签名密钥始终保存在本机。
 
-仍使用个人域名的旧版可直接检查更新。1.0.8 与 1.1.0 使用过 GitHub 更新源，需要从 `https://mac.lqilt.top/android/Codex-Mobile-Bridge-1.2.0.apk` 下载并覆盖安装一次，之后 App 检查更新继续使用个人域名。静态服务配置见 `hosting/nginx-location.conf`。
+仍使用个人域名的旧版可直接检查更新。1.0.8 与 1.1.0 使用过 GitHub 更新源，需要从 `https://mac.lqilt.top/android/Codex-Mobile-Bridge-1.2.1.apk` 下载并覆盖安装一次，之后 App 检查更新继续使用个人域名。静态服务配置见 `hosting/nginx-location.conf`。
 
 ## 列表运行提示（1.0.3）
 
