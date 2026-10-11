@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bridge.clients.codex.catalog import Catalog, CatalogError
-from bridge.features.accounts.models import model_ids
+from bridge.features.accounts.models import model_catalog, model_ids
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,6 +38,26 @@ class ModelResponseTests(unittest.TestCase):
                                     'models': [{'slug': 'native-model'}]}), ['openai-model'])
         with self.assertRaisesRegex(ValueError, '未返回可用模型'):
             self.read({'data': [], 'models': [{'slug': 'native-model'}]})
+
+
+    def test_magpie_metadata_is_public_and_preserves_routing_ids(self):
+        payload = {'data': [
+            {'id': 'cccc/gpt-test', 'display_name': 'GPT Test', 'magpie_label': 'GPT Test · cccc',
+             'supported_reasoning_levels': [{'effort': 'low'}, {'effort': 'max'}, {'effort': 'low'},
+                                           {'effort': 'unknown'}, 'invalid'],
+             'api_key': 'private-fixture'},
+            {'id': 'group/auto-gpt-test', 'magpie_label': 'GPT Test · routing group',
+             'supported_reasoning_levels': None},
+            {'id': 'invalid model'}, {'id': 'control', 'magpie_label': 'bad\nname'}]}
+        with patch('bridge.features.accounts.models.build_opener') as factory:
+            factory.return_value.open.return_value = io.BytesIO(json.dumps(payload).encode())
+            models = model_catalog('http://127.0.0.1:3425/v1', '')
+            request = factory.return_value.open.call_args.args[0]
+        self.assertEqual(models[0], {'id': 'cccc/gpt-test', 'name': 'GPT Test · cccc', 'efforts': ['low', 'max']})
+        self.assertEqual(models[1]['name'], 'control')
+        self.assertEqual(models[2]['id'], 'group/auto-gpt-test')
+        self.assertNotIn('private-fixture', json.dumps(models))
+        self.assertIsNone(request.get_header('Authorization'))
 
 
 class ApiCatalogTests(unittest.TestCase):
@@ -138,6 +158,69 @@ class ApiCatalogTests(unittest.TestCase):
         upstream.assert_not_called()
         self.assertEqual(result['models'][0]['model'], 'gpt-fixture')
         self.assertEqual(result['modelSource'], 'codex')
+
+    def magpie_config(self):
+        self.config = {'openai_base_url': 'http://127.0.0.1:3425/backend-api/codex',
+                       'model_catalog_json': str(self.home/'cc-switch-model-catalog.json'),
+                       'model_reasoning_effort': 'max', 'model_providers': {
+                           'magpie': {'base_url': 'http://127.0.0.1:3425/v1',
+                                      'experimental_bearer_token': 'private-fixture',
+                                      'http_headers': {'x-openai-actor-authorization': 'actor-fixture'}},
+                           'custom': {'base_url': 'http://127.0.0.1:3425/v1'}}}
+
+    def test_magpie_live_catalog_overrides_old_cc_switch_list_without_forwarding_credentials(self):
+        self.magpie_config()
+        for provider in ('openai', 'magpie', 'custom'):
+            with self.subTest(provider=provider), patch('bridge.features.accounts.models.build_opener') as factory:
+                factory.return_value.open.return_value = io.BytesIO(json.dumps({'data': [
+                    {'id': 'group/auto-gpt-test', 'magpie_label': 'GPT Test · routing group',
+                     'supported_reasoning_levels': [{'effort': 'low'}, {'effort': 'ultra'}]}]}).encode())
+                result = self.reader.read_models(self.request, str(self.home), provider)
+                request = factory.return_value.open.call_args.args[0]
+            self.assertEqual(request.full_url, 'http://127.0.0.1:3425/v1/models')
+            self.assertIsNone(request.get_header('Authorization'))
+            self.assertIsNone(request.get_header('X-openai-actor-authorization'))
+            self.assertEqual(result['modelAccessName'], 'Magpie')
+            self.assertEqual(result['modelSource'], 'api')
+            self.assertEqual(result['currentEffort'], 'max')
+            self.assertEqual(result['models'][0]['model'], 'group/auto-gpt-test')
+            self.assertEqual(result['models'][0]['supportedReasoningEfforts'],
+                             [{'reasoningEffort': 'low'}, {'reasoningEffort': 'ultra'}])
+        self.assertNotIn('model/list', [method for method, _ in self.calls])
+        self.assertNotIn('private-fixture', json.dumps(result))
+
+    def test_magpie_failure_never_shows_stale_cc_switch_models(self):
+        self.magpie_config()
+        with patch('bridge.clients.codex.catalog.model_catalog', side_effect=ValueError('无法连接上游')):
+            result = self.reader.read_models(self.request, str(self.home), 'openai')
+        self.assertEqual(result['models'], [])
+        self.assertEqual(result['modelError'], '无法连接上游')
+        self.assertNotIn('model/list', [method for method, _ in self.calls])
+
+    def test_magpie_detection_does_not_override_other_providers_or_remote_endpoints(self):
+        self.magpie_config()
+        self.config['model_providers']['other'] = {'base_url': 'https://other.invalid/v1'}
+        with patch('bridge.clients.codex.catalog.model_catalog') as public:
+            result = self.reader.read_models(self.request, str(self.home), 'other')
+        public.assert_not_called()
+        self.assertEqual(result['modelSource'], 'codex')
+        self.config['openai_base_url'] = 'https://remote.invalid/backend-api/codex'
+        self.config['model_providers']['magpie']['base_url'] = 'https://remote.invalid/v1'
+        with patch('bridge.clients.codex.catalog.model_catalog') as public:
+            self.reader.read_models(self.request, str(self.home), 'openai')
+        public.assert_not_called()
+
+    def test_split_catalog_preserves_magpie_source_name_and_efforts(self):
+        self.magpie_config()
+        self.reader._fetch = lambda *args: {**self.reader.read_models(self.request, str(self.home), 'openai'),
+                                           'fastMode': {'allowed': False}}
+        with patch('bridge.clients.codex.catalog.model_catalog', return_value=[
+                {'id': 'cccc/gpt-test', 'name': 'GPT Test · cccc', 'efforts': ['low', 'max']}]):
+            result = self.reader.get_kind('models', self.home, refresh=True)
+        self.assertEqual(result['modelAccessName'], 'Magpie')
+        self.assertEqual(result['models'][0]['efforts'], ['low', 'max'])
+        self.assertEqual(result['models'][0]['name'], 'GPT Test · cccc')
+        self.assertFalse(result['fastMode']['allowed'])
 
     def test_official_account_retains_native_catalog(self):
         self.config={}

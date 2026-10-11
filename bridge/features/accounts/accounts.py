@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 from bridge.features.accounts.account import AccountRPC, AccountError, Account
 from bridge.clients.desktop_app import DesktopApp
-from bridge.features.accounts.models import model_ids
+from bridge.features.accounts.models import model_catalog, model_ids
 from bridge.features.accounts.info import AccountInfo
 from bridge.clients.codex.transport import connect_stream
 from bridge.features.notifications.channels import read_json
@@ -380,7 +380,7 @@ class Accounts:
         if not refresh and cached.get('status') == 'ready' and time.time()-cached.get('checkedAt', 0) < 300:
             return copy.deepcopy(cached['models'])
         key = read_json(self.directory(row['id'])/'api.json', {})['key']
-        models = [{'id': identifier, 'name': identifier, 'efforts': []} for identifier in model_ids(row['baseUrl'], key)]
+        models = model_catalog(row['baseUrl'], key)
         self.info.entries.setdefault(row['id'], {})['models'] = {'models':copy.deepcopy(models), 'status':'ready', 'checkedAt':time.time()}
         return models
 

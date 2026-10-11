@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from bridge.features.accounts.models import model_ids
+from bridge.features.accounts.models import model_catalog, model_ids
 
 logger = logging.getLogger(__name__)
 SKILL_CACHE = 'skill-cache.json'
@@ -461,6 +461,28 @@ class Catalog:
         provider = provider or effective.get('model_provider') or 'openai'
         definition = (effective.get('model_providers') or {}).get(provider) or {}
         base = definition.get('base_url') or (effective.get('openai_base_url') or os.environ.get('OPENAI_BASE_URL') if provider == 'openai' else None)
+        # Magpie exposes its public catalog on /v1, including for its ChatGPT
+        # backend route. Prefer that live list over an old CC Switch file.
+        magpie = (effective.get('model_providers') or {}).get('magpie') or {}
+        magpie_url = urlsplit(magpie.get('base_url') or '')
+        active_url = urlsplit(base or '')
+        if (magpie_url.scheme == 'http' and magpie_url.hostname in ('127.0.0.1', 'localhost', '::1')
+                and not (magpie_url.username or magpie_url.password or magpie_url.query or magpie_url.fragment)
+                and magpie_url.path.rstrip('/') == '/v1'
+                and (active_url.scheme, active_url.netloc) == (magpie_url.scheme, magpie_url.netloc)
+                and active_url.path.rstrip('/') in ('/v1', '/backend-api/codex')):
+            result = {'models': [], 'modelSource': 'api', 'modelAccessName': 'Magpie',
+                      'currentEffort': effective.get('model_reasoning_effort')}
+            try:
+                # This loopback endpoint is public: never forward an account
+                # token or Magpie's actor-authorization header to it.
+                models = model_catalog(magpie.get('base_url').rstrip('/'), '')
+                result['models'] = [{'model': m['id'], 'displayName': m['name'],
+                                     'supportedReasoningEfforts': [{'reasoningEffort': e} for e in m['efforts']]}
+                                    for m in models]
+            except ValueError as exc:
+                result['modelError'] = str(exc)
+            return result
         custom = provider != 'openai' or base or any(definition.get(k) for k in
             ('env_key', 'experimental_bearer_token', 'http_headers', 'env_http_headers', 'auth', 'gateway_oauth'))
         auth = {} if custom else request('account/read', {'refreshToken': False}).get('account') or {}
@@ -618,7 +640,7 @@ class Catalog:
                            'defaultServiceTier': m.get('defaultServiceTier')} for m in raw['models'] if not m.get('hidden')]
                 value = {'models': models, 'kind': 'models', 'modelSource': raw.get('modelSource', 'codex'),
                          'fastMode': raw.get('fastMode', {'allowed': False}),
-                         'modelError': raw.get('modelError'), 'currentModel': raw.get('currentModel'),
+                         'modelError': raw.get('modelError'), 'modelAccessName': raw.get('modelAccessName'), 'currentModel': raw.get('currentModel'),
                          'currentEffort': raw.get('currentEffort')}
                 self.kind_caches[kind][key] = (time.monotonic(), value)
                 return value
@@ -713,7 +735,7 @@ class Catalog:
                                    'description': skill.get('description', ''), 'path': path,
                                    'scope': skill.get('scope'), 'displayName': (skill.get('interface') or {}).get('displayName') or skill['name']})
             value = {'models': models, 'skills': skills, 'errors': errors, 'fastMode': raw.get('fastMode', {'allowed': False}),
-                     'modelSource': raw.get('modelSource', 'codex'), 'modelError': raw.get('modelError'),
+                     'modelSource': raw.get('modelSource', 'codex'), 'modelError': raw.get('modelError'), 'modelAccessName': raw.get('modelAccessName'),
                      'currentModel': raw.get('currentModel'), 'currentEffort': raw.get('currentEffort')}
             self.cache[key] = (time.monotonic(), value)
             return value

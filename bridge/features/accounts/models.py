@@ -14,7 +14,7 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def model_ids(base_url, key):
+def model_catalog(base_url, key):
     request = Request(base_url.rstrip('/')+'/models', headers={
         **({'Authorization': 'Bearer '+key} if key else {}), 'Accept': 'application/json',
         'User-Agent': 'Codex-Mobile-Bridge'})
@@ -30,13 +30,24 @@ def model_ids(base_url, key):
         if not isinstance(rows, list):
             raise ValueError('上游未返回兼容的模型列表，请手动填写模型 ID')
         field = 'slug' if native else 'id'
-        result = sorted({row[field] for row in rows if isinstance(row, dict)
-                         and (not native or row.get('visibility') != 'hide')
-                         and isinstance(row.get(field), str)
-                         and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,199}', row[field])})
+        result = {}
+        for row in rows:
+            if not isinstance(row, dict) or (native and row.get('visibility') == 'hide'):
+                continue
+            identifier = row.get(field)
+            if not isinstance(identifier, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,199}', identifier):
+                continue
+            name = row.get('magpie_label') or row.get('display_name') or identifier
+            if not isinstance(name, str) or not 0 < len(name) <= 200 or any(ord(c) < 32 or ord(c) == 127 for c in name):
+                name = identifier
+            levels = row.get('supported_reasoning_levels')
+            efforts = list(dict.fromkeys(level.get('effort') for level in levels
+                          if isinstance(level, dict) and level.get('effort') in
+                          ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'))) if isinstance(levels, list) else []
+            result[identifier] = {'id': identifier, 'name': name, 'efforts': efforts}
         if not result:
             raise ValueError('上游未返回可用模型，请手动填写模型 ID')
-        return result
+        return [result[identifier] for identifier in sorted(result)]
     except HTTPError as exc:
         exc.close()
         if exc.code in (401, 403):
@@ -48,3 +59,7 @@ def model_ids(base_url, key):
         raise ValueError('无法连接上游，请检查 API 地址、网络和证书后重试') from None
     except (json.JSONDecodeError, UnicodeError):
         raise ValueError('上游未返回兼容的模型列表，请手动填写模型 ID') from None
+
+
+def model_ids(base_url, key):
+    return [model['id'] for model in model_catalog(base_url, key)]
