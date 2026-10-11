@@ -1,22 +1,27 @@
 # Codex Mobile Bridge Android
 
-Kotlin / Jetpack Compose Material 3 原生 Codex 客户端，项目工作台采用受控 WebView。Android 8.0+，版本 1.1.1，包名 `io.github.codexmobilebridge.android`。已合入上游 v2.0.1，提供原生 Codex 与新版工作台，已整合到自有仓库 `702165405/codex-mobile-bridge` 的 `main`；`codex/android-native` 保留原开发历史。
+Kotlin / Jetpack Compose Material 3 原生客户端，Android 8.0+，版本 **1.2.0 / versionCode 12**，包名 `io.github.codexmobilebridge.android`。基于上游 v2.0.1 功能接口，以自有仓库 `main` 和原生安卓为主。
 
-## 1.1.1 试用说明
+## 1.2.0 原生工作台
 
-原生 Codex 聊天列表、加密记住账号密码、草稿、后台提醒和自有仓库更新继续保留。首页「新版工作台」可扫码和管理多台电脑；已登录后从菜单「项目工作台 · 文件 / Git / 终端」进入当前 Codex 聊天对应的工作台，或选择「Claude Code」。工作台菜单可返回原生页面。
+日常入口全部使用原生页面：扫码与多电脑卡片、Codex／Claude Code 会话切换、聊天、文件、Git、连续终端、临时侧边聊天与子智能体历史。采用新版的蓝色强调、白／灰卡片、深色模式和工具标签设计，保持原生消息、Markdown、输入和滚动。
 
-工作台完整复用新版网关的文件浏览/预览/上传、目录 ZIP 与大文件续传、图片缩放、Git 差异/历史/暂存/提交/本地分支合并、连续终端、Codex 临时侧边聊天与子智能体历史、上下文用量和宽屏分屏。只提供 Codex 与 Claude Code；DeepSeek/Harness 和 Cowork 的发现、启用与 HTTP 接口均关闭。
+工具在打开时读取数据；首屏不下载网页 JS/CSS，也不启动 WebView。最近聊天使用最多四条会话的有界内存缓存，先显示历史再后台核验；缓存不显示待审批请求，不作为已连接状态。恢复较早阅读位置时，分页读取完成后一次替换列表。后台停止界面轮询，前台恢复；电脑、客户端和聊天的草稿与操作编号分别保存。
 
-需配套本分支 v2 网关，旧 v1.4 网关无法提供这些工具。Claude Code 首次接入可能需要在电脑端确认权限、开发者模式或目录信任；不支持普通 Claude Chat。侧边聊天结束或网关重启后清除。
+- **Codex／Claude Code**：原生列表、聊天、发送／排队／补充、模型、Skill、审批及问题回答、账号接入和通知设置。Codex 继续保留计划／目标、编辑／分支等原有能力。Claude 功能按桌面实际提供的能力显示，不包含 Cowork、普通 Claude Chat 或其他客户端。
+- **文件**：目录、筛选、隐藏文件、分页、文本／代码预览、图片缩放、上传、目录 ZIP 与流式下载；下载使用 ETag／Range 续传，内容变化时重新下载。上传沿用网关 20 MiB 限制，不覆盖已有不同内容。
+- **Git**：工作区／已暂存／冲突、差异、提交历史与文件差异、暂存／撤回、提交、创建／切换分支、合并和中止合并。写操作携带读取时的版本，提交及分支操作须在原生界面确认。
+- **终端**：按电脑和聊天保持 shell，发送命令和交互输入，Ctrl+C、Tab、Esc、方向键、清屏和关闭。输入编号跨页面保存，未知结果须核验原输入；终端失效时可确认放弃待核验输入，不自动重发命令。当前原生文本终端支持常用光标／清屏控制，复杂全屏 TUI 和完整 ANSI 颜色仍需外部终端；不执行输出中的剪贴板控制序列。
+- **侧边聊天**：在当前本地 Codex 项目中显式创建临时聊天，支持模型、Skill、附件、权限、发送／排队／补充、审批、停止及结束。网关重启或显式结束后清除；SSH 主机的限制沿用网关。
+- **宽屏**：工作台宽度达到 840 dp 时，聊天与工具并排；窄屏采用标签切换。
 
-工作台禁止 WebView 保存 Cookie，通过现有的 HTTPS/OkHttp 客户端读取和写入 Keystore 加密状态；本地存储由桥接层加密保存。公网/局域网均保持 HTTPS、证书验证和同源限制；写请求保留 CSRF，结果未知不自动重放。原生和工作台共用电脑登录，重命名、移除和退出会同步；后台提醒仍需用户主动开启。
+原包名、原签名、Keystore 加密账号／Cookie／草稿、后台提醒、连接隔离和 HTTPS 校验继续保留。在线更新地址始终为 `https://mac.lqilt.top/android/update.json`。随包保留的旧网页兼容类不在正常入口启动。
 
-本次为个人试用包，同一包名与原签名，允许从 1.0.8 覆盖安装。尚无厂商/FCM 后台推送配置；Windows/Linux 与其他安卓机型需另行验证。
+配套个人 Mac 网关 **2.0.2**。Claude Code 首次接入仍需在电脑确认权限、开发者模式或目录信任；服务端与客户端不支持的操作不能通过原生页面绕过。
 
 ## 安装与连接
 
-安装 `dist/android/Codex-Mobile-Bridge-1.1.1.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
+安装 `dist/android/Codex-Mobile-Bridge-1.2.0.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
 
 首页添加多台电脑，保存名称、排序和最近使用时间。点击卡片独立登录；聊天顶部电脑图标切换连接。可粘贴网页扫码登录链接，也可通过安卓系统分享将链接传入 App。账号密码登录可勾选「记住账号和密码」，登录成功后按连接独立保存，使用 Android Keystore 加密；重新登录时自动填入，不自动提交。取消勾选或删除连接会清除该连接保存的账号密码。免密网关显示免密连接按钮。扫码登录链接只在首次打开或新分享时消费，旋转不会重复兑换。
 
@@ -86,7 +91,7 @@ android/gradlew -p android :app:connectedDebugAndroidTest
 
 详见 [测试结果](TEST_RESULTS.md)。提供源码与签名 APK，不发布应用商店版本。
 
-## App 内更新（1.1.1：个人域名）
+## App 内更新（1.2.0：原生工作台，个人域名）
 
 打开右上角设置 →「版本与更新」，无需连接电脑即可查看版本、检查、下载和安装更新。默认读取 `https://mac.lqilt.top/android/update.json`，APK 来自同一域名 `/android/` 目录。更新 HTTP 客户端与聊天登录隔离，不发送网关 Cookie、CSRF 或登录凭据。
 
@@ -94,7 +99,7 @@ android/gradlew -p android :app:connectedDebugAndroidTest
 
 发布步骤：增加 versionCode／versionName，用同一签名运行 `build-release.py`；运行 `python3 android/scripts/create-update-manifest.py --notes '中文更新说明'`。先上传 APK 到现有域名的 `/android/` 静态目录，校验后最后原子替换 update.json。只部署到自己的服务器，不推送或发布 GitHub；签名密钥始终保存在本机。
 
-仍使用个人域名的旧版可直接检查更新。1.0.8 与 1.1.0 使用过 GitHub 更新源，需要从 `https://mac.lqilt.top/android/Codex-Mobile-Bridge-1.1.1.apk` 下载并覆盖安装一次，之后 App 检查更新继续使用个人域名。静态服务配置见 `hosting/nginx-location.conf`。
+仍使用个人域名的旧版可直接检查更新。1.0.8 与 1.1.0 使用过 GitHub 更新源，需要从 `https://mac.lqilt.top/android/Codex-Mobile-Bridge-1.2.0.apk` 下载并覆盖安装一次，之后 App 检查更新继续使用个人域名。静态服务配置见 `hosting/nginx-location.conf`。
 
 ## 列表运行提示（1.0.3）
 

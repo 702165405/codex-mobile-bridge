@@ -70,6 +70,25 @@ class Gateway(val connection: Connection, private val readState: (String) -> Str
             value
         }
     }
+    /** Reads may resume; the server must confirm both byte position and representation. */
+    suspend fun downloadTo(path: String, file: java.io.File, progress: (Long,Long)->Unit = {_,_->}): Unit = withContext(Dispatchers.IO) {
+        val key="download:$cookieKey:$path";val etag=readState(key)
+        val offset=if(etag!=null && file.isFile)file.length() else 0L
+        val builder=request(path,null).newBuilder()
+        if(offset>0){builder.header("Range","bytes=$offset-");builder.header("If-Range",etag!!)}
+        execute(builder.build()){response->
+            if(!response.isSuccessful)throw GatewayError(response.code,"下载失败 / Download failed: ${response.code}")
+            val resumed=response.code==206 && offset>0
+            if(resumed)require(response.header("Content-Range")?.startsWith("bytes $offset-")==true && response.header("ETag")==etag){"下载内容已变化 / Download changed"}
+            val next=response.header("ETag");writeState(key,next)
+            var copied=if(resumed)offset else 0L;val total=(response.body?.contentLength() ?: -1).let{if(it<0)-1 else copied+it}
+            java.io.FileOutputStream(file,resumed).use{output->response.body!!.byteStream().use{input->
+                val buffer=ByteArray(65536);var count:Int
+                while(input.read(buffer).also{count=it}>=0){output.write(buffer,0,count);copied+=count;progress(copied,total)}
+            }}
+            if(total>=0)check(copied==total){"下载中断 / Download interrupted"}
+        }
+    }
     suspend fun file(path: String, output: java.io.OutputStream): Unit = withContext(Dispatchers.IO) {
         execute(request(path,null)) { response ->
             if(!response.isSuccessful) throw GatewayError(response.code,"文件下载失败 / File download failed: ${response.code}")

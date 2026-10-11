@@ -78,6 +78,8 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf(""); private set
     var notice by mutableStateOf(""); private set
+    var provider by mutableStateOf("codex"); private set
+    var workspaceTab by mutableStateOf("files"); private set
     var sessions by mutableStateOf(emptyList<JsonObject>()); private set
     var activities by mutableStateOf(emptyMap<String,SessionActivity>()); private set
     var hostErrors by mutableStateOf(emptyList<JsonObject>()); private set
@@ -109,6 +111,10 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     private var listPolling: Job? = null
     private var foreground = false
     private var listGeneration = 0
+    private val lists=mutableMapOf<String,List<JsonObject>>()
+    private val chats=linkedMapOf<String,TimelineState>()
+    private var pendingNavigation:Triple<String,String,String>?=null
+    private var splitWorkspaceChat=false
     private var listOffset = 0
     var listHasMore by mutableStateOf(false); private set
     var notificationsAvailable by mutableStateOf(false); private set
@@ -159,10 +165,12 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         sessions = emptyList(); activities=emptyMap(); hostErrors = emptyList(); details = emptyMap(); draft = Draft(); attachments = emptyList(); screen = "connections"; error = ""
     }
     fun select(row: Connection, pairingToken: String? = null) {
+        if(pendingNavigation?.first!=row.origin)pendingNavigation=null
         disconnect()
         selected = row.copy(lastUsed=System.currentTimeMillis())
         connections = connections.map { if(it.id == row.id) selected!! else it }; store.saveConnections(connections); store.put("selected",row.id)
         activities=store.get("activity:${row.id}")?.let {runCatching {json.decodeFromString<Map<String,SessionActivity>>(it)}.getOrNull()}?.mapValues {it.value.copy(offline=true)} ?: emptyMap()
+        provider=store.get("provider:${row.id}")?.takeIf{it in listOf("codex","claude")} ?: "codex"
         api = gatewayFactory(selected!!); screen = "login"; busy = true
         val gateway = api!!; val gen = generation
         scope.launch {
@@ -180,7 +188,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         val storedSelection=store.get("selected");if(storedSelection!=selected?.id)connections.find{it.id==storedSelection}?.let{select(it)}
         foreground = true;LiveNotifications.foreground=true;visibleChat();appNotifications=store.get("appNotifications")=="true"
         if(selected != null && api == null) select(selected!!)
-        else if(authenticated) { if(target != null) startPolling(); startListPolling();startReminders() }
+        else if(authenticated) { if(target != null && (screen=="chat" || screen=="workspace" && splitWorkspaceChat)) startPolling(); startListPolling();startReminders() }
     }
     fun pause() {
         foreground = false;LiveNotifications.foreground=false;LiveNotifications.visible=null; polling?.cancel(); listPolling?.cancel(); api?.cancel()
@@ -192,21 +200,61 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         if(!passwordless) store.saveLogin(connection.id,if(rememberPassword) SavedLogin(username,password) else null)
         enter()
     }
-    fun importLink(link: String) {
+    fun importNavigation(link:String) {
+        try {
+            val value=Uri.parse(link)
+            if(value.scheme=="codexbridge") {
+                require(value.host=="open")
+                val origin=normalizeOrigin(value.getQueryParameter("origin") ?: "")
+                val connection=connections.find{it.origin==origin} ?: error(t("请先添加这台电脑","Add this computer first"))
+                val id=value.getQueryParameter("thread");val host=value.getQueryParameter("host") ?: "local"
+                if(id!=null){require(runCatching{java.util.UUID.fromString(id)}.isSuccess);require(host.length<=256 && (!host.startsWith("desktop:") || host=="desktop:claude"));pendingNavigation=Triple(origin,id,host);store.put("provider:${connection.id}",if(host=="desktop:claude")"claude" else "codex")}
+                select(connection)
+                return
+            }
+            require(value.scheme=="https" && (value.path.isNullOrBlank()||value.path=="/"))
+            val query=value.getQueryParameter("client") ?: "codex";require(query in listOf("codex","claude"))
+            require(value.queryParameterNames.all{it=="client"})
+            val fragment=value.fragment
+            if(fragment!=null && !fragment.startsWith("pair=")) {
+                val parts=fragment.split('~');require(parts.size==2 && runCatching{java.util.UUID.fromString(parts[0])}.isSuccess)
+                pendingNavigation=Triple(normalizeOrigin(value.buildUpon().clearQuery().fragment(null).build().toString()),parts[0],if(query=="claude")"desktop:claude" else parts[1])
+            }
+            val origin=normalizeOrigin(value.buildUpon().clearQuery().fragment(null).build().toString())
+            val connection=connections.find{it.origin==origin}
+            if(connection!=null)store.put("provider:${connection.id}",query)
+            importLink(origin+if(fragment?.startsWith("pair=")==true)"/#$fragment" else "",query)
+        } catch(e:Exception){pendingNavigation=null;error=e.message ?: "Invalid link"}
+    }
+    fun importLink(link: String,client: String? = null) {
         try {
             val url = link.trim().toHttpUrl(); val token = url.fragment?.takeIf { it.startsWith("pair=") }?.substringAfter("pair=")
             val origin = normalizeOrigin(url.newBuilder().fragment(null).build().toString())
             val row = connections.find { it.origin == origin } ?: Connection(name=url.host,origin=origin).also {
                 connections = connections + it; store.saveConnections(connections)
             }
+            if(client!=null)store.put("provider:${row.id}",client)
             select(row,token)
         } catch(e: Exception) { error = e.message ?: "Invalid link" }
     }
     private suspend fun enter() {
-        authenticated = true; screen = "sessions"; refreshListNow()
+        authenticated = true; screen = "sessions";sessions=lists["${selected!!.id}|$provider"].orEmpty();refreshListNow()
+        pendingNavigation?.let{(_,id,host)->pendingNavigation=null;openChat(id,host)}
         startListPolling();startReminders()
     }
     fun showConnections() { LiveNotifications.stop(getApplication());LiveNotifications.visible=null;saveDraft(); cancelScope(); tool = null; screen = "connections"; target = null }
+    fun chooseProvider(value: String) {
+        require(value in listOf("codex","claude"))
+        if(provider==value)return
+        saveDraft();cancelScope();provider=value;selected?.let{store.put("provider:${it.id}",value)}
+        target=null;tool=null;timeline=TimelineState();sessions=lists["${selected!!.id}|$provider"].orEmpty();activities=emptyMap();screen="sessions";refreshList()
+    }
+    fun openWorkspace(tab: String = "files") {
+        if(target==null){notice=t("请先打开一个项目聊天","Open a project chat first");return}
+        workspaceTab=tab;saveDraft();if(!splitWorkspaceChat)polling?.cancel();listPolling?.cancel();screen="workspace";tool=null;visibleChat()
+    }
+    fun workspaceChat(enabled:Boolean) {splitWorkspaceChat=enabled;if(enabled && screen=="workspace")startPolling() else if(screen=="workspace")polling?.cancel()}
+    fun closeWorkspace() {splitWorkspaceChat=false;screen="chat";startPolling();startListPolling();visibleChat()}
     fun showSessions() { LiveNotifications.visible=null;saveDraft(); cancelScope(); tool = null; target = null; timeline = TimelineState(); screen = "sessions"; refreshList() }
     fun logout() = action {
         LiveNotifications.stop(getApplication())
@@ -230,12 +278,14 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         val offset = if(more) listOffset else 0
         val url = "https://placeholder.invalid/api/sessions".toHttpUrl().newBuilder()
             .addQueryParameter("q",search).addQueryParameter("offset",offset.toString()).addQueryParameter("archived",archived.toString()).build()
-        val value = api!!.api(url.encodedPath+"?"+url.encodedQuery)
+        val value = api!!.api(if(provider=="claude") "/api/desktop-sessions/claude/list" else url.encodedPath+"?"+url.encodedQuery)
         if(gen != listGeneration) return
-        val rows = value.rows("sessions")
+        val rows = if(provider=="claude")value.rows("sessions").filter{it.str("backend","code")=="code" && (archived||!it.bool("archived")) && (it.str("title")+it.str("cwd")).contains(search,true)}.map{JsonObject(it+payload("host" to "desktop:claude","projectName" to it.str("cwd"),"recency" to it.num("updatedAt")))} else value.rows("sessions")
         sessions = if(more) (sessions+rows).distinctBy { it.str("host")+"|"+it.str("id") } else rows
-        store.put("noticeRows:${selected!!.id}",JsonArray(sessions).toString())
-        hostErrors = value.rows("unavailableHosts"); listOffset = sessions.size; listHasMore = rows.size >= 100
+        lists["${selected!!.id}|$provider"]=sessions
+        if(provider=="codex")store.put("noticeRows:${selected!!.id}",JsonArray(sessions).toString())
+        if(provider=="claude" && !value.bool("connected",true))notice=t("Claude Code 尚未连接，请在 Mac 网关中接入","Claude Code is not connected; connect it in the Mac gateway")
+        hostErrors = value.rows("unavailableHosts"); listOffset = sessions.size; listHasMore = provider=="codex" && rows.size >= 100
     }
     fun refreshList(more: Boolean = false) = action { refreshListNow(more); startListPolling() }
     private fun saveActivities(value: Map<String,SessionActivity>) {
@@ -246,6 +296,10 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         listPolling?.cancel(); if(!foreground || !authenticated || screen !in listOf("sessions","chat")) return
         val gen = generation;val gateway=api ?: return
         listPolling = scope.launch {
+            if(provider=="claude") {
+                while(isActive && gen==generation){delay(5000);try{refreshListNow()}catch(e:CancellationException){throw e}catch(e:Exception){if(gen==generation)failure(e)}}
+                return@launch
+            }
             var warmup=0
             while(isActive && gen == generation) {
                 var awaitingConnection=false
@@ -276,19 +330,24 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
-    fun saveDraft() { target?.let { store.saveDraft(it.key,draft) } }
+    fun saveDraft() { target?.let {
+        store.saveDraft(it.key,draft)
+        if(timeline.sequence>=0 && timeline.messages.sumOf{row->row.str("text").length}<=1_000_000){chats.remove(it.key);chats[it.key]=timeline;while(chats.size>4)chats.remove(chats.keys.first())}
+    } }
     fun editDraft(value: Draft) { draft = value; saveDraft() }
     fun scrollPosition(position: Int,offset: Int,anchor: String = "",following: Boolean = draft.following, expected: ChatTarget? = target, expectedGeneration: Int? = null) { if(target != null && target == expected && (expectedGeneration==null || expectedGeneration==generation)) { draft = draft.copy(position=position,offset=offset,anchor=anchor,following=following); saveDraft() } }
     fun openChat(id: String,host: String = "local") {
         saveDraft(); cancelScope(); details = emptyMap(); answered = emptySet(); tool = null; error = ""
-        val row = ChatTarget(selected!!.id,id,host); target = row; draft = store.draft(row.key); timeline = TimelineState()
+        val row = ChatTarget(selected!!.id,id,host); target = row; draft = store.draft(row.key)
+        val saved=chats[row.key]
+        timeline = saved?.copy(sequence=-1,meta=JsonObject(saved.meta+payload("connected" to false,"requests" to JsonArray(emptyList()),"submissions" to JsonArray(emptyList()),"title" to sessions.find{it.str("id")==id}?.str("title",saved.meta.str("title"))))) ?: TimelineState(meta=payload("title" to sessions.find{it.str("id")==id}?.str("title")))
         attachments = store.get("attachments:${row.key}")?.let { runCatching { json.decodeFromString<List<Attachment>>(it) }.getOrNull() }?.map {
             if(it.status == "uploading" || it.status == "pending") it.copy(status="failed",error=t("请重试上传","Retry upload")) else it
         } ?: emptyList()
         saveActivities(activities.mapValues {if(it.key==host+"|"+id)it.value.copy(pending=null) else it.value})
         store.put("noticeChat:${selected!!.id}",host+"|"+id)
         store.put("last:${selected!!.id}",payload("id" to id,"host" to host).toString()); screen = "chat"
-        scope.launch { try { api!!.api(row.route("reconnect"),payload("activate" to true)) } catch(e: CancellationException) { throw e } catch(_: Exception) {} }
+        if(row.provider=="codex")scope.launch { try { api!!.api(row.route("reconnect"),payload("activate" to true)) } catch(e: CancellationException) { throw e } catch(_: Exception) {} }
         visibleChat();startPolling(); startListPolling()
     }
     private fun startPolling() {
@@ -298,25 +357,33 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
             while(isActive && gen == generation) {
                 try {
                     val previous = timeline
+                    if(row.provider=="claude") {
+                        val detail=gateway.chat(row,"detail")
+                        if(gen!=generation || target!=row)break
+                        timeline=claudeTimeline(detail,previous);delay(1500);continue
+                    }
                     val page = if(previous.sequence < 0) gateway.api(row.route("timeline",mapOf("limit" to "20")))
                         else gateway.api(row.route("changes",mapOf("after" to previous.sequence.toString(),"epoch" to previous.epoch,"start" to (previous.before ?: ""))))
                     if(gen != generation || target != row) break
                     if(previous.revision != timeline.revision && previous.sequence >= 0) continue
-                    timeline = timeline.apply(page)
+                    var loaded=if(previous.sequence<0)TimelineState().apply(page) else timeline.apply(page)
+                    if(previous.sequence<0 && draft.anchor.isNotEmpty() && !draft.following) {
+                        historyBusy=true
+                        try {while(loaded.hasMore && loaded.messages.none{it.str("key")==draft.anchor}) {
+                            val before=loaded.before
+                            val older=gateway.api(row.route("timeline",mapOf("before" to (before ?: ""),"limit" to "100")))
+                            if(gen!=generation || target!=row)break
+                            loaded=loaded.apply(older,true)
+                            if(before==loaded.before || older.rows("rows").isEmpty())break
+                        }}finally{if(gen==generation)historyBusy=false}
+                    }
+                    if(gen!=generation || target!=row)break
+                    timeline=loaded
                     val latestTurn=timeline.messages.lastOrNull {it.str("turnId").isNotBlank() && it.str("turnStatus").isNotBlank()}
                     val activityRow=JsonObject(timeline.meta+payload("id" to row.id,"host" to row.host)+
                         (latestTurn?.let {payload("turnId" to it.str("turnId"),"turnStatus" to it.str("turnStatus"))} ?: payload()))
                     saveActivities(updateActivities(activities,listOf(activityRow),row.host+"|"+row.id))
                     notifyRows(listOf(activityRow))
-                    if(previous.sequence < 0 && draft.anchor.isNotEmpty() && !draft.following) {
-                        historyBusy=true
-                        try { while(timeline.hasMore && timeline.messages.none { it.str("key") == draft.anchor }) {
-                            val older = gateway.api(row.route("timeline",mapOf("before" to (timeline.before ?: ""),"limit" to "100")))
-                            val before = timeline.before
-                            timeline = timeline.apply(older,true)
-                            if(before == timeline.before || older.rows("rows").isEmpty()) break
-                        } } finally { if(gen==generation)historyBusy=false }
-                    }
                     details = details.filterKeys { k -> timeline.messages.any { it.str("key")+":"+it.str("version") == k } }
                     delay(200)
                 } catch(e: CancellationException) { throw e } catch(e: Exception) {
@@ -327,7 +394,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun older() {
-        if(historyBusy || !timeline.hasMore) return
+        if(historyBusy || timeline.sequence<0 || !timeline.hasMore) return
         val row = target ?: return; val old = timeline; val gen = generation; historyBusy = true
         scope.launch {
             try {
@@ -348,11 +415,16 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         val snap = draft; val files = attachments; val gateway = api!!
         action {
             require(snap.text.length <= 100000)
+            if(row.provider=="claude") {
+                check(timeline.meta.bool("connected") && timeline.meta.obj("capabilities").bool("send",true)){t("请先连接 Claude Code","Connect Claude Code first")}
+                val limit=timeline.meta.num("maxRequestBytes")
+                require(limit<=0 || files.sumOf{((it.size+2)/3)*4}+snap.text.toByteArray().size+4096<=limit){t("消息和附件超过 Claude 请求限制","Message and attachments exceed the Claude request limit")}
+            }
             require(snap.workMode != "goal" || files.isEmpty()) { t("目标模式暂不支持附件","Goal mode does not support attachments") }
             val key = "send:${row.key}"
-            val fields = payload("text" to snap.text,"mode" to snap.sendMode,"skills" to snap.skills,"workMode" to if(snap.sendMode == "steer") null else snap.workMode,
+            val fields = if(row.provider=="claude") payload("text" to snap.text,"mode" to snap.sendMode,"plugins" to snap.skills,"attachments" to files.map{it.id}) else payload("text" to snap.text,"mode" to snap.sendMode,"skills" to snap.skills,"workMode" to if(snap.sendMode == "steer") null else snap.workMode,
                 "attachments" to files.map { it.id },"uiLocale" to if(english) "en" else "zh-CN")
-            val result = gateway.api(row.route("send"),attempt(key,fields))
+            val result = gateway.chat(row,"send",attempt(key,fields))
             check(result.str("status") != "unknown") { t("结果尚未确认，请查看记录；重试使用原请求","Result unknown. Inspect history; retry keeps the original request.") }
             store.put("attempt:$key",null)
             if(target == row) {
@@ -367,9 +439,9 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         val row = target ?: return; val gateway = api!!
         action {
             val key = "$actionName:${row.key}"
-            val result = gateway.api(row.route(actionName),if(durable) attempt(key,fields) else fields)
+            val result = gateway.chat(row,actionName,if(durable || row.provider=="claude" && actionName in listOf("stop","settings","access")) attempt(key,fields) else fields)
             check(result.str("status") != "unknown") { t("操作结果尚未确认，请刷新查看","Operation is not confirmed; refresh to inspect") }
-            if(durable) store.put("attempt:$key",null)
+            if(durable || row.provider=="claude") store.put("attempt:$key",null)
             if(actionName == "rename") {
                 timeline = timeline.copy(meta=JsonObject(timeline.meta+("title" to JsonPrimitive(result.str("title")))))
                 refreshListNow()
@@ -381,8 +453,9 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         val row = target ?: return; val gateway = api!!
         if(request.str("id") in answered) return
         action {
-            val result = gateway.api(row.route("respond"),payload("requestId" to request["id"],"response" to response))
-            answered = answered+request.str("id"); tool = null
+            val fields=if(row.provider=="claude")JsonObject(response+payload("requestId" to request["id"])) else payload("requestId" to request["id"],"response" to response)
+            val result = gateway.chat(row,"respond",if(row.provider=="claude")attempt("respond:${row.key}:${request.str("id")}",fields) else fields)
+            if(result.str("status")!="unknown") {answered = answered+request.str("id");if(row.provider=="claude")store.put("attempt:respond:${row.key}:${request.str("id")}",null)}; tool = null
             if(result.str("status") == "unknown") error = t("回应结果尚未确认，请检查聊天","Response not confirmed; check the chat")
         }
     }
@@ -425,9 +498,9 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         }
         val row = target; val gen = generation; val gateway = api ?: return
         val path = when(name) {
-            "new" -> "/api/projects"; "model", "skills" -> row?.route("catalog",mapOf("refresh" to "true"))
+            "new" -> if(provider=="claude")"/api/desktop-sessions/claude/projects" else "/api/projects"; "permissions" -> if(provider=="claude")row?.route("access") else null; "model", "skills" -> row?.route("catalog",mapOf("refresh" to "true"))
             "notifications" -> row?.route("notifications"); "pushplus" -> "/api/notifications/pushplus"
-            "defaults" -> "/api/notifications/defaults"; "accounts" -> "/api/accounts"; "usage" -> "/api/account"
+            "defaults" -> "/api/notifications/defaults"; "accounts" -> if(provider=="claude")"/api/desktop-sessions/claude/accounts" else "/api/accounts"; "usage" -> if(provider=="claude")"/api/desktop-sessions/claude/account" else "/api/account"
             else -> null
         } ?: return
         toolLoading = true
@@ -452,6 +525,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
             val result = gateway.api(path,if(key != null) attempt(key,fields,idField) else fields)
             check(result.str("status") != "unknown") { t("操作结果尚未确认，请刷新后重试原请求","Operation unconfirmed; refresh before retrying the original request") }
             if(key != null) store.put("attempt:$key",null)
+            if(path == "/api/desktop-sessions/claude/create") {openChat(result.obj("result").str("id"),"desktop:claude");return@action}
             if(path == "/api/sessions") { openChat(result.str("id"),result.str("host","local")); return@action }
             if(keepOpen) { if(tool != "accounts")toolData = result } else tool = null
             notice = t("设置已保存","Saved")

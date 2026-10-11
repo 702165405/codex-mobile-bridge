@@ -31,11 +31,13 @@ fun normalizeOrigin(input: String): String {
     return url.toString().removeSuffix("/")
 }
 data class ChatTarget(val connection: String, val id: String, val host: String = "local") {
+    val provider get() = if(host == "desktop:claude") "claude" else "codex"
     val key get() = "$connection|$host|$id"
     fun route(action: String = "", params: Map<String, String> = emptyMap()): String {
         require(runCatching { UUID.fromString(id) }.isSuccess)
-        val url = "https://placeholder.invalid/api/sessions/$id${if(action.isEmpty()) "" else "/$action"}".toHttpUrl().newBuilder()
-        url.addQueryParameter("host", host)
+        val endpoint = if(provider == "claude") "/api/desktop-sessions/claude/${if(action in listOf("timeline","changes")) "detail" else action}" else "/api/sessions/$id${if(action.isEmpty()) "" else "/$action"}"
+        val url = ("https://placeholder.invalid"+endpoint).toHttpUrl().newBuilder()
+        url.addQueryParameter(if(provider == "claude") "sessionId" else "host", if(provider == "claude") id else host)
         params.forEach { (k,v) -> url.addQueryParameter(k,v) }
         val built = url.build()
         return built.encodedPath + "?" + built.encodedQuery
@@ -90,4 +92,29 @@ fun readableMarkdown(source: String): String {
         start=code.range.last+1
     }
     return output.append(prose(source.substring(start))).toString()
+}
+
+/** Claude transcripts use a full read; keep stable native message keys and desktop capabilities. */
+fun claudeTimeline(detail: JsonObject, previous: TimelineState): TimelineState {
+    val session = detail.obj("session")
+    val connected = detail.bool("connected") && session.isNotEmpty()
+    val meta = JsonObject(session+payload("provider" to "claude", "connected" to connected,
+        "capabilities" to detail.obj("capabilities"), "maxRequestBytes" to detail.num("maxRequestBytes"),
+        "goalRuntimeAvailable" to false, "notice" to detail.str("notice")))
+    val messages = detail.rows("messages").mapIndexed { index, row ->
+        JsonObject(row+payload("key" to row.str("id",index.toString()),"order" to index,
+            "version" to row.toString().hashCode().toString()))
+    }
+    return if(previous.meta == meta && previous.messages == messages) previous else
+        previous.copy(epoch="claude:"+session.str("id"),sequence=previous.sequence+1,meta=meta,messages=messages,hasMore=false)
+}
+fun apiQuery(path: String, params: Map<String,String>): String {
+    val url=("https://placeholder.invalid"+path).toHttpUrl().newBuilder()
+    params.forEach{(key,value)->url.addQueryParameter(key,value)}
+    return url.build().let{it.encodedPath+"?"+it.encodedQuery}
+}
+suspend fun Gateway.chat(target: ChatTarget, action: String, body: JsonObject? = null, raw: okhttp3.RequestBody? = null): JsonObject {
+    val fields = if(target.provider == "claude" && body != null && action in listOf("send","stop","settings","respond","access"))
+        JsonObject(body+payload("sessionId" to target.id)) else body
+    return api(target.route(action),fields,raw)
 }

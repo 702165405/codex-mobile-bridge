@@ -7,7 +7,7 @@
 
 > **v2.0.0 正式版**：[发布与下载](https://github.com/try2love/codex-mobile-bridge/releases/tag/v2.0.0) · [完整更新说明](RELEASE_NOTES.md) · [手机安装说明](mobile/README.md)。从 v1.4.0 的 Codex 手机网关，本分支仅开放 Codex 与 Claude Code。
 
-> **自有安卓试用版 1.1.1**：基于上游 v2.0.1，保留原生 Codex 与加密存储，加入文件、Git、终端、侧边聊天和 Claude Code 工作台；DeepSeek/Harness 与 Cowork 不开放。使用说明见 [安卓 README](android/README.md)。
+> **自有安卓原生版 1.2.0**：将上游新版的界面与增强功能移植到 Compose；Codex、Claude Code、文件、Git、终端和侧边聊天均由原生页面承接，保留加密存储与原生聊天速度；DeepSeek/Harness 与 Cowork 不开放。使用说明见 [安卓 README](android/README.md)。
 
 [简体中文](README.md) · [English](README_EN.md)
 
@@ -39,7 +39,7 @@
 
 提供 Android 8.0 及以上的原生客户端 **Codex Mobile Bridge**，支持保存多台电脑的 HTTPS 地址、独立登录和快速切换。对于习惯使用手机 App 的用户，聊天操作、系统文件选择、原生阅读和 App 打开期间的通知集中在一个入口，日常使用更方便。电脑端仍需运行网关。
 
-[下载安卓签名 APK](https://mac.lqilt.top/android/Codex-Mobile-Bridge-1.1.1.apk) · [功能、构建与升级说明](android/README.md) · [测试结果](android/TEST_RESULTS.md)。安卓更新使用 `https://mac.lqilt.top/android/update.json`，支持同签名覆盖升级；记住账号密码为可选功能，并按电脑连接加密保存。
+[下载安卓签名 APK](https://mac.lqilt.top/android/Codex-Mobile-Bridge-1.2.0.apk) · [功能、构建与升级说明](android/README.md) · [测试结果](android/TEST_RESULTS.md)。安卓更新使用 `https://mac.lqilt.top/android/update.json`，支持同签名覆盖升级；记住账号密码为可选功能，并按电脑连接加密保存。
 
 > 社区项目，与 OpenAI、Anthropic 或 DeepSeek 无隶属关系。依赖客户端内部接口，上游更新可能需要适配。电脑休眠或离线时无法远程操作；不能承诺 Claude 冷启动免解锁。平台与历史实测范围见 [验证记录](VERIFICATION.md) 和 [桌面接入说明](docs/deepseek-harness.md)。
 

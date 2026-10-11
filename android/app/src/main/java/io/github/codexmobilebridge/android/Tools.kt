@@ -86,18 +86,28 @@ import kotlinx.serialization.json.*
             val meta=vm.timeline.meta
             Text(meta.str("cwd"));Text(meta.str("hostLabel",vm.target?.host ?: ""));Text(meta.str("provider"))
             var title by remember {mutableStateOf(meta.str("title"))}
-            OutlinedTextField(title,{if(it.length<=120)title=it},label={Text(vm.t("聊天名称","Chat name"))})
-            Button(onClick={vm.postChat("rename",payload("title" to title.trim()))},enabled=ready && title.isNotBlank() && title.none{it.isISOControl()}){Text(vm.t("重命名","Rename"))}
-            OutlinedButton(onClick={vm.postChat("history")},enabled=ready && !meta.bool("historyComplete")){Text(vm.t("读取完整桌面历史","Load desktop history"))}
-            OutlinedButton(onClick={vm.postChat("reconnect",payload("activate" to true))},enabled=ready){Text(vm.t("重连桌面","Reconnect desktop"))}
+            if(vm.provider=="codex")OutlinedTextField(title,{if(it.length<=120)title=it},label={Text(vm.t("聊天名称","Chat name"))})
+            if(vm.provider=="codex")Button(onClick={vm.postChat("rename",payload("title" to title.trim()))},enabled=ready && title.isNotBlank() && title.none{it.isISOControl()}){Text(vm.t("重命名","Rename"))}
+            if(vm.provider=="codex")OutlinedButton(onClick={vm.postChat("history")},enabled=ready && !meta.bool("historyComplete")){Text(vm.t("读取完整桌面历史","Load desktop history"))}
+            if(vm.provider=="codex")OutlinedButton(onClick={vm.postChat("reconnect",payload("activate" to true))},enabled=ready){Text(vm.t("重连桌面","Reconnect desktop"))}
+        }
+        "permissions" -> {
+            if(vm.provider=="codex"){CodexPermissionsTool(vm);return}
+            var mode by remember(data){mutableStateOf(data.str("mode"))}
+            val options=data.rows("options")
+            Choice(mode,options.map{it.str("value") to it.str("label")}){mode=it}
+            Text(options.find{it.str("value")==mode}?.str("description") ?: "")
+            Button(onClick={vm.postChat("access",payload("mode" to mode),true)},enabled=ready && mode in data.strings("modes")){Text(vm.t("应用权限模式","Apply permissions"))}
         }
         "new" -> {
+            if(vm.provider=="claude"){ClaudeNewChat(vm,data);return}
             val projects=data.rows("projects");var project by remember {mutableStateOf(projects.firstOrNull()?.str("key") ?: "")};var title by remember {mutableStateOf("")}
             Text(vm.t("选择项目","Choose project"));Choice(project,projects.map{it.str("key") to (it.str("name")+" · "+it.str("host","local"))}){project=it}
             OutlinedTextField(title,{if(it.length<=120)title=it},label={Text(vm.t("名称（可选）","Name (optional)"))})
             Button(onClick={vm.perform("/api/sessions",payload("project" to project,"title" to title),durableKey="new:$project:$title")},enabled=ready && project.isNotEmpty()){Text(vm.t("创建聊天","Create chat"))}
         }
         "model" -> {
+            if(vm.provider=="claude"){ClaudeModelSettings(vm,data);return}
             val models=data.rows("models");var model by remember {mutableStateOf(vm.timeline.meta.str("model",data.str("currentModel")))}
             var custom by remember {mutableStateOf(model)};var effort by remember(model){mutableStateOf(vm.timeline.meta.str("effort",models.find{it.str("id")==model}?.str("defaultEffort","medium") ?: "medium"))}
             var fast by remember {mutableStateOf(vm.timeline.meta.str("serviceTier")=="fast")};var dirty by remember {mutableStateOf(false)}
@@ -115,7 +125,7 @@ import kotlinx.serialization.json.*
         "skills" -> {
             var q by remember {mutableStateOf("")};OutlinedTextField(q,{q=it},label={Text(vm.t("搜索 Skill","Search skills"))})
             for(skill in data.rows("skills").filter{it.toString().contains(q,true)}) {
-                val id=skill.str("id");Toggle(skill.str("displayName",skill.str("name")),id in vm.draft.skills,ready && (id in vm.draft.skills || vm.draft.skills.size<8)){on ->vm.editDraft(vm.draft.copy(skills=if(on)vm.draft.skills+id else vm.draft.skills-id))};Text(skill.str("description"),style=MaterialTheme.typography.bodySmall)
+                val id=skill.str("id");Toggle(skill.str("displayName",skill.str("name")),id in vm.draft.skills,ready && skill.bool("selectable",true) && (id in vm.draft.skills || vm.draft.skills.size<8)){on ->vm.editDraft(vm.draft.copy(skills=if(on)vm.draft.skills+id else vm.draft.skills-id))};Text(skill.str("description"),style=MaterialTheme.typography.bodySmall)
             }
         }
         "notifications","defaults" -> {
@@ -164,7 +174,7 @@ import kotlinx.serialization.json.*
             if(kind!="fork")OutlinedTextField(text,{text=it;vm.target?.let{chat->vm.store.put("editDraft:${chat.key}:${data.str("key")}",it)}},maxLines=12,enabled=ready && loaded)
             Button(onClick={vm.messageAction(kind,data,text)},enabled=ready && loaded && (kind=="fork" || text.isNotBlank())){Text(vm.t("确认","Confirm"))}
         }
-        "accounts" -> AccountsTool(vm,data)
+        "accounts" -> if(vm.provider=="claude")ClaudeAccountsTool(vm,data) else AccountsTool(vm,data)
         "usage" -> UsageTool(vm,data)
     }
 }
@@ -226,8 +236,8 @@ fun displayTime(vm: BridgeViewModel,value: JsonObject,key: String): String {
     reset?.let {row ->Confirm(vm.t("确认消耗一张重置卡？","Consume one reset card?"),data.str("email")+"\n"+vm.t("成功后消耗一张卡，并重置符合条件的额度。","Success consumes a card and resets eligible limits."),{reset=null}){reset=null;vm.resetAccount(row)}}
 }
 
-@Composable fun ApprovalCard(vm: BridgeViewModel,request: JsonObject) {
-    val params=request.obj("params");val method=request.str("method");val enabled=!vm.busy && request.str("id") !in vm.answered
+@Composable fun ApprovalCard(vm: BridgeViewModel,request: JsonObject,enabledOverride: Boolean? = null,onRespond:(JsonObject)->Unit = {vm.respond(request,it)}) {
+    val params=request.obj("params");val method=request.str("method");val enabled=enabledOverride ?: (!vm.busy && request.str("id") !in vm.answered)
     var answers by remember(request.str("id")){mutableStateOf(emptyMap<String,String>())}
     val input=method.contains("requestUserInput");val mcp=method=="mcpServer/elicitation/request";val plan=method=="item/plan/requestImplementation";val computer=params.obj("computerUse")
     Card(Modifier.fillMaxWidth()) {Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -238,12 +248,12 @@ fun displayTime(vm: BridgeViewModel,value: JsonObject,key: String): String {
         else if(plan) {
             MarkdownText(params.str("planContent"));val feedback=answers["feedback"] ?: ""
             OutlinedTextField(feedback,{answers=answers+("feedback" to it)},label={Text(vm.t("修改意见（可选）","Feedback (optional)"))},enabled=enabled)
-            Button(onClick={vm.respond(request,payload("action" to "implement"))},enabled=enabled && feedback.isBlank()){Text(vm.t("按计划执行","Implement plan"))}
-            Button(onClick={vm.respond(request,payload("action" to "revise","text" to feedback))},enabled=enabled && feedback.isNotBlank()){Text(vm.t("按意见继续规划","Revise plan"))}
+            Button(onClick={onRespond(payload("action" to "implement"))},enabled=enabled && feedback.isBlank()){Text(vm.t("按计划执行","Implement plan"))}
+            Button(onClick={onRespond(payload("action" to "revise","text" to feedback))},enabled=enabled && feedback.isNotBlank()){Text(vm.t("按意见继续规划","Revise plan"))}
         } else if(computer.isNotEmpty()) {
-            Text(computer.str("app"));for(mode in computer.strings("persistModes"))Button(onClick={vm.respond(request,payload("action" to "accept","persist" to mode))},enabled=enabled){Text(vm.t(if(mode=="always")"始终允许" else "允许此对话",if(mode=="always")"Always allow" else "Allow this chat"))}
-            if("session" !in computer.strings("persistModes"))Button(onClick={vm.respond(request,payload("action" to "accept"))},enabled=enabled){Text(vm.t("本次允许","Allow once"))}
-            TextButton(onClick={vm.respond(request,payload("action" to "decline"))},enabled=enabled){Text(vm.t("拒绝","Decline"))}
+            Text(computer.str("app"));for(mode in computer.strings("persistModes"))Button(onClick={onRespond(payload("action" to "accept","persist" to mode))},enabled=enabled){Text(vm.t(if(mode=="always")"始终允许" else "允许此对话",if(mode=="always")"Always allow" else "Allow this chat"))}
+            if("session" !in computer.strings("persistModes"))Button(onClick={onRespond(payload("action" to "accept"))},enabled=enabled){Text(vm.t("本次允许","Allow once"))}
+            TextButton(onClick={onRespond(payload("action" to "decline"))},enabled=enabled){Text(vm.t("拒绝","Decline"))}
         } else {
             val schema=params.obj("requestedSchema");val properties=schema.obj("properties");val required=schema.strings("required")
             if(input) for(question in params.rows("questions")) {
@@ -263,9 +273,9 @@ fun displayTime(vm: BridgeViewModel,value: JsonObject,key: String): String {
                     input ->payload("answers" to JsonObject(answers.mapValues{JsonArray(listOf(JsonPrimitive(it.value)))}))
                     mcp ->payload("action" to "accept","content" to JsonObject(answers.filterValues{it.isNotBlank()}.mapValues{(id,v)->when(properties.obj(id).str("type")){"boolean"->JsonPrimitive(v.toBoolean());"integer"->JsonPrimitive(v.toLong());"number"->JsonPrimitive(v.toDouble());else->JsonPrimitive(v)}}))
                     else ->payload("decision" to "accept")
-                };vm.respond(request,response)
+                };onRespond(response)
             },enabled=enabled && valid){Text(vm.t(if(input)"发送回复" else "允许",if(input)"Send response" else "Accept"))}
-            if(!input)for(decision in listOf("decline","cancel").filter{mcp || decisions.isEmpty() || it in decisions})TextButton(onClick={vm.respond(request,payload((if(mcp)"action" else "decision") to decision))},enabled=enabled){Text(vm.t(if(decision=="decline")"拒绝" else "取消",if(decision=="decline")"Decline" else "Cancel"))}
+            if(!input)for(decision in listOf("decline","cancel").filter{mcp || decisions.isEmpty() || it in decisions})TextButton(onClick={onRespond(payload((if(mcp)"action" else "decision") to decision))},enabled=enabled){Text(vm.t(if(decision=="decline")"拒绝" else "取消",if(decision=="decline")"Decline" else "Cancel"))}
         }
         if(request.str("id") in vm.answered)Text(vm.t("已发送，等待桌面确认","Sent; waiting for desktop confirmation"))
     }}

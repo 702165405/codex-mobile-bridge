@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -53,7 +54,7 @@ import java.util.Date
 val EmptyObject = JsonObject(emptyMap())
 @Composable fun BridgeApp(vm: BridgeViewModel) {
     val dark = when(vm.theme) { "dark" -> true; "light" -> false; else -> isSystemInDarkTheme() }
-    val colors = if(dark) darkColorScheme(primary=Color(0xFF9DCEAC),surface=Color(0xFF141B17)) else lightColorScheme(primary=Color(0xFF285F41),surface=Color(0xFFF8FAF5))
+    val colors = if(dark) darkColorScheme(primary=Color(0xFF9CACFF),background=Color(0xFF17181C),surface=Color(0xFF17181C),surfaceContainer=Color(0xFF202228),surfaceContainerLow=Color(0xFF202228),secondaryContainer=Color(0xFF272A32),outlineVariant=Color(0xFF30333C)) else lightColorScheme(primary=Color(0xFF4664ED),background=Color.White,surface=Color.White,surfaceContainer=Color(0xFFF6F7F9),surfaceContainerLow=Color(0xFFF6F7F9),secondaryContainer=Color(0xFFF1F3F6),outlineVariant=Color(0xFFE9EBEF))
     val context=LocalContext.current
     val view=LocalView.current
     SideEffect { (view.context as? android.app.Activity)?.let{activity->
@@ -66,24 +67,23 @@ val EmptyObject = JsonObject(emptyMap())
         lifecycle.addObserver(observer); if(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) vm.resume()
         onDispose { lifecycle.removeObserver(observer); vm.pause() }
     }
-    MaterialTheme(colorScheme=colors) {
+    MaterialTheme(colorScheme=colors,shapes=Shapes(small=RoundedCornerShape(10.dp),medium=RoundedCornerShape(16.dp),large=RoundedCornerShape(22.dp))) {
         Surface(Modifier.fillMaxSize()) {
             Scaffold(topBar = {
                 TopAppBar(title={ Column {
-                    Text(if(vm.screen == "chat") vm.timeline.meta.str("title",vm.t("聊天","Chat")) else "Codex Mobile Bridge",maxLines=1)
+                    Text(if(vm.screen in listOf("chat","workspace")) vm.timeline.meta.str("title",vm.t("聊天","Chat")) else if(vm.screen=="connections")vm.t("我的电脑","My computers") else vm.t("工作台","Workbench"),maxLines=1)
                     if(vm.selected != null && vm.screen != "connections") Text(vm.selected!!.name,style=MaterialTheme.typography.labelMedium)
                 } }, navigationIcon={
-                    if(vm.screen != "connections") IconButton(onClick={ if(vm.screen=="chat") vm.showSessions() else vm.showConnections() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack,vm.t("返回","Back")) }
+                    if(vm.screen != "connections") IconButton(onClick={ if(vm.screen=="workspace")vm.closeWorkspace() else if(vm.screen=="chat") vm.showSessions() else vm.showConnections() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack,vm.t("返回","Back")) }
                 }, actions={
-                    if(vm.screen == "connections") TextButton(onClick={Workbench.open(context)}) {Text(vm.t("新版工作台","Workbench"))}
                     if(vm.screen != "connections") IconButton(onClick=vm::showConnections) { Icon(Icons.Default.Computer,vm.t("切换电脑","Switch computer")) }
                     if(vm.authenticated && vm.screen != "connections") {
                         var menu by remember { mutableStateOf(false) }
                         IconButton(onClick={ menu=true }) { Icon(Icons.Default.MoreVert,vm.t("更多操作","More actions")) }
                         DropdownMenu(menu,{ menu=false }) {
-                            DropdownMenuItem(text={Text(vm.t("项目工作台 · 文件 / Git / 终端","Project workbench · Files / Git / Terminal"))},onClick={menu=false;Workbench.open(context,vm.selected,vm.target?.id,vm.target?.host)})
-                            DropdownMenuItem(text={Text("Claude Code")},onClick={menu=false;Workbench.open(context,vm.selected,provider="claude")})
-                            val options = if(vm.screen=="chat") listOf("details" to vm.t("聊天详情与重命名","Chat details & rename"),"model" to vm.t("模型设置","Model settings"),"skills" to "Skills","notifications" to vm.t("聊天提醒","Chat reminders"),"goal" to vm.t("目标进度","Goal progress")) else emptyList()
+                            DropdownMenuItem(text={Text(vm.t("项目工作台 · 文件 / Git / 终端","Project workbench · Files / Git / Terminal"))},onClick={menu=false;vm.openWorkspace()})
+
+                            val options = if(vm.screen=="chat") listOf("details" to vm.t("聊天详情与重命名","Chat details & rename"),"model" to vm.t("模型设置","Model settings"),"skills" to "Skills","notifications" to vm.t("聊天提醒","Chat reminders")) + if(vm.provider=="claude")listOf("permissions" to vm.t("权限模式","Permissions")) else listOf("goal" to vm.t("目标进度","Goal progress"),"permissions" to vm.t("权限模式","Permissions")) else emptyList()
                             for((key,label) in options + listOf("new" to vm.t("新建聊天","New chat"),"accounts" to vm.t("账号与接入","Accounts"),"usage" to vm.t("账户与额度","Account usage")))
                                 DropdownMenuItem(text={ Text(label) },onClick={ menu=false;vm.openTool(key) })
                             if(vm.notificationsAvailable) {
@@ -107,6 +107,7 @@ val EmptyObject = JsonObject(emptyMap())
                         "connections" -> ConnectionsScreen(vm)
                         "login" -> LoginScreen(vm)
                         "sessions" -> SessionsScreen(vm)
+                        "workspace" -> vm.target?.let {key(it.key){NativeWorkspaceScreen(vm)}}
                         "chat" -> vm.target?.let { key(it.key,vm.chatGeneration) { ChatScreen(vm) } }
                     }
                 }
@@ -115,7 +116,7 @@ val EmptyObject = JsonObject(emptyMap())
         }
     }
     BackHandler(vm.tool != null || vm.screen != "connections") {
-        if(vm.tool != null) vm.closeTool() else if(vm.screen == "chat") vm.showSessions() else vm.showConnections()
+        if(vm.tool != null) vm.closeTool() else if(vm.screen == "workspace")vm.closeWorkspace() else if(vm.screen == "chat") vm.showSessions() else vm.showConnections()
     }
 }
 @Composable fun StatusStrip(text: String,error: Boolean,dismiss: ()->Unit) {
@@ -127,11 +128,15 @@ val EmptyObject = JsonObject(emptyMap())
 @Composable fun ConnectionsScreen(vm: BridgeViewModel) {
     var editing by remember { mutableStateOf<Connection?>(null) }; var add by remember { mutableStateOf(false) }
     var delete by remember { mutableStateOf<Connection?>(null) }; var paste by remember { mutableStateOf(false) }
+    val context=LocalContext.current
+    val scan=rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()){result->result.data?.getStringExtra("code")?.let(vm::importNavigation)}
     Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(horizontal=20.dp,vertical=8.dp)) {Text(vm.t("电脑上的工作，带在身边。","Your work, wherever you are."),style=MaterialTheme.typography.headlineMedium);Text(vm.t("连接电脑，继续 Codex 和 Claude Code。","Connect a computer to continue Codex and Claude Code."),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
         Row(Modifier.fillMaxWidth().padding(16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             Button(onClick={ editing=null;add=true },Modifier.weight(1f)) { Icon(Icons.Default.Add,null);Text(vm.t("添加电脑","Add computer")) }
             OutlinedButton(onClick={paste=true}) { Text(vm.t("粘贴登录链接","Paste login link")) }
         }
+        Row(Modifier.padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {OutlinedButton(onClick={scan.launch(android.content.Intent(context,io.github.try2love.codexbridge.ScanActivity::class.java))}){Icon(Icons.Default.QrCodeScanner,null);Text(vm.t("扫码连接","Scan to connect"))}}
         if(vm.connections.isEmpty()) Column(Modifier.fillMaxWidth().padding(32.dp),horizontalAlignment=Alignment.CenterHorizontally) {
             Icon(Icons.Default.Devices,null,Modifier.size(64.dp),tint=MaterialTheme.colorScheme.primary)
             Text(vm.t("把电脑上的工作带到手机","Continue computer work on your phone"),style=MaterialTheme.typography.titleLarge)
@@ -167,7 +172,7 @@ val EmptyObject = JsonObject(emptyMap())
         }},confirmButton={TextButton(onClick={vm.clearError();vm.saveConnection(name,url,editing?.id);if(vm.error.isBlank()) add=false}) {Text(vm.t("保存","Save"))}},dismissButton={TextButton(onClick={add=false;vm.clearError()}){Text(vm.t("取消","Cancel"))}})
     }
     delete?.let { row -> Confirm(vm.t("删除连接？","Remove connection?"),row.name+"\n"+vm.t("将清除这台电脑的本地登录和草稿。","Its saved login and drafts will be removed."),{delete=null}) {vm.removeConnection(row);delete=null} }
-    if(paste) TextPrompt(vm,vm.t("粘贴登录链接","Paste login link"),"",{paste=false}) {vm.importLink(it);paste=false}
+    if(paste) TextPrompt(vm,vm.t("粘贴登录链接","Paste login link"),"",{paste=false}) {vm.importNavigation(it);paste=false}
 }
 @Composable fun LoginScreen(vm: BridgeViewModel) {
     val saved = remember(vm.selected?.id) { vm.selected?.let { vm.store.savedLogin(it.id) } }
@@ -194,6 +199,9 @@ val EmptyObject = JsonObject(emptyMap())
 }
 @Composable fun SessionsScreen(vm: BridgeViewModel) {
     Column(Modifier.fillMaxSize()) {
+        Row(Modifier.padding(horizontal=16.dp,vertical=6.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            for((id,label) in listOf("codex" to "Codex","claude" to "Claude Code"))FilterChip(vm.provider==id,{vm.chooseProvider(id)},label={Text(label)})
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
             OutlinedTextField(vm.search,{vm.search=it},label={Text(vm.t("搜索聊天或项目","Search chats or projects"))},singleLine=true,modifier=Modifier.weight(1f))
             IconButton(onClick={vm.refreshList()},enabled=!vm.busy) {Icon(Icons.Default.Search,vm.t("搜索","Search"))}
@@ -280,9 +288,12 @@ val EmptyObject = JsonObject(emptyMap())
         if(follow && vm.timeline.messages.isNotEmpty()) list.scrollToItem(maxOf(0,list.layoutInfo.totalItemsCount-1))
     }
     Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            for((id,label) in nativeWorkspaceTabs(chat.provider))AssistChip(onClick={vm.openWorkspace(id)},label={Text(vm.t(label.first,label.second))})
+        }
         if(!meta.bool("connected")) Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
             Text(meta.str("connectionError",vm.t("正在连接桌面，可先阅读历史","Connecting to desktop; saved history remains readable")),Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
-            TextButton(onClick={vm.postChat("reconnect",payload("activate" to true))},enabled=!vm.busy) {Text(vm.t("重连","Reconnect"))}
+            TextButton(onClick={if(chat.provider=="claude")vm.perform("/api/clients/claude/reconnect",payload()) else vm.postChat("reconnect",payload("activate" to true))},enabled=!vm.busy) {Text(vm.t("重连","Reconnect"))}
         }
         Box(Modifier.weight(1f)) {
             LazyColumn(state=list,modifier=Modifier.fillMaxSize(),contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(if(vm.compact) 6.dp else 12.dp)) {
@@ -290,7 +301,7 @@ val EmptyObject = JsonObject(emptyMap())
                 items(visibleMessages,key={it.str("key")}) { row ->
                     MessageCard(vm,row,onCopy={scope.launch {try {clipboard.setText(AnnotatedString(vm.fullText(row)))}catch(_: Exception){}}})
                 }
-                for(request in meta.rows("requests")) item(key="approval:${request.str("id")}") { ApprovalCard(vm,request) }
+                for(request in meta.rows("requests")) item(key="approval:${request.str("id")}") {if(chat.provider=="claude")ClaudeApprovalCard(vm,request) else ApprovalCard(vm,request)}
                 for(queued in meta.rows("submissions")) item(key="queued:${queued.str("id")}") {
                     Card { Column(Modifier.padding(12.dp)) {
                         Text(vm.t("待发送／结果待确认","Queued / result unconfirmed"));Text(queued.str("text"),maxLines=3)
@@ -306,7 +317,7 @@ val EmptyObject = JsonObject(emptyMap())
                         TextButton(onClick={download=file;save.launch(file.str("name","download"))}) {Icon(Icons.Default.Download,null);Text(file.str("name",vm.t("保存文件","Save file")))}
                     }
                 }
-                if(meta.str("status")=="active") item(key="working") {Row {CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp);Spacer(Modifier.width(8.dp));Text(vm.t("Codex 正在工作…","Codex is working…"))}}
+                if(meta.str("status")=="active") item(key="working") {Row {CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp);Spacer(Modifier.width(8.dp));Text(if(chat.provider=="claude")vm.t("Claude Code 正在工作…","Claude Code is working…") else vm.t("Codex 正在工作…","Codex is working…"))}}
                 item(key="bottom") {Spacer(Modifier.height(8.dp))}
             }
             SmallFloatingActionButton(onClick={follow=true;scope.launch{list.animateScrollToItem(maxOf(0,list.layoutInfo.totalItemsCount-1))}},modifier=Modifier.align(Alignment.BottomEnd).padding(8.dp)) {Icon(Icons.Default.ArrowDownward,vm.t("最新消息","Latest messages"))}
@@ -317,6 +328,7 @@ val EmptyObject = JsonObject(emptyMap())
         }
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal=12.dp,vertical=8.dp)) {
+            ContextUsageChip(vm,meta)
             Row(Modifier.horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically) {
                 TextButton(onClick={vm.openTool("model")}) {Text(meta.str("model",vm.t("模型","Model")),maxLines=1)}
                 TextButton(onClick={vm.openTool("skills")}) {Text("Skills${if(vm.draft.skills.isNotEmpty()) " (${vm.draft.skills.size})" else ""}")}
@@ -330,10 +342,10 @@ val EmptyObject = JsonObject(emptyMap())
             }
             OutlinedTextField(vm.draft.text,{if(it.length<=100000) vm.editDraft(vm.draft.copy(text=it))},modifier=Modifier.fillMaxWidth(),placeholder={Text(vm.t("继续这条聊天…","Continue this chat…"))},maxLines=6,enabled=!vm.busy)
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick={pick.launch(arrayOf("*/*"))},enabled=!vm.busy){Icon(Icons.Default.AttachFile,vm.t("添加附件","Add files"))}
+                IconButton(onClick={pick.launch(arrayOf(if(chat.provider=="claude")"image/*" else "*/*"))},enabled=!vm.busy){Icon(Icons.Default.AttachFile,vm.t("添加附件","Add files"))}
                 Choice(vm.draft.sendMode,listOf("send" to vm.t("发送","Send"),"queue" to vm.t("排队","Queue")) + if(meta.str("status")=="active")listOf("steer" to vm.t("补充","Steer")) else emptyList(),enabled=!vm.busy,onSelect={vm.editDraft(vm.draft.copy(sendMode=it))})
                 val goalEnabled=meta.bool("goalRuntimeAvailable",true) && chat.host=="local" && meta.str("status")!="active" && meta.obj("goalSubmission").str("status") !in listOf("pending","unknown") && meta.obj("goal").str("status") in listOf("","complete")
-                val modes=listOf("default" to vm.t("普通","Normal"),"plan" to vm.t("计划","Plan")) + if(goalEnabled) listOf("goal" to vm.t("目标","Goal")) else emptyList()
+                val modes=if(chat.provider=="claude")listOf("default" to vm.t("普通","Normal")) else listOf("default" to vm.t("普通","Normal"),"plan" to vm.t("计划","Plan")) + if(goalEnabled) listOf("goal" to vm.t("目标","Goal")) else emptyList()
                 Choice(vm.draft.workMode,modes,enabled=!vm.busy && vm.draft.sendMode!="steer",onSelect={vm.editDraft(vm.draft.copy(workMode=it))})
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick={follow=true;vm.send()},enabled=!vm.busy && !meta.bool("loadingHistory") && !meta.bool("activating") && (vm.draft.text.isNotBlank() || vm.attachments.isNotEmpty()) && vm.attachments.all{it.status=="ready"}) {Icon(Icons.AutoMirrored.Filled.Send,vm.t("发送消息","Send message"),tint=MaterialTheme.colorScheme.primary)}
@@ -345,10 +357,10 @@ val EmptyObject = JsonObject(emptyMap())
 @Composable fun MessageCard(vm: BridgeViewModel,row: JsonObject,onCopy: ()->Unit) {
     val activity = row.str("role")=="activity" || row.str("kind")=="reasoning"
     var expanded by remember(row.str("key")) { mutableStateOf(!activity) }
-    Card(colors=CardDefaults.cardColors(containerColor=if(row.str("role")=="user") MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow),modifier=Modifier.fillMaxWidth()) {
+    Card(colors=CardDefaults.cardColors(containerColor=if(row.str("role")=="user") MaterialTheme.colorScheme.secondaryContainer else if(activity)MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface),modifier=Modifier.fillMaxWidth()) {
         Column(Modifier.padding(if(vm.compact) 10.dp else 16.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically) {
-                Text(if(activity) row.str("title",row.str("kind")) else when(row.str("role")){"user" -> vm.t("你","You");"error" -> vm.t("错误","Error");else -> "CODEX"},Modifier.weight(1f),style=MaterialTheme.typography.labelMedium)
+                Text(if(activity) row.str("title",row.str("kind")) else when(row.str("role")){"user" -> vm.t("你","You");"error" -> vm.t("错误","Error");else -> if(vm.target?.provider=="claude")"CLAUDE CODE" else "CODEX"},Modifier.weight(1f),style=MaterialTheme.typography.labelMedium)
                 if(activity) IconButton(onClick={expanded=!expanded;if(expanded && row.bool("truncated")) vm.expand(row)}) {Icon(if(expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,vm.t("展开内容","Expand"))}
             }
             val text = vm.details[row.str("key")+":"+row.str("version")] ?: row.str("text")
@@ -391,7 +403,8 @@ val EmptyObject = JsonObject(emptyMap())
             BitmapFactory.decodeByteArray(bytes,0,bytes.size,options)
         } } catch(_: Exception){}
     }
-    bitmap?.let {Image(it.asImageBitmap(),file.str("name"),Modifier.fillMaxWidth().heightIn(max=280.dp))}
+    var zoom by remember(path,vm.target?.key){mutableStateOf(false)}
+    bitmap?.let {Image(it.asImageBitmap(),file.str("name"),Modifier.fillMaxWidth().heightIn(max=280.dp).clickable{zoom=true});if(zoom)NativeImageViewer(it,file.str("name")){zoom=false}}
 }
 @Composable fun Choice(value: String,options: List<Pair<String,String>>,enabled: Boolean=true,onSelect: (String)->Unit) {
     var open by remember {mutableStateOf(false)}

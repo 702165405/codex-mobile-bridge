@@ -19,12 +19,12 @@ class MainActivity : ComponentActivity() {
     }
     private fun importSharedLink(value: Intent) {
         value.getStringExtra("openTool")?.let(bridge::openTool)
-        if(value.action==Intent.ACTION_VIEW && value.data?.scheme=="codexbridge")startActivity(Intent(this,io.github.try2love.codexbridge.MainActivity::class.java).setData(value.data))
+        if(value.action==Intent.ACTION_VIEW && value.data?.scheme=="codexbridge")bridge.importNavigation(value.data.toString())
         if(value.action==LiveNotifications.OPEN) {
             val id=value.getStringExtra("noticeConnection")
             bridge.connections.find {it.id==id}?.let {bridge.select(it)}
         }
-        if(value.action == Intent.ACTION_SEND) value.getStringExtra(Intent.EXTRA_TEXT)?.let(bridge::importLink)
+        if(value.action == Intent.ACTION_SEND) value.getStringExtra(Intent.EXTRA_TEXT)?.let(bridge::importNavigation)
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
