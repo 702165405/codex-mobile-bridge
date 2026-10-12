@@ -10,7 +10,7 @@
 - **iPhone / iPad**：Release 提供未签名 IPA 和 Xcode 源码包，需使用自己的 Apple 账号签名；不能直接点击 IPA 安装，暂无 App Store / TestFlight 分发。免费签名可能需要定期重新安装。
 - 使用 Release 中的 `SHA256SUMS.txt` 校验下载。编译通过不代表已验证所有机型、系统版本和网络环境。
 
-在「手机设置 → 应用更新」查看当前版本并检查更新。正式版只检查正式发布，预览版也可检查后续预览；不会自动下载或安装。检查访问公开 GitHub Release，不携带网关凭据或 Cookie。Android 下载 APK 后覆盖安装，iOS 打开新版与签名安装指引。
+在「手机设置 → 应用更新」查看当前版本并检查更新。正式版只检查正式发布，预览版也可检查后续预览；不会在后台自动下载或安装。确认更新后，Android 会在 App 内下载 APK 并打开系统安装器，iOS 打开新版与签名安装指引。检查访问公开 GitHub Release，不携带网关凭据或 Cookie。
 
 ### 使用 Xcode 安装到 iPhone
 

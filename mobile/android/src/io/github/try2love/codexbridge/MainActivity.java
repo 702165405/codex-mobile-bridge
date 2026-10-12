@@ -27,7 +27,7 @@ public final class MainActivity extends Activity {
  private final Runnable homeRefresh=()->checkComputers();
  private long homeBackAt;private Toast exitToast;
  private final ExecutorService downloads=Executors.newSingleThreadExecutor();
- private FrameLayout screen;private DownloadCard downloadCard;private ArtifactDownload.Task downloadTask,choosingDownload;private boolean savingDownload,openingDownload;
+ private FrameLayout screen;private DownloadCard downloadCard;private ArtifactDownload.Task downloadTask,choosingDownload;private MobileRelease pendingUpdate;private boolean savingDownload,openingDownload,installAfterPermission;
  private ServiceConnection monitor;private ValueCallback<Uri[]> files;private WebView fileView;private int fileGeneration;private int generation;
  String L(String value){return MobileStrings.text(this,value);}
  int dp(int n){return (int)(getResources().getDisplayMetrics().density*n);}
@@ -179,19 +179,21 @@ public final class MainActivity extends Activity {
   try{downloadTask=new ArtifactDownload.Task(target,base,getCacheDir());downloadCard.showTask();renderDownload();runDownload(downloadTask);}catch(java.io.IOException e){message(e.getMessage());}
  }
  void runDownload(ArtifactDownload.Task task){
-  task.state=ArtifactDownload.State.READY;renderDownload();downloads.execute(()->task.run(()->CookieManager.getInstance().getCookie(task.url),value->runOnUiThread(()->{if(downloadTask==value&&!isFinishing()&&!isDestroyed())renderDownload();})));
+  task.state=ArtifactDownload.State.READY;renderDownload();downloads.execute(()->task.run(()->CookieManager.getInstance().getCookie(task.url),value->runOnUiThread(()->{if(downloadTask==value&&!isFinishing()&&!isDestroyed()){renderDownload();if(pendingUpdate!=null&&value.state==ArtifactDownload.State.COMPLETE&&!openingDownload)installDownloadedUpdate();}})));
  }
  void downloadAction(){
   ArtifactDownload.Task task=downloadTask;if(task==null||savingDownload||choosingDownload!=null||openingDownload)return;
   if(task.state==ArtifactDownload.State.RUNNING){task.pause();renderDownload();}
   else if(task.state==ArtifactDownload.State.PAUSED||task.state==ArtifactDownload.State.FAILED){
-   if(task.resumable())runDownload(task);else{String target=task.url,base=task.origin;cancelDownload();startDownload(target,base);}
+   if(task.resumable())runDownload(task);else{MobileRelease release=pendingUpdate;String target=task.url,base=task.origin;cancelDownload();if(release!=null)startUpdateDownload(release,null);else startDownload(target,base);}
   }else if(task.state==ArtifactDownload.State.COMPLETE){
+   if(pendingUpdate!=null){installDownloadedUpdate();return;}
    choosingDownload=task;renderDownload();Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,task.name);
    try{startActivityForResult(save,32);}catch(Exception e){choosingDownload=null;renderDownload();message(L("没有可用的文件保存器"));}
   }
  }
  void openDownload(){
+  if(pendingUpdate!=null){installDownloadedUpdate();return;}
   ArtifactDownload.Task task=downloadTask;if(task==null||task.state!=ArtifactDownload.State.COMPLETE||savingDownload||choosingDownload!=null||openingDownload)return;
   openingDownload=true;renderDownload();downloads.execute(()->{
    Uri uri=null;try{uri=DownloadProvider.prepare(this,task.result());}catch(java.io.IOException ignored){}
@@ -204,7 +206,7 @@ public final class MainActivity extends Activity {
    });
   });
  }
- void cancelDownload(){if(downloadTask!=null){downloadTask.cancel();downloadTask=null;}renderDownload();}
+ void cancelDownload(){if(downloadTask!=null){downloadTask.cancel();downloadTask=null;}pendingUpdate=null;installAfterPermission=false;renderDownload();}
  void saveDownload(int result,Intent data){
   ArtifactDownload.Task task=choosingDownload;choosingDownload=null;
   if(result!=RESULT_OK||data==null||data.getData()==null){renderDownload();return;}
@@ -256,7 +258,7 @@ public final class MainActivity extends Activity {
   LinearLayout notifications=card();Button toggle=button(prefs.getBoolean("alerts",false)?L("关闭任务通知"):L("开启任务通知"),()->{dialog.dismiss();toggleNotifications();});add(toggle,notifications,8);add(text(L("App 打开时提醒已连接电脑的新任务消息。离开 App 或锁屏后不保证通知；可在电脑端配置 Bark 或 ntfy。"),14),notifications,12);
   add(button(L("测试本机通知"),()->{dialog.dismiss();testNotification();}),notifications,4);add(text(L("10 秒后显示，用于检查手机的通知权限。"),13),notifications,0);add(notifications,content,22);
   add(text(L("当前电脑"),19),content,12);LinearLayout computer=card();if(origin.isEmpty()){add(text(L("尚未选择电脑"),17),computer,8);add(text(L("返回首页扫码或输入网关地址。"),14),computer,0);}else{add(text(computerName(origin),17),computer,8);add(text(origin,13),computer,12);Button remove=button(L("移除这台电脑"),()->{dialog.dismiss();confirmRemove();});remove.setTextColor(0xffb44235);add(remove,computer,0);}add(computer,content,24);
-  LinearLayout updates=card();add(text(L("应用更新"),19),updates,8);add(text("Codex Mobile Bridge · "+appVersion(),14),updates,8);add(text(L("手动检查更新，不会自动安装"),13),updates,8);
+  LinearLayout updates=card();add(text(L("应用更新"),19),updates,8);add(text("Codex Mobile Bridge · "+appVersion(),14),updates,8);add(text(L("手动检查更新，确认后下载并安装"),13),updates,8);
   TextView updateStatus=text("",13);Button check=button(L("检查更新"),()->{});check.setOnClickListener(v->checkUpdate(dialog,check,updateStatus));add(check,updates,6);add(updateStatus,updates,0);add(updates,content,20);
   TextView version=text("Codex Mobile Bridge",13);version.setTextColor(0xff777b80);version.setGravity(Gravity.CENTER);add(version,content,0);
  }
@@ -275,7 +277,7 @@ public final class MainActivity extends Activity {
     JSONArray rows=new JSONArray(bytes.toString("UTF-8"));
     for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);JSONArray assets=row.optJSONArray("assets");if(assets==null)continue;
      for(int j=0;j<assets.length();j++){JSONObject asset=assets.getJSONObject(j);String tag=row.optString("tag_name");if(!MobileRelease.eligible(current,tag,row.optBoolean("draft",true),row.optBoolean("prerelease",true),asset.optString("name"),asset.optString("browser_download_url")))continue;
-      String version=tag.substring(1);if(candidate==null||MobileRelease.compare(version,candidate.version)>0){String notes=row.optString("body");candidate=new MobileRelease(version,notes.substring(0,Math.min(notes.length(),12000)));}
+      String version=tag.substring(1);if(candidate==null||MobileRelease.compare(version,candidate.version)>0){String notes=row.optString("body");String digest=asset.optString("digest",null);candidate=new MobileRelease(version,notes.substring(0,Math.min(notes.length(),12000)),asset.optLong("size",-1),digest);}
      }
     }
    }catch(Exception e){problem=L("检查失败，请检查网络后重试。也可以打开版本页面。");}finally{if(connection!=null)connection.disconnect();}
@@ -284,8 +286,20 @@ public final class MainActivity extends Activity {
     if(error!=null){updateStatus.setText(error);new AlertDialog.Builder(this).setMessage(error).setNegativeButton(L("关闭"),null).setPositiveButton(L("版本页面"),(d,w)->openUpdateUrl(MobileRelease.REPO+"/releases")).show();return;}
     if(result==null){updateStatus.setText(L("当前已是此通道最新版本。"));return;}
     updateStatus.setText(L("发现新版本")+" · "+result.version);
-    new AlertDialog.Builder(this).setTitle(L("发现新版本")+" · "+result.version).setMessage(L("下载后按系统提示覆盖安装，不要先卸载。已保存的电脑与登录状态会保留。")+"\n\n"+result.notes).setNegativeButton(L("稍后"),null).setNeutralButton(L("更新说明"),(d,w)->openUpdateUrl(result.page())).setPositiveButton(L("下载 APK"),(d,w)->openUpdateUrl(result.download)).show();
+    new AlertDialog.Builder(this).setTitle(L("发现新版本")+" · "+result.version).setMessage(L("App 会在本机下载并打开系统安装器，已保存的电脑与登录状态会保留。")+"\n\n"+result.notes).setNegativeButton(L("稍后"),null).setNeutralButton(L("更新说明"),(d,w)->openUpdateUrl(result.page())).setPositiveButton(L("下载并安装"),(d,w)->startUpdateDownload(result,updateStatus)).show();
    });
+  });
+ }
+ void startUpdateDownload(MobileRelease release,TextView updateStatus){
+  if(downloadTask!=null){message(L("已有下载任务，请先完成或取消"));return;}
+  try{pendingUpdate=release;downloadTask=new ArtifactDownload.Task(release.download,MobileRelease.REPO,getCacheDir(),release.size,release.sha256,MobileRelease.asset(release.version));downloadCard.showTask();renderDownload();if(updateStatus!=null)updateStatus.setText(L("正在下载更新…"));runDownload(downloadTask);}catch(java.io.IOException e){pendingUpdate=null;downloadTask=null;message(e.getMessage());}
+ }
+ void installDownloadedUpdate(){
+  final ArtifactDownload.Task task=downloadTask;if(task==null||pendingUpdate==null||task.state!=ArtifactDownload.State.COMPLETE||openingDownload)return;
+  if(Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){installAfterPermission=true;try{startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));}catch(Exception e){installAfterPermission=false;message(L("无法打开安装权限设置，请在系统设置中允许此应用安装未知来源应用。"));}return;}
+  openingDownload=true;renderDownload();downloads.execute(()->{
+   Uri uri=null;try{uri=DownloadProvider.prepare(this,task.result());}catch(java.io.IOException ignored){}
+   final Uri target=uri;runOnUiThread(()->{openingDownload=false;if(isFinishing()||isDestroyed())return;renderDownload();if(task!=downloadTask)return;if(target==null){message(L("安装包准备失败，请重新下载"));return;}Intent install=new Intent(Intent.ACTION_VIEW).setDataAndType(target,"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);install.setClipData(ClipData.newRawUri("",target));try{startActivity(install);}catch(ActivityNotFoundException e){message(L("系统没有可用的安装器，请保存 APK 后手动安装"));}catch(Exception e){message(L("打开安装器失败，请重试"));}});
   });
  }
  void enableNativePush(){
@@ -323,7 +337,7 @@ public final class MainActivity extends Activity {
   });
  }
  @Override protected void onActivityResult(int code,int result,Intent data){super.onActivityResult(code,result,data);if(code==32){saveDownload(result,data);return;}if(code==20&&result==RESULT_OK&&data!=null)choose(data.getStringExtra("code"));if(code==31)selectedFiles(result,data);}
- @Override protected void onResume(){super.onResume();resumed=true;ComputerNotifications.onChange=()->runOnUiThread(this::renderComputerNotifications);checkComputers();MonitorService.setVisible(true);if(web!=null)web.onResume();registerPushToken();}
+ @Override protected void onResume(){super.onResume();resumed=true;ComputerNotifications.onChange=()->runOnUiThread(this::renderComputerNotifications);checkComputers();MonitorService.setVisible(true);if(web!=null)web.onResume();registerPushToken();if(installAfterPermission){installAfterPermission=false;if(Build.VERSION.SDK_INT<26||getPackageManager().canRequestPackageInstalls())installDownloadedUpdate();else message(L("请在系统设置中允许此应用安装未知来源应用。"));}}
  // Keep the live WebView and its drafts/tabs when rotating or resizing the window.
  @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);screen.requestApplyInsets();downloadCard.post(downloadCard::place);if(web!=null){web.requestLayout();web.invalidate();}}
  @Override protected void onPause(){if(routeDiscovery!=null){routeDiscovery.cancel();routeDiscovery=null;}routeAttempted=false;ComputerNotifications.onChange=null;resumed=false;stopComputerChecks();resetExitGesture();MonitorService.setVisible(false);if(web!=null)web.onPause();CookieManager.getInstance().flush();super.onPause();}

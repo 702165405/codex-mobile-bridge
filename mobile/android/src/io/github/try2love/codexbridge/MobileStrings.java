@@ -43,7 +43,7 @@ final class MobileStrings {
 
 
 values.put("应用更新","App updates");
-values.put("手动检查更新，不会自动安装","Manual update checks, no automatic installation");
+values.put("手动检查更新，确认后下载并安装","Check manually, then download and install after confirmation");
 values.put("检查更新","Check for updates");
 values.put("正在检查更新…","Checking for updates\u2026");
 values.put("没有可用的浏览器，请在电脑上打开 GitHub Release。","No browser is available. Open GitHub Releases on your computer.");
@@ -55,6 +55,15 @@ values.put("下载后按系统提示覆盖安装，不要先卸载。已保存�
 values.put("稍后","Later");
 values.put("更新说明","Release notes");
 values.put("下载 APK","Download APK");
+values.put("下载并安装","Download and install");
+values.put("正在下载更新…","Downloading update…");
+values.put("更新下载被拒绝，请稍后重试","The update download was refused. Try again later.");
+values.put("App 会在本机下载并打开系统安装器，已保存的电脑与登录状态会保留。","The app will download the APK here and open the system installer. Saved computers and sign-ins will be retained.");
+values.put("无法打开安装权限设置，请在系统设置中允许此应用安装未知来源应用。","Could not open install permissions. Allow this app to install unknown apps in system settings.");
+values.put("请在系统设置中允许此应用安装未知来源应用。","Allow this app to install unknown apps in system settings.");
+values.put("安装包准备失败，请重新下载","Could not prepare the installer. Download the update again.");
+values.put("系统没有可用的安装器，请保存 APK 后手动安装","No system installer is available. Save the APK and install it manually.");
+values.put("打开安装器失败，请重试","Could not open the installer. Try again.");
 values.put("查看新版与安装指引","View update and installation guide");
 values.put("iOS App 需要使用自己的 Apple 账号重新签名安装，暂不支持 App 内直接覆盖更新。","The iOS app requires signing the new build with your own Apple account. Direct in-app installation is not available yet.");
 
