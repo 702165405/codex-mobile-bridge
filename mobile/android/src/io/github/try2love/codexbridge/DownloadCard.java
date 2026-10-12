@@ -50,12 +50,14 @@ final class DownloadCard extends LinearLayout {
   float bottom=Math.max(top,parent.getHeight()-parent.getPaddingBottom()-getHeight()-dp(88));
   setX(dragged?Math.max(left,Math.min(right,getX())):right);setY(dragged?Math.max(top,Math.min(bottom,getY())):bottom);
  }
- void render(ArtifactDownload.Task task,boolean saving,boolean opening){
+ void render(ArtifactDownload.Task task,boolean saving,boolean opening,boolean update){
   if(task==null){setVisibility(GONE);return;}
   if(getVisibility()!=VISIBLE)showTask();
   ArtifactDownload.State state=task.state;boolean active=state==ArtifactDownload.State.RUNNING||state==ArtifactDownload.State.READY||state==ArtifactDownload.State.PAUSING;
   String size=bytes(task.downloaded)+(task.total>=0?" / "+bytes(task.total):"");
   String phase=state==ArtifactDownload.State.COMPLETE?L("下载完成，可打开或保存"):state==ArtifactDownload.State.PAUSED?L("已暂停"):state==ArtifactDownload.State.FAILED?L("下载中断"):state==ArtifactDownload.State.PAUSING?L("正在暂停…"):L("正在下载…");
+  if(update&&state==ArtifactDownload.State.COMPLETE)phase=L("更新已就绪，可安装或保存 APK");
+  if(task.gatewayUpdate&&(state==ArtifactDownload.State.RUNNING||state==ArtifactDownload.State.READY))phase=L("正在从电脑传送到手机…");
   if(opening)phase=L("正在打开…");
   boolean busy=saving||opening;
   if(saving)phase=L("正在保存…");
@@ -64,9 +66,10 @@ final class DownloadCard extends LinearLayout {
   title.setContentDescription(task.name+" · "+phase+" · "+size);
   progress.setIndeterminate(active&&task.total<0);progress.setProgress(task.total>0?(int)Math.min(1000,task.downloaded*1000/task.total):state==ArtifactDownload.State.COMPLETE?1000:0);
   details.setText(phase+" · "+size+(state==ArtifactDownload.State.RUNNING?" · "+bytes((long)task.bytesPerSecond)+"/s":"")+(state==ArtifactDownload.State.FAILED&&!task.error.isEmpty()?"\n"+L(task.error):""));
-  primary.setText(L(state==ArtifactDownload.State.COMPLETE?"保存":active?"暂停":task.resumable()?"继续":"重新下载"));primary.setEnabled(!busy&&state!=ArtifactDownload.State.PAUSING&&state!=ArtifactDownload.State.READY);
+  primary.setText(L(update&&state==ArtifactDownload.State.FAILED?"重新选择":state==ArtifactDownload.State.COMPLETE?"保存":active?"暂停":task.resumable()?"继续":"重新下载"));primary.setEnabled(!busy&&state!=ArtifactDownload.State.PAUSING&&state!=ArtifactDownload.State.READY);
   cancel.setText(L(state==ArtifactDownload.State.COMPLETE?"关闭":"取消"));cancel.setEnabled(!busy);
-  open.setText(L("打开"));open.setVisibility(state==ArtifactDownload.State.COMPLETE?VISIBLE:GONE);open.setEnabled(!busy);
+  boolean fallback=update&&state==ArtifactDownload.State.FAILED;
+  open.setText(fallback?"GitHub ↗":L(update?"安装":"打开"));open.setContentDescription(L(fallback?"在浏览器中下载 APK":update?"安装":"打开"));open.setVisibility(state==ArtifactDownload.State.COMPLETE||fallback?VISIBLE:GONE);open.setEnabled(!busy);
   setCollapsed(collapsed);
  }
  private static String bytes(long value){if(value<1024)return value+" B";if(value<1024*1024)return String.format(Locale.ROOT,"%.1f KB",value/1024d);return String.format(Locale.ROOT,"%.1f MB",value/(1024d*1024));}

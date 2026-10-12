@@ -9,6 +9,7 @@ import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
 import java.io.*;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 /** Read-only copies keep external viewers independent of the active download. */
@@ -26,7 +27,15 @@ public final class DownloadProvider extends ContentProvider {
   String key=UUID.nameUUIDFromBytes(result.file.getAbsolutePath().getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
   File folder=new File(root,key);if(!folder.isDirectory()&&!folder.mkdir())throw new IOException();
   File copy=new File(folder,result.name);
-  try{if(!copy.isFile())Files.copy(result.file.toPath(),copy.toPath());folder.setLastModified(System.currentTimeMillis());}catch(IOException e){copy.delete();folder.delete();throw e;}
+  File staging=null;
+  try{
+   if(!copy.isFile()||copy.length()!=result.file.length()){
+    staging=File.createTempFile("bridge-open-",".part",folder);
+    Files.copy(result.file.toPath(),staging.toPath(),StandardCopyOption.REPLACE_EXISTING);
+    Files.move(staging.toPath(),copy.toPath(),StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);
+   }
+   folder.setLastModified(System.currentTimeMillis());
+  }finally{if(staging!=null)staging.delete();}
   return new Uri.Builder().scheme("content").authority(context.getPackageName()+".downloads").appendPath(folder.getName()).appendPath(copy.getName()).build();
  }
  private File file(Uri uri)throws FileNotFoundException {

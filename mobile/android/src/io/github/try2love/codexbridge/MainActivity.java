@@ -27,7 +27,9 @@ public final class MainActivity extends Activity {
  private final Runnable homeRefresh=()->checkComputers();
  private long homeBackAt;private Toast exitToast;
  private final ExecutorService downloads=Executors.newSingleThreadExecutor();
- private FrameLayout screen;private DownloadCard downloadCard;private ArtifactDownload.Task downloadTask,choosingDownload;private boolean savingDownload,openingDownload;
+ private FrameLayout screen;private DownloadCard downloadCard;private ArtifactDownload.Task downloadTask,choosingDownload;private UpdateInstallSession updateSession;private boolean savingDownload,openingDownload,restoringUpdate,autoInstallUpdate;
+ private String choosingUpdateFile;private Bundle pendingSaveResult;
+ private GatewayUpdate preparingUpdate;
  private ServiceConnection monitor;private ValueCallback<Uri[]> files;private WebView fileView;private int fileGeneration;private int generation;
  String L(String value){return MobileStrings.text(this,value);}
  int dp(int n){return (int)(getResources().getDisplayMetrics().density*n);}
@@ -72,13 +74,14 @@ public final class MainActivity extends Activity {
  void message(String value){resetExitGesture();new AlertDialog.Builder(this).setMessage(L(value)).setPositiveButton(L("好"),null).show();}
  Set<String> saved(){return new LinkedHashSet<>(prefs.getStringSet("origins",new HashSet<>()));}
  @Override public void onCreate(Bundle state){super.onCreate(state);prefs=getSharedPreferences("bridge",0);root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(0xfff5f5f3);screen=new FrameLayout(this);screen.addView(root,new FrameLayout.LayoutParams(-1,-1));setContentView(screen);systemBars=new SystemBars(this,screen,()->{if(downloadCard!=null)downloadCard.post(downloadCard::place);});
+  if(state!=null){choosingUpdateFile=state.getString("choosingUpdateFile");pendingSaveResult=state.getBundle("pendingSaveResult");}
   if(Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::handleBack);
   bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(20),dp(4),dp(12),dp(4));root.addView(bar);header(false);
   downloadCard=new DownloadCard(this,screen,this::downloadAction,this::openDownload,this::cancelDownload);
   status=text("",12);status.setTextColor(0xff6b7075);status.setGravity(Gravity.CENTER);root.addView(status);
-  if(!openIntent(getIntent())){String active=prefs.getString("active","");if(saved().contains(active))connect(active+"/");else home();}monitor();root.post(this::requestStartupNotifications);
+  if(!openIntent(getIntent())){String active=prefs.getString("active","");if(saved().contains(active))connect(active+"/");else home();}monitor();root.post(this::requestStartupNotifications);restoreUpdate();
  }
- void clear(){pendingStorage=null;if(routeDiscovery!=null){routeDiscovery.cancel();routeDiscovery=null;}if(files!=null){files.onReceiveValue(null);files=null;fileView=null;}stopComputerChecks();homeStates.clear();homeNotifications.clear();resetExitGesture();generation++;if(web!=null){web.stopLoading();web.destroy();web=null;}systemBars.update(0xfff5f5f3,0xfff5f5f3);while(root.getChildCount()>2)root.removeViewAt(2);}
+ void clear(){if(preparingUpdate!=null){preparingUpdate.cancel();preparingUpdate=null;}pendingStorage=null;if(routeDiscovery!=null){routeDiscovery.cancel();routeDiscovery=null;}if(files!=null){files.onReceiveValue(null);files=null;fileView=null;}stopComputerChecks();homeStates.clear();homeNotifications.clear();resetExitGesture();generation++;if(web!=null){web.stopLoading();web.destroy();web=null;}systemBars.update(0xfff5f5f3,0xfff5f5f3);while(root.getChildCount()>2)root.removeViewAt(2);}
  void home(){clear();header(false);status.setVisibility(View.GONE);ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);LinearLayout content=column();content.setPadding(dp(20),dp(16),dp(20),dp(24));scroll.addView(content);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
   ImageView icon=new ImageView(this);icon.setImageResource(getResources().getIdentifier("ic_computer","drawable",getPackageName()));icon.setScaleType(ImageView.ScaleType.FIT_CENTER);LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(dp(64),dp(58));ip.gravity=Gravity.CENTER;ip.bottomMargin=dp(24);content.addView(icon,ip);
   TextView headline=text(L("电脑上的工作，\n带在身边。"),30);headline.setTypeface(null,android.graphics.Typeface.BOLD);headline.setGravity(Gravity.CENTER);add(headline,content,10);
@@ -169,29 +172,41 @@ public final class MainActivity extends Activity {
   web.setDownloadListener((target,agent,disposition,mime,length)->downloadArtifact(target));
   web.loadUrl(url);monitor();
  }catch(Exception e){message(e.getMessage());}}
- void renderDownload(){downloadCard.render(downloadTask,savingDownload||choosingDownload!=null,openingDownload);}
+ void renderDownload(){downloadCard.render(downloadTask,savingDownload||choosingDownload!=null,openingDownload,updateSession!=null);}
  void downloadArtifact(String target){
+  if(preparingUpdate!=null){message(L("电脑正在准备更新，请稍候"));return;}
   if(downloadTask!=null){downloadCard.showTask();renderDownload();message(L("已有下载任务，请先完成或取消"));return;}
   if(web==null||!GatewayURL.sameOrigin(web.getUrl(),origin)||!ArtifactDownload.accepts(target,origin)){message(L("此下载不是当前电脑的附件，请在浏览器中打开"));return;}
   startDownload(target,origin);
  }
  void startDownload(String target,String base){
+  if(restoringUpdate){message(L("正在恢复更新，请稍候"));return;}
   try{downloadTask=new ArtifactDownload.Task(target,base,getCacheDir());downloadCard.showTask();renderDownload();runDownload(downloadTask);}catch(java.io.IOException e){message(e.getMessage());}
  }
  void runDownload(ArtifactDownload.Task task){
-  task.state=ArtifactDownload.State.READY;renderDownload();downloads.execute(()->task.run(()->CookieManager.getInstance().getCookie(task.url),value->runOnUiThread(()->{if(downloadTask==value&&!isFinishing()&&!isDestroyed())renderDownload();})));
+  final UpdateInstallSession session=updateSession;task.state=ArtifactDownload.State.READY;renderDownload();
+  downloads.execute(()->task.run(()->CookieManager.getInstance().getCookie(task.url),value->{
+   // Snapshot the event before posting: queued progress callbacks must not become completion events.
+   boolean complete=value.state==ArtifactDownload.State.COMPLETE;
+   if(complete&&session!=null)try{session.save();}catch(java.io.IOException e){complete=false;if(value.state!=ArtifactDownload.State.CANCELLED){value.state=ArtifactDownload.State.FAILED;value.restartRequired=true;value.error="无法保存待安装更新，请重新下载";}}
+   final boolean finished=complete;
+   runOnUiThread(()->{if(downloadTask!=value||isFinishing()||isDestroyed())return;renderDownload();if(finished&&session!=null&&updateSession==session&&session.completed()){autoInstallUpdate=true;resumeUpdateInstall();}
+   });
+  }));
  }
  void downloadAction(){
   ArtifactDownload.Task task=downloadTask;if(task==null||savingDownload||choosingDownload!=null||openingDownload)return;
   if(task.state==ArtifactDownload.State.RUNNING){task.pause();renderDownload();}
+  else if(task.state==ArtifactDownload.State.FAILED&&updateSession!=null){chooseUpdateDownload(updateSession.release,null);}
   else if(task.state==ArtifactDownload.State.PAUSED||task.state==ArtifactDownload.State.FAILED){
-   if(task.resumable())runDownload(task);else{String target=task.url,base=task.origin;cancelDownload();startDownload(target,base);}
+   if(task.resumable()){runDownload(task);}else{MobileRelease release=updateSession==null?null:updateSession.release;String target=task.url,base=task.origin;boolean assisted=task.gatewayUpdate;cancelDownload();if(release!=null){if(assisted)startGatewayUpdate(release,base);else startUpdateDownload(release);}else startDownload(target,base);}
   }else if(task.state==ArtifactDownload.State.COMPLETE){
-   choosingDownload=task;renderDownload();Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,task.name);
-   try{startActivityForResult(save,32);}catch(Exception e){choosingDownload=null;renderDownload();message(L("没有可用的文件保存器"));}
+   Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,task.name);
+   try{choosingUpdateFile=updateSession==null?null:task.result().file.getName();choosingDownload=task;renderDownload();startActivityForResult(save,32);}catch(Exception e){choosingDownload=null;choosingUpdateFile=null;renderDownload();message(L("没有可用的文件保存器"));}
   }
  }
  void openDownload(){
+  if(updateSession!=null){if(downloadTask!=null&&downloadTask.state==ArtifactDownload.State.FAILED)openUpdateUrl(updateSession.release.download);else installDownloadedUpdate();return;}
   ArtifactDownload.Task task=downloadTask;if(task==null||task.state!=ArtifactDownload.State.COMPLETE||savingDownload||choosingDownload!=null||openingDownload)return;
   openingDownload=true;renderDownload();downloads.execute(()->{
    Uri uri=null;try{uri=DownloadProvider.prepare(this,task.result());}catch(java.io.IOException ignored){}
@@ -204,10 +219,12 @@ public final class MainActivity extends Activity {
    });
   });
  }
- void cancelDownload(){if(downloadTask!=null){downloadTask.cancel();downloadTask=null;}renderDownload();}
+ void cancelDownload(){if(preparingUpdate!=null){preparingUpdate.cancel();preparingUpdate=null;}if(updateSession!=null)updateSession.cancel();else if(downloadTask!=null)downloadTask.cancel();downloadTask=null;updateSession=null;autoInstallUpdate=false;renderDownload();}
  void saveDownload(int result,Intent data){
-  ArtifactDownload.Task task=choosingDownload;choosingDownload=null;
+  if(restoringUpdate&&choosingUpdateFile!=null){pendingSaveResult=new Bundle();pendingSaveResult.putInt("result",result);pendingSaveResult.putParcelable("data",data);return;}
+  ArtifactDownload.Task task=choosingDownload;choosingDownload=null;choosingUpdateFile=null;
   if(result!=RESULT_OK||data==null||data.getData()==null){renderDownload();return;}
+  if(task==null){renderDownload();message(L("保存失败，请重试"));return;}
   Uri target=data.getData();savingDownload=true;renderDownload();downloads.execute(()->{
    boolean ok=false;
    try{if(task==null||task.state!=ArtifactDownload.State.COMPLETE)throw new java.io.IOException();ArtifactDownload.Result download=task.result();
@@ -256,14 +273,14 @@ public final class MainActivity extends Activity {
   LinearLayout notifications=card();Button toggle=button(prefs.getBoolean("alerts",false)?L("关闭任务通知"):L("开启任务通知"),()->{dialog.dismiss();toggleNotifications();});add(toggle,notifications,8);add(text(L("App 打开时提醒已连接电脑的新任务消息。离开 App 或锁屏后不保证通知；可在电脑端配置 Bark 或 ntfy。"),14),notifications,12);
   add(button(L("测试本机通知"),()->{dialog.dismiss();testNotification();}),notifications,4);add(text(L("10 秒后显示，用于检查手机的通知权限。"),13),notifications,0);add(notifications,content,22);
   add(text(L("当前电脑"),19),content,12);LinearLayout computer=card();if(origin.isEmpty()){add(text(L("尚未选择电脑"),17),computer,8);add(text(L("返回首页扫码或输入网关地址。"),14),computer,0);}else{add(text(computerName(origin),17),computer,8);add(text(origin,13),computer,12);Button remove=button(L("移除这台电脑"),()->{dialog.dismiss();confirmRemove();});remove.setTextColor(0xffb44235);add(remove,computer,0);}add(computer,content,24);
-  LinearLayout updates=card();add(text(L("应用更新"),19),updates,8);add(text("Codex Mobile Bridge · "+appVersion(),14),updates,8);add(text(L("手动检查更新，不会自动安装"),13),updates,8);
+  LinearLayout updates=card();add(text(L("应用更新"),19),updates,8);add(text("Codex Mobile Bridge · "+appVersion(),14),updates,8);add(text(L("手动检查更新，确认后下载并安装"),13),updates,8);
   TextView updateStatus=text("",13);Button check=button(L("检查更新"),()->{});check.setOnClickListener(v->checkUpdate(dialog,check,updateStatus));add(check,updates,6);add(updateStatus,updates,0);add(updates,content,20);
   TextView version=text("Codex Mobile Bridge",13);version.setTextColor(0xff777b80);version.setGravity(Gravity.CENTER);add(version,content,0);
  }
  String appVersion(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception e){return "2.0.0";}}
  void openUpdateUrl(String url){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(ActivityNotFoundException e){message(L("没有可用的浏览器，请在电脑上打开 GitHub Release。"));}}
  void checkUpdate(Dialog dialog,Button check,TextView updateStatus){
-  check.setEnabled(false);updateStatus.setText(L("正在检查更新…"));final String current=appVersion();
+  check.setEnabled(false);updateStatus.setText(L("正在检查更新…"));final String current=appVersion(),gateway=selectedUpdateGateway();final int ticket=generation;
   worker.execute(()->{
    MobileRelease candidate=null;String problem=null;
    java.net.HttpURLConnection connection=null;
@@ -275,17 +292,105 @@ public final class MainActivity extends Activity {
     JSONArray rows=new JSONArray(bytes.toString("UTF-8"));
     for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);JSONArray assets=row.optJSONArray("assets");if(assets==null)continue;
      for(int j=0;j<assets.length();j++){JSONObject asset=assets.getJSONObject(j);String tag=row.optString("tag_name");if(!MobileRelease.eligible(current,tag,row.optBoolean("draft",true),row.optBoolean("prerelease",true),asset.optString("name"),asset.optString("browser_download_url")))continue;
-      String version=tag.substring(1);if(candidate==null||MobileRelease.compare(version,candidate.version)>0){String notes=row.optString("body");candidate=new MobileRelease(version,notes.substring(0,Math.min(notes.length(),12000)));}
+      String version=tag.substring(1);if(candidate==null||MobileRelease.compare(version,candidate.version)>0){String notes=row.optString("body");String digest=asset.optString("digest",null);candidate=new MobileRelease(version,notes.substring(0,Math.min(notes.length(),12000)),asset.optLong("size",-1),digest);}
      }
     }
    }catch(Exception e){problem=L("检查失败，请检查网络后重试。也可以打开版本页面。");}finally{if(connection!=null)connection.disconnect();}
+   if(problem!=null&&!gateway.isEmpty()){
+    runOnUiThread(()->{if(dialog.isShowing())updateStatus.setText(L("正在通过电脑检查更新…"));});
+    try{candidate=new GatewayUpdate(gateway,()->CookieManager.getInstance().getCookie(gateway+"/")).check(current);problem=null;}catch(Exception e){problem=L("手机无法连接 GitHub，电脑协助更新也未成功。")+"\n"+L(e.getMessage()==null?"请检查网络后重试":e.getMessage());}
+   }
    final MobileRelease result=candidate;final String error=problem;
-   runOnUiThread(()->{if(isFinishing()||isDestroyed()||!dialog.isShowing())return;check.setEnabled(true);
-    if(error!=null){updateStatus.setText(error);new AlertDialog.Builder(this).setMessage(error).setNegativeButton(L("关闭"),null).setPositiveButton(L("版本页面"),(d,w)->openUpdateUrl(MobileRelease.REPO+"/releases")).show();return;}
+   runOnUiThread(()->{if(isFinishing()||isDestroyed()||!dialog.isShowing())return;check.setEnabled(true);if(ticket!=generation){updateStatus.setText(L("电脑连接已变化，请重新检查更新"));return;}
+    if(error!=null){updateStatus.setText(error);new AlertDialog.Builder(this).setMessage(error).setNegativeButton(L("关闭"),null).setPositiveButton(L("打开 GitHub 版本页"),(d,w)->openUpdateUrl(MobileRelease.REPO+"/releases")).show();return;}
     if(result==null){updateStatus.setText(L("当前已是此通道最新版本。"));return;}
     updateStatus.setText(L("发现新版本")+" · "+result.version);
-    new AlertDialog.Builder(this).setTitle(L("发现新版本")+" · "+result.version).setMessage(L("下载后按系统提示覆盖安装，不要先卸载。已保存的电脑与登录状态会保留。")+"\n\n"+result.notes).setNegativeButton(L("稍后"),null).setNeutralButton(L("更新说明"),(d,w)->openUpdateUrl(result.page())).setPositiveButton(L("下载 APK"),(d,w)->openUpdateUrl(result.download)).show();
+    new AlertDialog.Builder(this).setTitle(L("发现新版本")+" · "+result.version).setMessage(L("App 会在本机下载并打开系统安装器，已保存的电脑与登录状态会保留。")+"\n\n"+result.notes).setNegativeButton(L("稍后"),null).setNeutralButton(L("打开 GitHub 版本页"),(d,w)->openUpdateUrl(result.page())).setPositiveButton(L("下载并安装"),(d,w)->chooseUpdateDownload(result,dialog)).show();
    });
+  });
+ }
+ java.io.File updateDirectory(){return new java.io.File(getFilesDir(),"pending-update");}
+ void updateProblem(String text,MobileRelease release){new AlertDialog.Builder(this).setMessage(L(text)).setNegativeButton(L("关闭"),null).setPositiveButton(L("打开 GitHub 版本页"),(d,w)->openUpdateUrl(release.page())).show();}
+ void chooseUpdateDownload(MobileRelease release,Dialog settingsDialog){
+  Dialog dialog=new Dialog(this);dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+  LinearLayout content=column();content.setPadding(dp(22),dp(22),dp(22),dp(16));content.setBackground(background(0xffffffff,26));
+  TextView title=text(L("选择下载方式"),22);title.setTypeface(null,android.graphics.Typeface.BOLD);title.setPadding(0,0,0,0);add(title,content,22);
+  add(updateDownloadOption("ic_phone","手机下载","从 GitHub 直接下载到手机",()->{if(startUpdateDownload(release)){dialog.dismiss();if(settingsDialog!=null)settingsDialog.dismiss();}}),content,10);
+  add(updateDownloadOption("ic_computer","电脑下载","电脑从 GitHub 下载，再传到手机",()->{if(startGatewayUpdate(release,selectedUpdateGateway())){dialog.dismiss();if(settingsDialog!=null)settingsDialog.dismiss();}}),content,14);
+  Button cancel=button(L("取消"),dialog::dismiss);cancel.setTextColor(0xff727782);cancel.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x10202124),background(0xffffffff,12),null));add(cancel,content,0);
+  ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.addView(content);dialog.setContentView(scroll);dialog.setCanceledOnTouchOutside(true);dialog.show();
+  Window window=dialog.getWindow();window.setBackgroundDrawableResource(android.R.color.transparent);window.setDimAmount(.34f);window.setLayout(Math.min(dp(420),getResources().getDisplayMetrics().widthPixels-dp(32)),WindowManager.LayoutParams.WRAP_CONTENT);
+ }
+ LinearLayout updateDownloadOption(String drawable,String title,String detail,Runnable action){
+  LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(14),dp(17),dp(12),dp(17));row.setMinimumHeight(dp(88));row.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x14202124),background(0xfff5f6f8,17),null));
+  ImageView image=new ImageView(this);image.setImageResource(getResources().getIdentifier(drawable,"drawable",getPackageName()));image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);row.addView(image,new LinearLayout.LayoutParams(dp(30),dp(30)));
+  LinearLayout labels=column();LinearLayout.LayoutParams labelParams=new LinearLayout.LayoutParams(0,-2,1);labelParams.setMarginStart(dp(13));labelParams.setMarginEnd(dp(8));row.addView(labels,labelParams);
+  TextView heading=text(L(title),16);heading.setTypeface(null,android.graphics.Typeface.BOLD);heading.setPadding(0,0,0,dp(5));heading.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);labels.addView(heading);
+  TextView description=text(L(detail),13);description.setTextColor(0xff747983);description.setPadding(0,0,0,0);description.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);labels.addView(description);
+  TextView arrow=text("›",24);arrow.setTextColor(0xffa3a7ae);arrow.setPadding(0,0,0,0);arrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);row.addView(arrow);
+  row.setContentDescription(L(title)+"，"+L(detail));row.setFocusable(true);row.setOnClickListener(v->action.run());return row;
+ }
+ String selectedUpdateGateway(){return !origin.isEmpty()&&saved().contains(origin)?origin:"";}
+ boolean startUpdateDownload(MobileRelease release){
+  if(restoringUpdate){message(L("正在恢复更新，请稍候"));return false;}
+  if(preparingUpdate!=null||(downloadTask!=null&&(updateSession==null||downloadTask.state!=ArtifactDownload.State.FAILED))){message(L("已有下载任务，请先完成或取消"));return false;}
+  if(downloadTask!=null){
+   if(!downloadTask.gatewayUpdate&&updateSession.release==release&&downloadTask.resumable()){runDownload(downloadTask);return true;}
+   cancelDownload();
+  }
+  try{java.io.File directory=updateDirectory();if(!directory.isDirectory()&&!directory.mkdirs())throw new java.io.IOException("无法保存待安装更新，请重新下载");
+   downloadTask=new ArtifactDownload.Task(release.download,MobileRelease.REPO,directory,release.size,release.sha256,MobileRelease.asset(release.version));updateSession=new UpdateInstallSession(release,downloadTask,directory);downloadCard.showTask();renderDownload();runDownload(downloadTask);return true;
+  }catch(java.io.IOException e){updateSession=null;downloadTask=null;updateProblem(e.getMessage(),release);return false;}
+ }
+ boolean startGatewayUpdate(MobileRelease release,String gateway){
+  if(restoringUpdate||preparingUpdate!=null||(downloadTask!=null&&(updateSession==null||downloadTask.state!=ArtifactDownload.State.FAILED))){message(L("已有下载任务，请先完成或取消"));return false;}
+  if(gateway.isEmpty()||!gateway.equals(selectedUpdateGateway())){updateProblem("请先连接并登录电脑网关",release);return false;}
+  if(downloadTask!=null&&downloadTask.gatewayUpdate&&updateSession.release==release&&gateway.equals(downloadTask.origin)&&downloadTask.resumable()){runDownload(downloadTask);return true;}
+  final GatewayUpdate helper;try{helper=new GatewayUpdate(gateway,()->CookieManager.getInstance().getCookie(gateway+"/"));}catch(java.io.IOException e){updateProblem(e.getMessage(),release);return false;}
+  preparingUpdate=helper;final int ticket=generation;LinearLayout content=column();content.setPadding(dp(24),dp(12),dp(24),dp(12));
+  TextView detail=text(L("电脑正在下载更新…"),15);add(detail,content,12);ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);progress.setIndeterminate(true);add(progress,content,8);
+  AlertDialog dialog=new AlertDialog.Builder(this).setTitle(L("通过电脑更新")+" · "+release.version).setView(content).setNegativeButton(L("取消"),(d,w)->{helper.cancel();if(preparingUpdate==helper)preparingUpdate=null;}).create();dialog.setCanceledOnTouchOutside(false);dialog.setOnCancelListener(d->{helper.cancel();if(preparingUpdate==helper)preparingUpdate=null;});dialog.show();
+  downloads.execute(()->{
+   ArtifactDownload.Task ready=null;String error=null;
+   try{String identifier=helper.prepare(release,(downloaded,size)->runOnUiThread(()->{if(preparingUpdate!=helper||isDestroyed())return;progress.setIndeterminate(false);progress.setProgress((int)(downloaded*1000/size));detail.setText(L("电脑正在下载更新…")+" "+(downloaded*100/size)+"%");}));
+    java.io.File directory=updateDirectory();if(!directory.isDirectory()&&!directory.mkdirs())throw new java.io.IOException("无法保存待安装更新，请重新下载");ready=ArtifactDownload.Task.gatewayUpdate(gateway,identifier,release,directory);
+   }catch(Exception e){error=e.getMessage()==null?"电脑协助更新失败，请重试":e.getMessage();}
+   final ArtifactDownload.Task task=ready;final String problem=error;
+   runOnUiThread(()->{
+    if(isDestroyed()||isFinishing()||preparingUpdate!=helper||ticket!=generation||!gateway.equals(selectedUpdateGateway())){if(task!=null)task.cancel();if(!isDestroyed())dialog.dismiss();return;}
+    preparingUpdate=null;dialog.dismiss();
+    if(problem!=null){updateProblem(problem,release);return;}
+    if(updateSession!=null)updateSession.cancel();else if(downloadTask!=null)downloadTask.cancel();
+    downloadTask=task;updateSession=new UpdateInstallSession(release,task,updateDirectory());downloadCard.showTask();renderDownload();runDownload(task);
+   });
+  });return true;
+ }
+ void restoreUpdate(){
+  restoringUpdate=true;final String current=appVersion();downloads.execute(()->{
+   UpdateInstallSession saved=null;boolean invalid=false;try{saved=UpdateInstallSession.restore(updateDirectory(),current);}catch(java.io.InterruptedIOException interrupted){return;}catch(java.io.IOException e){if(Thread.currentThread().isInterrupted())return;invalid=true;UpdateInstallSession.discard(updateDirectory());}
+   final UpdateInstallSession recovered=saved;final boolean failed=invalid;runOnUiThread(()->{
+    if(isFinishing()||isDestroyed())return;restoringUpdate=false;
+    if(recovered!=null){updateSession=recovered;downloadTask=recovered.task;try{if(downloadTask.result().file.getName().equals(choosingUpdateFile))choosingDownload=downloadTask;}catch(java.io.IOException ignored){}downloadCard.showTask();renderDownload();}
+    else if(failed)message(L("待安装更新已失效，请重新检查更新"));
+    if(pendingSaveResult!=null){Bundle result=pendingSaveResult;pendingSaveResult=null;saveDownload(result.getInt("result"),result.getParcelable("data"));}
+    resumeUpdateInstall();
+   });
+  });
+ }
+ void resumeUpdateInstall(){
+  if(!resumed||updateSession==null||savingDownload||choosingDownload!=null)return;
+  if(updateSession.waitingPermission()){
+   try{updateSession.permissionReturned();}catch(java.io.IOException e){updateProblem("无法保存待安装更新，请重新下载",updateSession.release);return;}
+   if(Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){updateProblem("请在系统设置中允许此应用安装未知来源应用。",updateSession.release);return;}
+   installDownloadedUpdate();
+  }else if(autoInstallUpdate){autoInstallUpdate=false;installDownloadedUpdate();}
+ }
+ void installDownloadedUpdate(){
+  final ArtifactDownload.Task task=downloadTask;final UpdateInstallSession session=updateSession;if(!resumed||task==null||session==null||task.state!=ArtifactDownload.State.COMPLETE||openingDownload||savingDownload||choosingDownload!=null||!session.beginInstall())return;
+  if(Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){try{session.awaitPermission();startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())));}catch(Exception e){try{session.permissionReturned();}catch(java.io.IOException ignored){}session.finishInstall();updateProblem("无法打开安装权限设置，请在系统设置中允许此应用安装未知来源应用。",session.release);}return;}
+  openingDownload=true;renderDownload();downloads.execute(()->{
+   Uri uri=null;try{task.verifyCompletedUpdate();uri=DownloadProvider.prepare(this,task.result());}catch(java.io.IOException ignored){}
+   final Uri target=uri;runOnUiThread(()->{openingDownload=false;session.finishInstall();if(isFinishing()||isDestroyed()||task!=downloadTask)return;renderDownload();if(target==null){updateProblem("安装包准备失败，请重新下载",session.release);return;}if(!resumed)return;Intent install=new Intent(Intent.ACTION_VIEW).setDataAndType(target,"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);install.setClipData(ClipData.newRawUri("",target));try{startActivity(install);}catch(ActivityNotFoundException e){updateProblem("系统没有可用的安装器，请保存 APK 后手动安装",session.release);}catch(Exception e){updateProblem("打开安装器失败，请重试",session.release);}});
   });
  }
  void enableNativePush(){
@@ -323,12 +428,13 @@ public final class MainActivity extends Activity {
   });
  }
  @Override protected void onActivityResult(int code,int result,Intent data){super.onActivityResult(code,result,data);if(code==32){saveDownload(result,data);return;}if(code==20&&result==RESULT_OK&&data!=null)choose(data.getStringExtra("code"));if(code==31)selectedFiles(result,data);}
- @Override protected void onResume(){super.onResume();resumed=true;ComputerNotifications.onChange=()->runOnUiThread(this::renderComputerNotifications);checkComputers();MonitorService.setVisible(true);if(web!=null)web.onResume();registerPushToken();}
+ @Override protected void onSaveInstanceState(Bundle state){state.putString("choosingUpdateFile",choosingUpdateFile);if(pendingSaveResult!=null)state.putBundle("pendingSaveResult",pendingSaveResult);super.onSaveInstanceState(state);}
+ @Override protected void onResume(){super.onResume();resumed=true;ComputerNotifications.onChange=()->runOnUiThread(this::renderComputerNotifications);checkComputers();MonitorService.setVisible(true);if(web!=null)web.onResume();registerPushToken();resumeUpdateInstall();}
  // Keep the live WebView and its drafts/tabs when rotating or resizing the window.
  @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);screen.requestApplyInsets();downloadCard.post(downloadCard::place);if(web!=null){web.requestLayout();web.invalidate();}}
  @Override protected void onPause(){if(routeDiscovery!=null){routeDiscovery.cancel();routeDiscovery=null;}routeAttempted=false;ComputerNotifications.onChange=null;resumed=false;stopComputerChecks();resetExitGesture();MonitorService.setVisible(false);if(web!=null)web.onPause();CookieManager.getInstance().flush();super.onPause();}
  void resetExitGesture(){homeBackAt=0;if(exitToast!=null){exitToast.cancel();exitToast=null;}}
  @Override public void onBackPressed(){handleBack();}
  void handleBack(){if(web==null){long now=SystemClock.elapsedRealtime();if(homeBackAt!=0&&now-homeBackAt<=2000){resetExitGesture();finishAndRemoveTask();}else{homeBackAt=now;if(exitToast!=null)exitToast.cancel();exitToast=Toast.makeText(this,L("再按一次返回退出 App"),Toast.LENGTH_SHORT);exitToast.show();}return;}resetExitGesture();if(!GatewayURL.sameOrigin(web.getUrl(),origin)){home();return;}final int ticket=generation;web.evaluateJavascript("(()=>{const dialog=document.querySelector('dialog[open]');if(dialog){dialog.close();return true;}if(typeof window.BridgeNavigation?.back==='function')return window.BridgeNavigation.back();if(window.BridgeWorkbench?.back())return true;if(document.getElementById('app')?.classList.contains('chat-open')){document.getElementById('back')?.click();return true;}return false;})()",result->{if(ticket==generation&&!"true".equals(result))home();});}
- @Override public void onDestroy(){if(downloadTask!=null)downloadTask.cancel();downloads.shutdownNow();clear();probes.shutdownNow();worker.shutdownNow();if(monitor!=null)getApplicationContext().unbindService(monitor);super.onDestroy();}
+ @Override public void onDestroy(){if(downloadTask!=null&&(updateSession==null||downloadTask.state!=ArtifactDownload.State.COMPLETE))downloadTask.cancel();downloads.shutdownNow();clear();probes.shutdownNow();worker.shutdownNow();if(monitor!=null)getApplicationContext().unbindService(monitor);super.onDestroy();}
 }

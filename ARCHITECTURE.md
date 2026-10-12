@@ -151,6 +151,14 @@ Electron 主进程使用 qrcode 本地生成 PNG，渲染器接收图片、授�
 
 `bridge/features/updates/gateway.py` 负责原安装目录旁的准备、替换与恢复。准备阶段拒绝路径穿越和危险链接，核对包版本、平台、macOS 签名和内置运行时。独立复制的旧运行时等控制面板退出、协作停止原网关后替换目录，再等待新面板确认加载并恢复此前运行的网关。失败时尝试回滚；配置目录保持独立。发布签名身份和事务恢复操作见 [桌面更新文档](docs/desktop-updates.md)。
 
+## Android 更新协助
+
+Android 优先直接检查本项目 GitHub Release，查询失败时可通过当前已登录网关查询版本。APK 下载由用户在「下载并安装」后选择手机直连或电脑下载再传送；取消选择不启动下载，下载失败不自动切换路径。下载卡片允许重新选择，暂停后的继续仍沿用原路径。交互取舍见 [下载方式选择记录](.agents/notes/implemented/feature/2026-10-12-android-update-download-choice.md)。`bridge/features/updates/mobile.py` 只接受固定仓库、版本对应的 APK、有效大小和 SHA-256。手机准备请求的版本、大小和摘要须与网关从官方源取得的记录一致；不接受手机指定外部 URL 或磁盘路径。
+
+`GET /api/mobile/update?current=<版本>` 查询版本；带登录和 CSRF 的 `POST /api/mobile/update/prepare` 接受 `{version,size,sha256}`，启动或复用一个后台下载；`GET /api/mobile/update/status/<id>` 返回进度；`GET /api/mobile/update/packages/<id>` 只传送已完成校验的缓存包，并支持 Range/ETag。所有入口要求密码保护的登录会话。共享中继与连接器只放行这些准确的方法和路径，共用同一网关缓存。
+
+网关单次最多下载 512 MiB，只并行下载一个包，最多保留两个任务/缓存；闲置超过 24 小时的缓存按需清理。缓存只属于当前网关运行周期。手机取消准备仅停止等待，电脑任务仍可供已登录手机复用。手机和网关各自校验完整 APK；手机安装恢复复用私有已校验文件，不依赖网关持续在线。网关 Cookie 只发往选定网关，不跟随重定向或发送给 GitHub。详细取舍见 [决策记录](.agents/notes/implemented/feature/2026-10-12-gateway-assisted-android-update.md)。
+
 
 ## PR8 验收反馈调整
 

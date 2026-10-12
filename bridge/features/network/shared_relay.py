@@ -121,6 +121,7 @@ class Connector:
         self.server = GatewayServer(('127.0.0.1', 0), gateway.bridge, config, gateway.web_dir)
         # Share the live file policy while keeping relay authentication private.
         self.server.transfer_directory = getattr(gateway, 'transfer_directory', None)
+        self.server.mobile_updates = getattr(gateway, 'mobile_updates', None)
         self.server.notifications = gateway.notifications
         self.server.desktop_sessions = getattr(gateway, 'desktop_sessions', None)
         self.local_origin = 'http://127.0.0.1:' + str(self.server.server_port)
