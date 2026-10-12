@@ -29,6 +29,7 @@ from bridge.clients.deepseek.legacy_gateway import Harness
 from bridge.clients.deepseek.legacy_proxy import proxy as harness_proxy
 from bridge.features.auth.pairing import Pairing
 from bridge.features.auth.auth import Auth, LoginRejected
+from bridge.features.updates.mobile import MobileUpdates
 from bridge.clients.codex.ipc import IPCError
 from bridge.features.sessions.goal import GoalError
 from bridge.clients.codex.catalog import CatalogError
@@ -55,6 +56,8 @@ class GatewayServer(ThreadingHTTPServer):
 
     def __init__(self, address, bridge, config, web_dir, data_dir=None, shared=None):
         self.transfer_directory = data_dir if shared is None else shared.transfer_directory
+        self.mobile_updates_owner = shared is None and data_dir is not None
+        self.mobile_updates = MobileUpdates(data_dir) if self.mobile_updates_owner else getattr(shared, 'mobile_updates', None)
         self.local_access = config.get('localAccess', True)
         if shared is None:
             self.bridge = bridge
@@ -92,6 +95,11 @@ class GatewayServer(ThreadingHTTPServer):
             return 'en' if value.get('language') == 'en' else 'zh'
         except (OSError, ValueError, AttributeError):
             return 'zh'
+
+    def server_close(self):
+        if self.mobile_updates_owner:
+            self.mobile_updates.close()
+        super().server_close()
 
     def server_bind(self):
         # HTTPServer resolves the listening IP with getfqdn(), which can stall
@@ -322,6 +330,30 @@ class Handler(BaseHTTPRequestHandler):
             auth = self.authorized(write)
             if not auth:
                 return
+            mobile_update = re.fullmatch(r'/api/mobile/update(?:/(prepare|status/([a-f0-9]{64})|packages/([a-f0-9]{64})))?', path)
+            if mobile_update:
+                if self.server.auth.config.get('mode') == 'none':
+                    raise PermissionError('请启用密码保护后使用电脑协助更新')
+                updates = self.server.mobile_updates
+                if updates is None:
+                    return self.output(503, {'error': '此网关暂不支持协助更新'})
+                operation, identifier, package = mobile_update.groups()
+                if write:
+                    if operation != 'prepare' or query:
+                        return self.output(405, {'error': '请求方式无效'})
+                    return self.output(200, updates.prepare(self.read_json()))
+                if operation is None:
+                    if set(query) != {'current'} or len(query['current']) != 1:
+                        raise ValueError('更新请求无效')
+                    return self.output(200, updates.check(query['current'][0]))
+                if query:
+                    raise ValueError('更新请求无效')
+                if identifier:
+                    return self.output(200, updates.status(identifier))
+                if package:
+                    with updates.download(package, **self.download_request()) as (metadata, stream):
+                        return self.download_response(metadata, stream, 'application/vnd.android.package-archive')
+                return self.output(405, {'error': '请求方式无效'})
             if path == '/api/clients/claude/reconnect':
                 if not write:
                     return self.output(405, {'error': '请求方式无效'})
