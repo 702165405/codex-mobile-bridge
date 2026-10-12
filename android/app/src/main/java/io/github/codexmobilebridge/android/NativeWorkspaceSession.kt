@@ -79,7 +79,8 @@ class NativeWorkspaceSession(val gateway: Gateway,val chat: ChatTarget,val store
     fun preview(row:JsonObject)=read {preview=gateway.api(url("preview",mapOf("path" to row.str("path"))))}
     fun closePreview(){preview=null;diff=null;gitDetail=null;agentDetail=null}
     fun prepareDownload(row:JsonObject){downloadRow=row}
-    fun download(uri:Uri) {
+    fun openDownload(row:JsonObject) {prepareDownload(row);download(null)}
+    fun download(uri:Uri?) {
         val row=downloadRow ?: return;downloadJob?.cancel()
         val path=url("download",mapOf("path" to row.str("path"),"explicit" to "1","archive" to if(row.str("kind")=="directory")"1" else "0"))
         val folder=File(app.cacheDir,"workspace-downloads").apply{mkdirs()}
@@ -87,7 +88,12 @@ class NativeWorkspaceSession(val gateway: Gateway,val chat: ChatTarget,val store
         downloadPath=row.str("path");downloadProgress="0";error=""
         downloadJob=scope.launch {try {
             gateway.downloadTo(path,spool){done,total->downloadProgress=if(total>0)"${done*100/total}%" else "${done/1024} KiB"}
-            withContext(Dispatchers.IO){app.contentResolver.openOutputStream(uri,"wt")!!.use{output->spool.inputStream().use{it.copyTo(output)}};spool.delete()}
+            val opened=withContext(Dispatchers.IO){
+                val copy=if(uri==null)OpenedFiles.prepare(app,spool,row.str("name","download")+if(row.str("kind")=="directory")".zip" else "") else null
+                if(uri!=null)app.contentResolver.openOutputStream(uri,"wt")!!.use{output->spool.inputStream().use{it.copyTo(output)}}
+                spool.delete();copy
+            }
+            if(opened!=null)try {OpenedFiles.open(app,opened)}catch(e:android.content.ActivityNotFoundException){error="暂无可打开此文件的应用，请保存后打开 / No app can open this file. Save it instead."}
             downloadProgress="";notice="✓ "+row.str("name")
         }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message ?: "Download failed";downloadProgress=""}}
     }

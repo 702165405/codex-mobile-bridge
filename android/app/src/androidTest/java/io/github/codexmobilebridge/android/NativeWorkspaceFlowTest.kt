@@ -26,6 +26,8 @@ class NativeWorkspaceFlowTest {
     private val calls=CopyOnWriteArrayList<RecordedRequest>()
     private val id="12345678-1234-1234-1234-123456789abc"
     private var projects=JsonArray(emptyList())
+    private var paginated=false
+    private var pageFailure=false
     private var unknown=false
     private var terminalUnavailable=false
     private var catalogFailed=false
@@ -41,6 +43,13 @@ class NativeWorkspaceFlowTest {
         server=MockWebServer();server.useHttps(serverCertificates.sslSocketFactory(),false)
         server.dispatcher=object:Dispatcher(){override fun dispatch(request:RecordedRequest):MockResponse {
             calls.add(request);val path=request.requestUrl!!.encodedPath
+            if(paginated && path=="/api/sessions" && request.method=="GET") {
+                val offset=request.requestUrl!!.queryParameter("offset")!!.toInt()
+                if(offset>0 && pageFailure)return MockResponse().setResponseCode(503).setBody("{\"error\":\"Page temporarily unavailable\"}")
+                val rows=if(request.requestUrl!!.queryParameter("q")=="filtered")listOf(payload("id" to id,"host" to "local","title" to "Filtered chat")) else (offset until offset+if(offset==0)100 else 2).map {payload("id" to "chat-$it","host" to "local","title" to "Paged $it")}
+                return MockResponse().setBody(payload("sessions" to JsonArray(rows)).toString())
+            }
+            if(path.endsWith("/workspace/download"))return MockResponse().setBody("File content").addHeader("Content-Type","text/plain").addHeader("ETag","fixture-download")
             if(terminalUnavailable && path.endsWith("/terminal"))return MockResponse().setResponseCode(404).setBody("{\"error\":\"Terminal expired\"}")
             if(authUnavailable && path=="/api/auth")return MockResponse().setResponseCode(503).setBody("{\"error\":\"Gateway offline\"}")
             if(path.endsWith("/catalog")) {
@@ -78,6 +87,34 @@ class NativeWorkspaceFlowTest {
     @After fun cleanup(){ui.runOnIdle{vm.pause()};server.shutdown()}
     private fun capture(name:String){val bitmap=ui.onRoot().captureToImage().asAndroidBitmap();File(ApplicationProvider.getApplicationContext<Application>().filesDir,name+".png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
     private fun openCodex(){ui.runOnIdle{vm.openChat(id)};ui.waitUntil(10000){vm.timeline.sequence>=0}}
+    @Test fun nativePaginationLoadsNearEndKeepsFailedPageAndRetriesManually() {
+        paginated=true
+        ui.runOnIdle{vm.refreshList()};ui.waitUntil(10000){!vm.busy && vm.sessions.size==100}
+        pageFailure=true
+        ui.onNode(hasScrollToIndexAction()).performScrollToIndex(99)
+        ui.waitUntil(10000){!vm.busy && vm.error=="Page temporarily unavailable"}
+        assertEquals(100,vm.sessions.size);assertTrue(vm.listHasMore)
+        val failed=calls.count{it.requestUrl!!.encodedPath=="/api/sessions" && it.requestUrl!!.queryParameter("offset")=="100"}
+        Thread.sleep(500)
+        assertEquals(failed,calls.count{it.requestUrl!!.encodedPath=="/api/sessions" && it.requestUrl!!.queryParameter("offset")=="100"})
+        pageFailure=false
+        ui.runOnIdle{vm.loadMoreSessions()};ui.waitUntil(10000){!vm.busy && vm.sessions.size==102}
+        assertFalse(vm.listHasMore)
+        ui.runOnIdle{vm.search="filtered";vm.refreshList()};ui.waitUntil(10000){!vm.busy && vm.sessions.size==1}
+        assertEquals("Filtered chat",vm.sessions.single().str("title"))
+        assertEquals("0",calls.last{it.requestUrl!!.encodedPath=="/api/sessions"}.requestUrl!!.queryParameter("offset"))
+    }
+    @Test fun nativeOpenFileDownloadsFromCapturedAuthenticatedWorkspace() {
+        openCodex();ui.runOnIdle{vm.openWorkspace("files")}
+        ui.waitUntil(10000){ui.onAllNodesWithContentDescription("Open file").fetchSemanticsNodes().isNotEmpty()}
+        ui.onNodeWithContentDescription("Open file").performClick()
+        ui.waitUntil(10000){calls.any{it.requestUrl!!.encodedPath.endsWith("/workspace/download")}}
+        val request=calls.last{it.requestUrl!!.encodedPath.endsWith("/workspace/download")}
+        assertEquals("hello.txt",request.requestUrl!!.queryParameter("path"))
+        assertEquals("1",request.requestUrl!!.queryParameter("explicit"))
+        assertTrue(request.getHeader("Cookie")!!.contains("session=live"))
+        assertFalse(calls.any{it.requestUrl!!.encodedPath.endsWith(".js")})
+    }
     @Test fun newCodexChatAllowsNoProjectWithOrWithoutSavedProjects(){
         for(savedProjects in listOf(JsonArray(emptyList()),JsonArray(listOf(payload("key" to "local|saved","name" to "Saved project","host" to "local","cwd" to "/saved/project"))))){
             projects=savedProjects

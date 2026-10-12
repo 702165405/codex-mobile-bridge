@@ -95,6 +95,7 @@ import kotlinx.serialization.json.*
                     Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
                         Icon(if(directory)Icons.Default.Folder else Icons.Default.Description,null,tint=MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f).padding(horizontal=12.dp)){Text(row.str("name"),maxLines=2);if(!directory)Text(fileSize(row.num("size")),style=MaterialTheme.typography.labelSmall)}
+                        if(allowed && !directory)IconButton(onClick={work.openDownload(row)},enabled=work.downloadProgress.isEmpty()){Icon(Icons.Default.OpenInNew,vm.t("打开文件","Open file"))}
                         if(allowed)IconButton(onClick={work.prepareDownload(row);save.launch(row.str("name")+if(directory)".zip" else "")},enabled=work.downloadProgress.isEmpty()){Icon(Icons.Default.Download,if(directory)vm.t("下载目录 ZIP","Download folder ZIP") else vm.t("保存文件","Save file"))}
                     }
                 }

@@ -1,3 +1,41 @@
+## 个人版 Android 1.2.3 / Mac 2.0.2 · 上游整合
+
+以个人仓库 main 与 Kotlin / Compose 原生 App 为主，整合上游至 `66c9bce`（2026-10-11）。
+
+- 原生聊天列表支持下拉刷新与接近底部自动分页；失败保留已有聊天和手动重试入口，搜索／归档变化重新从第一页读取。
+- 聊天生成文件及原生工作区文件新增「打开」，下载完成后仅向系统应用授权读取私有副本；保存、下载续传和更新文件隔离继续保留。
+- 网页保留未变化的列表节点与阅读位置，优化自动分页和下拉反馈；文件引用支持别名与 Windows 路径。
+- Mac 增加菜单栏入口、可选登录自启及隐藏启动的初次状态读取；登录自启由用户自行开启。
+- 保留 Codex / Claude Code 范围、Magpie 模型目录、移动目录后的运行时兜底、不选项目创建聊天、原生加密存储、通知重试限制及现有认证／文件边界。Android 在线更新继续使用 `https://mac.lqilt.top/android/update.json`。
+
+下文为同步的上游发行说明；个人 Android 使用独立版本号和签名，DeepSeek / Harness / Cowork 不开放。
+
+---
+
+## v2.0.2 · 文件兼容与聊天列表体验优化
+
+- **聊天列表更连贯**：Codex 列表滚动接近底部时自动加载后续聊天，移除常驻“加载更多”按钮。下拉刷新提示不再挤压列表，手势跟随与回弹更顺滑，成功提示更快收起；内容未变化时保留已有列表节点和阅读位置。
+- **Windows 文件链接更可靠**：兼容盘符、反斜杠、file URL 和长路径前缀；同一文件的不同引用共用下载入口。继续使用现有工作区授权与可配置下载上限。
+- **手机下载后直接打开**：Android 和 iOS 可通过系统支持的应用打开已下载文件，同时保留保存入口；系统区域颜色随当前页面变化。
+- **跨平台登录自启**：Windows、macOS 和已安装的 Linux 桌面包可在高级设置中启用。Windows/macOS 登录后收起控制面板，macOS 可从菜单栏或 Dock 恢复；Linux 保持窗口可见，AppImage 使用原文件路径。
+- 保留 v2.0.1 的 macOS 异常应用 plist 扫描修复。
+
+感谢 [@heiqiu47](https://github.com/heiqiu47) 在 [PR #24](https://github.com/try2love/codex-mobile-bridge/pull/24) 中贡献的文件兼容、手机文件打开、系统栏与登录自启改进。本版按现有 main 的文件与认证边界整合，并扩展跨平台适配。
+
+**升级**：建议网关与手机 App 一起更新至 v2.0.2，以使用完整改进。聊天列表优化由网关提供，升级后重新加载页面即可。Android 覆盖安装以保留已保存电脑与登录；iOS IPA 仍需自行签名，另附 Xcode 源码包。Linux 仍为实验性支持，请保留数据目录后手动安装。下载文件可用 `SHA256SUMS.txt` 校验。
+
+### English
+
+- Load more Codex chats automatically near the bottom, remove the persistent load-more button, and make pull-to-refresh smoother with a shorter success notice. Keep unchanged list nodes and reading position.
+- Improve Windows drive paths, backslashes, file URLs and long-path aliases while retaining workspace authorization and configurable download limits.
+- Open downloaded files through supported system apps on Android and iOS, retain Save, and match system-area colors to the current page.
+- Add opt-in login startup for Windows, macOS and installed Linux desktop packages. Windows/macOS hide the control panel on login; Linux keeps it visible. macOS provides a menu-bar entry, and AppImage startup uses its original file path.
+- Retain the v2.0.1 macOS malformed-plist discovery fix.
+
+Thanks to [@heiqiu47](https://github.com/heiqiu47) for [PR #24](https://github.com/try2love/codex-mobile-bridge/pull/24). Update both the gateway and mobile app for all improvements. Install Android over the existing app; the unsigned iOS IPA requires your own signing. Linux remains experimental. Verify downloads with `SHA256SUMS.txt`.
+
+---
+
 ## v2.0.1 · 修复 macOS 客户端扫描中断
 
 - 修复 macOS 扫描应用时，某个应用的 `Info.plist` 存在 XML 格式错误，导致整轮客户端发现中断、已启用客户端无法继续自动接入的问题。

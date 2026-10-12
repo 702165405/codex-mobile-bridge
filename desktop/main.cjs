@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,Tray,Menu,net}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,clipboard,Tray,Menu,net,nativeImage}=require('electron');
 const path=require('node:path');
 const fs=require('node:fs');
 const {pathToFileURL}=require('node:url');
@@ -10,6 +10,9 @@ const {normalize,translate}=require('./shared/i18n.js');
 const {publishLanguage}=require('./shared/gateway-language.cjs');
 const cloudflared=require('./features/connections/cloudflared.cjs');
 const {Updater,allowedMirrorUrl}=require('./features/updates/updater.cjs');
+const {createLoginStartup,restoreDevelopmentEnvironment}=require('./login-startup.cjs');
+restoreDevelopmentEnvironment(app);
+const loginStartup=createLoginStartup(app);
 const {spawn}=require('node:child_process');
 const {randomUUID}=require('node:crypto');
 const {interfaces}=require('./features/connections/network.cjs');
@@ -52,7 +55,7 @@ function worker(action,payload){
   if(writes)workerWrites++;
   if(action==='snapshot'&&snapshotPending)return snapshotPending;
   const options=workerFor({packaged:app.isPackaged,resources:process.resourcesPath,root,dataDir});
-  const result=(action==='snapshot'&&!updater?.busy?snapshotWorker.read(options):['accounts','account','desktop-sessions','start','stop','save'].includes(action)?managementWorker.call(options,action,payload):runWorker(options,action,payload)).then(value=>['snapshot','save'].includes(action)?{...value,networkInterfaces:interfaces(),cloudflaredInstall:installStatus,update:updater?.status(),updateResult:updateResult(),updateManaged:updateManaged()}:value).finally(()=>{if(writes)workerWrites--;});
+  const result=(action==='snapshot'&&!updater?.busy?snapshotWorker.read(options):['accounts','account','desktop-sessions','start','stop','save'].includes(action)?managementWorker.call(options,action,payload):runWorker(options,action,payload)).then(value=>['snapshot','save'].includes(action)?{...value,networkInterfaces:interfaces(),cloudflaredInstall:installStatus,update:updater?.status(),updateResult:updateResult(),updateManaged:updateManaged(),loginStartup:loginStartup.status()}:value).finally(()=>{if(writes)workerWrites--;});
   if(action==='snapshot')snapshotPending=result.then(value=>{lastSnapshot=value;return value;}).finally(()=>{snapshotPending=null;});
   return action==='snapshot'?snapshotPending:result;
 }
@@ -130,7 +133,15 @@ function register(){
     }
     if(action==='desktop-sessions'&&payload?.action==='copy-claude-workspace'){const value=await worker(action,{action:'status'});clipboard.writeText(value.claudeWorkspace);return {copied:true};}
     if(action==='desktop-sessions'&&payload?.action==='prepare-claude'){const value=await worker(action,payload);clipboard.writeText(value.script);delete value.script;return value;}
-    try{return await worker(action,payload);}catch(error){if(error.validation)return {validationError:{message:error.message,...error.validation}};throw error;}
+    if(action==='save'&&payload?.loginStartup!==undefined){
+      loginStartup.validate(payload.loginStartup);
+      if(payload.loginStartup)payload={...payload,preferences:{...payload.preferences,autoStart:true}};
+    }
+    try{
+      const value=await worker(action,payload);
+      if(action==='save'&&payload?.loginStartup!==undefined){loginStartup.set(payload.loginStartup);value.loginStartup=loginStartup.status();}
+      return value;
+    }catch(error){if(error.validation)return {validationError:{message:error.message,...error.validation}};throw error;}
   });
   ipcMain.handle('bridge:tailscale-authorize',async(event,value)=>{
     authorize(event);
@@ -270,8 +281,8 @@ function register(){
     clipboard.writeText(target);
   });
 }
-function createWindow(){
-  window=new BrowserWindow({width:1100,height:850,minWidth:820,minHeight:640,title:t('Codex 手机网关'),icon:path.join(__dirname,'assets/icon.png'),backgroundColor:'#f6f7f9',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+function createWindow(hidden=false){
+  window=new BrowserWindow({show:!hidden,width:1100,height:850,minWidth:820,minHeight:640,title:t('Codex 手机网关'),icon:path.join(__dirname,'assets/icon.png'),backgroundColor:'#f6f7f9',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
   // The native title is owned by the main process, including locale changes.
   window.on('page-title-updated',event=>event.preventDefault());
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
@@ -290,18 +301,19 @@ function createWindow(){
 }
 if(!app.requestSingleInstanceLock())app.quit();
 else{
-  app.on('second-instance',showWindow);
+  app.on('second-instance',(_event,argv)=>{if(!loginStartup.hidden(argv))showWindow();});
   app.whenReady().then(()=>{
     language=normalize(app.getLocale());
     try{language=normalize(JSON.parse(fs.readFileSync(path.join(app.getPath('userData'),'language.json'),'utf8')).language);}catch{}
     dataDir=loadDataDir();publishLanguage(dataDir,language);setupUpdater();register();
-    if(process.platform==='win32'){
-      app.setAppUserModelId('io.github.try2love.codexmobilebridge');
-      tray=createTray({Tray,Menu,icon:path.join(__dirname,'assets/icon.ico'),show:showWindow,worker,t,
+    if(process.platform==='win32')app.setAppUserModelId('io.github.try2love.codexmobilebridge');
+    if(['win32','darwin'].includes(process.platform)){
+      const icon=process.platform==='darwin'?nativeImage.createFromPath(path.join(__dirname,'assets/icon.png')).resize({width:18,height:18}):path.join(__dirname,'assets/icon.ico');
+      tray=createTray({Tray,Menu,icon,show:showWindow,worker,t,
         open:url=>shell.openExternal(url),copy:url=>clipboard.writeText(url),quit:()=>app.quit(),
         onError:error=>{showWindow();dialog.showErrorBox(t('网关操作未完成'),t(error.message));}});
     }
-    createWindow();
+    createWindow(!!tray&&loginStartup.hidden(process.argv,true));
   });
   app.on('before-quit',releaseTray);
   app.on('activate',showWindow);

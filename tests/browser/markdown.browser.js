@@ -31,6 +31,22 @@
   check('workspace links keep authenticated host route', artifacts.querySelector('a')?.getAttribute('href') === '/api/sessions/test/files/report?host=' + encodeURIComponent(host));
   check('local images keep authenticated host route', artifacts.querySelector('img')?.getAttribute('src') === '/api/sessions/test/files/image?host=' + encodeURIComponent(host));
 
+  const aliases = render('[plain](D:/workspace/report.md) [slash](/D:/workspace/report.md)',
+    [{id:'report', reference:'D:/workspace/report.md', references:['D:/workspace/report.md', '/D:/workspace/report.md'], name:'report.md', image:false}],
+    file => '/api/sessions/test/files/' + file.id);
+  check('all references to one file remain clickable', aliases.querySelectorAll('a').length === 2 &&
+    [...aliases.querySelectorAll('a')].every(anchor => anchor.getAttribute('href') === '/api/sessions/test/files/report'));
+
+  const extended = String.raw`\\?\D:\workspace\report.md`;
+  const uri = 'file:///D:/workspace/report.md';
+  const moreAliases = render('[extended](<' + extended + '>) [uri](' + uri + ')',
+    [{id:'report', reference:extended, references:[extended, uri], name:'report.md', image:false}],
+    file => '/api/sessions/test/files/' + file.id);
+  check('extended Windows and file URL aliases use the authorized route', moreAliases.querySelectorAll('a').length === 2 &&
+    [...moreAliases.querySelectorAll('a')].every(anchor => anchor.getAttribute('href') === '/api/sessions/test/files/report'));
+  const blocked = render('[unknown](' + uri + ') [script](javascript:alert%281%29)');
+  check('file URL allowance does not leak into another message', blocked.querySelectorAll('a').length === 0);
+
   for (let i = 0; i <= sample.length; i++) render(sample.slice(0, i));
   check('partial streaming Markdown does not throw', true);
 

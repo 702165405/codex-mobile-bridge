@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.*
@@ -204,6 +205,13 @@ val EmptyObject = JsonObject(emptyMap())
     }
 }
 @Composable fun SessionsScreen(vm: BridgeViewModel) {
+    val list=rememberLazyListState()
+    var attemptedPage by remember(vm.selected?.id,vm.provider,vm.search,vm.archived){mutableIntStateOf(-1)}
+    val nearEnd by remember {derivedStateOf {val info=list.layoutInfo;info.totalItemsCount>0 && (info.visibleItemsInfo.lastOrNull()?.index ?: -1)>=info.totalItemsCount-6}}
+    LaunchedEffect(nearEnd,vm.sessions.size,vm.busy,vm.listHasMore) {
+        if(!nearEnd)attemptedPage=-1
+        else if(!vm.busy && vm.listHasMore && attemptedPage!=vm.sessions.size){attemptedPage=vm.sessions.size;vm.loadMoreSessions()}
+    }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(horizontal=16.dp,vertical=6.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             for((id,label) in listOf("codex" to "Codex","claude" to "Claude Code"))FilterChip(vm.provider==id,{vm.chooseProvider(id)},label={Text(label)})
@@ -221,7 +229,8 @@ val EmptyObject = JsonObject(emptyMap())
         if(vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         for(host in vm.hostErrors) Text(host.str("label")+" · "+host.str("error"),color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(12.dp))
         if(vm.sessions.isEmpty() && !vm.busy) Text(vm.t("没有匹配的聊天","No matching chats"),Modifier.padding(24.dp))
-        LazyColumn(contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        PullToRefreshBox(isRefreshing=vm.busy,onRefresh={vm.refreshList()},modifier=Modifier.weight(1f)) {
+        LazyColumn(state=list,modifier=Modifier.fillMaxSize(),contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             val groups = if(vm.grouped) vm.sessions.groupBy { it.str("projectKey",it.str("projectName",vm.t("未归类","Other"))) } else mapOf("" to vm.sessions)
             for((name,rows) in groups) {
                 if(name.isNotBlank()) item(key="group:$name") {Text(rows.firstOrNull()?.str("projectName",name) ?: name,style=MaterialTheme.typography.titleSmall,modifier=Modifier.padding(vertical=8.dp))}
@@ -247,7 +256,8 @@ val EmptyObject = JsonObject(emptyMap())
                     }
                 }
             }
-            if(vm.listHasMore) item {TextButton(onClick={vm.refreshList(true)},enabled=!vm.busy){Text(vm.t("加载更多","Load more"))}}
+            if(vm.listHasMore) item {TextButton(onClick={vm.loadMoreSessions()},enabled=!vm.busy){Text(vm.t("加载更多","Load more"))}}
+        }
         }
     }
 }
@@ -320,7 +330,10 @@ val EmptyObject = JsonObject(emptyMap())
                 for(file in meta.rows("files")) item(key="file:${file.str("id")}") {
                     Column {
                         if(file.bool("image")) GatewayImage(vm,file)
-                        TextButton(onClick={download=file;save.launch(file.str("name","download"))}) {Icon(Icons.Default.Download,null);Text(file.str("name",vm.t("保存文件","Save file")))}
+                        Row {
+                            TextButton(onClick={download=file;save.launch(file.str("name","download"))},enabled=!vm.busy) {Icon(Icons.Default.Download,null);Text(file.str("name",vm.t("保存文件","Save file")))}
+                            TextButton(onClick={vm.openDownloadedFile(file)},enabled=!vm.busy){Icon(Icons.Default.OpenInNew,null);Text(vm.t("打开","Open"))}
+                        }
                     }
                 }
                 if(meta.str("status")=="active") item(key="working") {Row {CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp);Spacer(Modifier.width(8.dp));Text(if(chat.provider=="claude")vm.t("Claude Code 正在工作…","Claude Code is working…") else vm.t("Codex 正在工作…","Codex is working…"))}}

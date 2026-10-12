@@ -120,6 +120,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     private var pendingNavigation:Triple<String,String,String>?=null
     private var splitWorkspaceChat=false
     private var listOffset = 0
+    private var listFilter = ""
     var listHasMore by mutableStateOf(false); private set
     var notificationsAvailable by mutableStateOf(false); private set
     val english get() = language == "en" || language == "system" && java.util.Locale.getDefault().language != "zh"
@@ -318,19 +319,23 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     }
     private suspend fun refreshListNow(more: Boolean = false) {
         val gen = ++listGeneration
+        val query=search;val includeArchived=archived;val client=provider
+        val filter="${selected!!.id}|$client|$query|$includeArchived"
+        if(more && (!listHasMore || filter!=listFilter))return
         val offset = if(more) listOffset else 0
         val url = "https://placeholder.invalid/api/sessions".toHttpUrl().newBuilder()
-            .addQueryParameter("q",search).addQueryParameter("offset",offset.toString()).addQueryParameter("archived",archived.toString()).build()
+            .addQueryParameter("q",query).addQueryParameter("offset",offset.toString()).addQueryParameter("archived",includeArchived.toString()).build()
         val value = api!!.api(if(provider=="claude") "/api/desktop-sessions/claude/list" else url.encodedPath+"?"+url.encodedQuery)
-        if(gen != listGeneration) return
+        if(gen != listGeneration || filter!="${selected?.id}|$provider|$search|$archived") return
         selected?.let{connectionStates[it.id]="connected"}
-        val rows = if(provider=="claude")value.rows("sessions").filter{it.str("backend","code")=="code" && (archived||!it.bool("archived")) && (it.str("title")+it.str("cwd")).contains(search,true)}.map{JsonObject(it+payload("host" to "desktop:claude","projectName" to it.str("cwd"),"recency" to it.num("updatedAt")))} else value.rows("sessions")
+        val rows = if(provider=="claude")value.rows("sessions").filter{it.str("backend","code")=="code" && (includeArchived||!it.bool("archived")) && (it.str("title")+it.str("cwd")).contains(query,true)}.map{JsonObject(it+payload("host" to "desktop:claude","projectName" to it.str("cwd"),"recency" to it.num("updatedAt")))} else value.rows("sessions")
         sessions = if(more) (sessions+rows).distinctBy { it.str("host")+"|"+it.str("id") } else rows
         lists["${selected!!.id}|$provider"]=sessions
         if(provider=="codex")store.put("noticeRows:${selected!!.id}",JsonArray(sessions).toString())
         if(provider=="claude" && !value.bool("connected",true))notice=t("Claude Code 尚未连接，请在 Mac 网关中接入","Claude Code is not connected; connect it in the Mac gateway")
-        hostErrors = value.rows("unavailableHosts"); listOffset = sessions.size; listHasMore = provider=="codex" && rows.size >= 100
+        hostErrors = value.rows("unavailableHosts");listFilter=filter;listOffset=offset+rows.size; listHasMore = provider=="codex" && rows.size >= 100
     }
+    fun loadMoreSessions() {if(provider=="codex" && listHasMore)refreshList(true)}
     fun refreshList(more: Boolean = false) = action { refreshListNow(more); startListPolling() }
     private fun saveActivities(value: Map<String,SessionActivity>) {
         if(value==activities)return
@@ -650,6 +655,18 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         action { withContext(Dispatchers.IO) {
             getApplication<Application>().contentResolver.openOutputStream(uri)!!.use { output -> gateway.file(row.route("files/${file.str("id")}"),output) }
         }; notice = t("文件已保存","File saved") }
+    }
+    fun openDownloadedFile(file: JsonObject) {
+        val row=target ?: return;val gateway=api ?: return
+        action {
+            val app=getApplication<Application>()
+            val source=withContext(Dispatchers.IO){File.createTempFile("open-download-",".part",app.cacheDir)}
+            try {
+                gateway.downloadTo(row.route("files/${file.str("id")}"),source)
+                val uri=withContext(Dispatchers.IO){OpenedFiles.prepare(app,source,file.str("name","download"))}
+                try {OpenedFiles.open(app,uri)} catch(e:android.content.ActivityNotFoundException){error=t("暂无可打开此文件的应用，请保存后打开","No app can open this file. Save it instead.")}
+            } finally {withContext(Dispatchers.IO+NonCancellable){source.delete()}}
+        }
     }
     override fun onCleared() { updates.cancel(); saveDraft(); scope.cancel(); api?.cancel(); super.onCleared() }
 }

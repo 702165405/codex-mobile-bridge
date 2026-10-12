@@ -5,8 +5,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const read = value => fs.readFileSync(path.join(root, value), 'utf8');
-const shared = ['mobile-ui.js', 'mobile-clipboard.js'];
+const shared = ['mobile-ui.js', 'mobile-clipboard.js', 'mobile-system-bars.js'];
 const android = [...shared, 'mobile-session.js'];
+
+test('both Android variants register the downloaded-file viewer provider', () => {
+  for (const manifest of ['mobile/android/AndroidManifest.xml', 'mobile/android-push/AndroidManifest.xml']) {
+    const source = read(manifest);
+    assert.match(source, /<provider[^>]*android:name="io\.github\.try2love\.codexbridge\.DownloadProvider"[^>]*android:exported="false"[^>]*android:grantUriPermissions="true"/);
+  }
+});
 
 function xcodeObjects() {
   const source = read('mobile/ios/BridgePreview.xcodeproj/project.pbxproj');
@@ -66,7 +73,7 @@ test('iOS missing resources stop connection visibly before replacing the current
   const connect = app.slice(app.indexOf('private func connect('), app.indexOf('@objc private func refresh()'));
   assert.match(connect, /do \{ scripts = try WebScripts\(\) \}\s+catch \{ info\(error\.localizedDescription\); return \}/);
   assert.ok(connect.indexOf('try WebScripts()') < connect.indexOf('clear()'));
-  assert.equal([...connect.matchAll(/injectionTime: \.atDocumentEnd, forMainFrameOnly: true/g)].length, 3);
+  assert.equal([...connect.matchAll(/injectionTime: \.atDocumentEnd, forMainFrameOnly: true/g)].length, 4);
   assert.match(connect, /scripts\.appearance\.replacingOccurrences\(of: "__BRIDGE_CLIPBOARD_TOKEN__", with: clipboardToken\)/);
   assert.match(connect, /scripts\.clipboard\.replacingOccurrences\(of: "__BRIDGE_CLIPBOARD_TOKEN__", with: clipboardToken\)/);
   assert.doesNotMatch(app, /private static let web(Appearance|Clipboard) =/);

@@ -9,7 +9,7 @@ function takePairingToken(){
 let initialPairingToken=takePairingToken();
 const $ = id => document.getElementById(id),t=BridgeI18n.t;
 let csrf='', currentId=null, state=null, listOffset=0, listQuery='', approvalStamp='', sending=false;
-let currentHost='local', listRows=[], listGeneration=0;
+let currentHost='local', listRows=[], listGeneration=0, listHasMore=false, listArchived=false, listRenderStamp='';
 let chatTimeline=null;
 const submittedRequestIds=new Set();
 const sessionActivity=new SessionActivity();
@@ -114,6 +114,10 @@ function dateText(value){if(!value)return '';return new Date(value*1000).toLocal
 $('list-mode').value=localStorage.getItem('list-mode')||'recent';
 $('list-mode').onchange=()=>{localStorage.setItem('list-mode',$('list-mode').value);renderList();};
 function renderList(){
+  const stamp=JSON.stringify([$('list-mode').value,currentId,currentHost,BridgeI18n.locale(),listRows.map(row=>[row.id,row.host,row.title,row.projectKey,row.projectName,row.hostLabel,row.recency])]);
+  if(stamp===listRenderStamp&&$('sessions').children.length){renderActivity();return;}
+  listRenderStamp=stamp;
+  const scrollTop=$('sessions').scrollTop;
   $('sessions').replaceChildren();
   const grouped=$('list-mode').value==='project', groups=new Map();
   for(const chat of listRows){
@@ -134,23 +138,45 @@ function renderList(){
     const meta=el('small');meta.append(el('span','',chat.projectName+' · '+(chat.host==='local'?t('此电脑'):chat.hostLabel)),el('time','',dateText(chat.recency/1000)));
     button.append(meta);button.onclick=()=>openChat(chat.id,chat.host).catch(e=>toast(e.message));parent.append(button);
   }
-  if(!listRows.length)$('sessions').append(el('p','muted',t('没有找到聊天。')));renderActivity();
+  if(!listRows.length)$('sessions').append(el('p','muted',t('没有找到聊天。')));renderActivity();$('sessions').scrollTop=scrollTop;
 }
 async function loadList(reset=false){
+  if(!reset&&(listLoading||!listHasMore))return;
   const generation=++listGeneration,offset=reset?0:listOffset;
-  listQuery=$('search').value;
+  const query=$('search').value,archived=$('archived').checked;
   let result;listLoading++;
-  try{result=await api('/api/sessions?q='+encodeURIComponent(listQuery)+'&offset='+offset+'&archived='+$('archived').checked);}
+  try{result=await api('/api/sessions?q='+encodeURIComponent(query)+'&offset='+offset+'&archived='+archived);}
   finally{listLoading--;}
   if(generation!==listGeneration)return;
+  if(reset&&(query!==listQuery||archived!==listArchived))$('sessions').scrollTop=0;
+  listQuery=query;listArchived=archived;
   const rows=new Map((reset?[]:listRows).map(row=>[chatKey(row.id,row.host),row]));
   for(const row of result.sessions){const key=chatKey(row.id,row.host);row.recency=Math.max(row.recency,recentInteractions.get(key)||0);rows.set(key,row);}
   listRows=[...rows.values()];listRows.sort((a,b)=>b.recency-a.recency);
-  listOffset=offset+result.sessions.length;$('more').hidden=result.sessions.length<100;
+  listOffset=offset+result.sessions.length;listHasMore=result.sessions.length===100;
   $('host-errors').textContent=(result.unavailableHosts||[]).map(h=>h.label+'：'+h.error).join('\n');
   $('host-errors').hidden=!(result.unavailableHosts||[]).length;renderList();refreshActivity();clientNavigation.acknowledgeList('codex',result);
 }
-$('search').oninput=()=>{clearTimeout(loadList.timer);loadList.timer=setTimeout(()=>loadList(true).catch(e=>toast(e.message)),300);};$('refresh').onclick=()=>loadList(true).catch(e=>toast(e.message));$('more').onclick=()=>loadList().catch(e=>toast(e.message));
+function loadMoreSessions(){
+  const root=$('sessions');
+  if(document.hidden||$('app').hidden||clientNavigation.provider!=='codex'||!root.clientHeight||listQuery!==$('search').value||listArchived!==$('archived').checked)return;
+  if(root.scrollHeight-root.clientHeight-root.scrollTop<240)loadList().catch(e=>toast(e.message));
+}
+$('sessions').addEventListener('scroll',loadMoreSessions,{passive:true});
+// Collapsed project groups may leave too little content for a scroll event.
+$('sessions').addEventListener('wheel',event=>{if(event.deltaY>0)loadMoreSessions();},{passive:true});
+let listTouch=null;
+$('sessions').addEventListener('touchstart',event=>{listTouch=event.touches.length===1?{x:event.touches[0].clientX,y:event.touches[0].clientY}:null;},{passive:true});
+$('sessions').addEventListener('touchmove',event=>{
+  if(!listTouch)return;
+  if(event.touches.length!==1){listTouch=null;return;}
+  const dx=event.touches[0].clientX-listTouch.x,dy=listTouch.y-event.touches[0].clientY;
+  if(Math.abs(dx)>Math.max(10,Math.abs(dy))){listTouch=null;return;}
+  if(dy>40){listTouch=null;loadMoreSessions();}
+},{passive:true});
+$('sessions').addEventListener('touchend',()=>{listTouch=null;},{passive:true});
+$('sessions').addEventListener('touchcancel',()=>{listTouch=null;},{passive:true});
+$('search').oninput=()=>{clearTimeout(loadList.timer);loadList.timer=setTimeout(()=>loadList(true).catch(e=>toast(e.message)),300);};$('refresh').onclick=()=>loadList(true).catch(e=>toast(e.message));
 $('archived').onchange=()=>loadList(true).catch(e=>toast(e.message));
 const listSync=window.BridgeListSync=new ListSync({root:$('sessions'),status:$('list-sync'),refresh:()=>loadList(true),visible:()=>!$('app').hidden&&$('sidebar').getBoundingClientRect().width>0,ready:()=>!listLoading&&document.activeElement!==$('search')});
 const contextUsageControl=new ContextUsageControl();$('permissions-button').after(contextUsageControl.button);

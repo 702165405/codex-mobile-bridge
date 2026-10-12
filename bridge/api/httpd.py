@@ -18,6 +18,7 @@ from pathlib import Path
 from bridge.features.workspace.uploads import MAX_FILE
 from bridge.features.workspace.workspace import MAX_TRANSFER, Workspace
 from bridge.features.workspace.preferences import transfer_settings
+from bridge.features.workspace.files import workspace_relative_path
 from bridge.features.notifications.channels import settings as notification_settings, save_settings as save_notification_settings, publish_pushplus, delivery_error, destination
 from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit, quote
@@ -796,9 +797,8 @@ class Handler(BaseHTTPRequestHandler):
         if info:
             result = workspace.info(relative)
             cwd = bridge.store.get(thread_id).get('cwd')
-            root = Path(cwd).resolve() if cwd else None
-            result['locatable'] = root is not None and root in path.parents
-            result['path'] = path.relative_to(root).as_posix() if result['locatable'] else None
+            result['path'] = workspace_relative_path(path, cwd)
+            result['locatable'] = result['path'] is not None
             return self.output(200, {**result, **policy})
         # Walk the authorized absolute path without following replaced parent
         # symlinks. Inline images retain their independent preview size bound.
