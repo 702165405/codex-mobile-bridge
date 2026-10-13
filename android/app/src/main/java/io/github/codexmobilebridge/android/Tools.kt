@@ -29,7 +29,7 @@ import kotlinx.serialization.json.*
     Dialog(onDismissRequest=vm::closeTool) {
         Surface(shape=MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxWidth().heightIn(max=720.dp).padding(20.dp)) {
-                Row {Text(vm.t("工具与设置","Tools & settings"),Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);TextButton(onClick=vm::closeTool,enabled=!vm.busy){Text(vm.t("关闭","Close"))}}
+                Row {Text(if(name=="permissions")vm.t("聊天权限","Chat permissions") else vm.t("工具与设置","Tools & settings"),Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);TextButton(onClick=vm::closeTool,enabled=!vm.busy){Text(vm.t("关闭","Close"))}}
                 if(vm.toolLoading || vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if(vm.error.isNotBlank()) Text(vm.error,color=MaterialTheme.colorScheme.error)
                 Column(Modifier.weight(1f,false).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {

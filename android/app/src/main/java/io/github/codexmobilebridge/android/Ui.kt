@@ -84,7 +84,7 @@ val EmptyObject = JsonObject(emptyMap())
                         DropdownMenu(menu,{ menu=false }) {
                             DropdownMenuItem(text={Text(vm.t("项目工作台 · 文件 / Git / 终端","Project workbench · Files / Git / Terminal"))},onClick={menu=false;vm.openWorkspace()})
 
-                            val options = if(vm.screen=="chat") listOf("details" to vm.t("聊天详情与重命名","Chat details & rename"),"model" to vm.t("模型设置","Model settings"),"skills" to "Skills","notifications" to vm.t("聊天提醒","Chat reminders")) + if(vm.provider=="claude")listOf("permissions" to vm.t("权限模式","Permissions")) else listOf("goal" to vm.t("目标进度","Goal progress"),"permissions" to vm.t("权限模式","Permissions")) else emptyList()
+                            val options = if(vm.screen=="chat") listOf("details" to vm.t("聊天详情与重命名","Chat details & rename"),"model" to vm.t("模型设置","Model settings"),"skills" to "Skills","notifications" to vm.t("聊天提醒","Chat reminders")) + if(vm.provider=="claude")emptyList() else listOf("goal" to vm.t("目标进度","Goal progress")) else emptyList()
                             for((key,label) in options + listOf("new" to vm.t("新建聊天","New chat"),"accounts" to vm.t("账号与接入","Accounts"),"usage" to vm.t("账户与额度","Account usage")))
                                 DropdownMenuItem(text={ Text(label) },onClick={ menu=false;vm.openTool(key) })
                             if(vm.notificationsAvailable) {
@@ -347,7 +347,12 @@ val EmptyObject = JsonObject(emptyMap())
         }
         HorizontalDivider()
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal=12.dp,vertical=8.dp)) {
-            ContextUsageChip(vm,meta)
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                ContextUsageChip(vm,meta,Modifier.weight(1f))
+                AssistChip(onClick={vm.openTool("permissions")},enabled=!vm.busy && meta.bool("connected") && (chat.provider=="codex" || meta.obj("capabilities").bool("permissions")),
+                    leadingIcon={Icon(Icons.Default.Shield,null,Modifier.size(18.dp))},
+                    label={Text(vm.t("权限","Permissions")+" · "+permissionModeLabel(vm,meta),modifier=Modifier.widthIn(max=160.dp),maxLines=2)})
+            }
             Row(Modifier.horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically) {
                 TextButton(onClick={vm.openTool("model")}) {Text(meta.str("model",vm.t("模型","Model")),maxLines=1)}
                 TextButton(onClick={vm.openTool("skills")}) {Text("Skills${if(vm.draft.skills.isNotEmpty()) " (${vm.draft.skills.size})" else ""}")}

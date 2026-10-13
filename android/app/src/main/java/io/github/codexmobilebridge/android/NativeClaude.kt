@@ -8,14 +8,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.*
 
-@Composable fun ContextUsageChip(vm: BridgeViewModel, meta: JsonObject) {
+@Composable fun ContextUsageChip(vm: BridgeViewModel, meta: JsonObject, modifier: Modifier = Modifier) {
     val usage=meta.obj("contextUsage")
     if(usage.isEmpty())return
     val used=usage.num("usedTokens",usage.num("totalTokens",usage.num("used")))
     val limit=usage.num("contextWindow",usage.num("maxTokens",usage.num("limit")))
-    Row(Modifier.fillMaxWidth().padding(vertical=4.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+    Column(modifier.padding(vertical=4.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
         Text(vm.t("上下文","Context")+" · "+if(limit>0)"$used / $limit" else usage.toString(),style=MaterialTheme.typography.labelSmall)
-        if(limit>0)LinearProgressIndicator(progress={(used.toFloat()/limit).coerceIn(0f,1f)},modifier=Modifier.weight(1f).padding(top=6.dp))
+        if(limit>0)LinearProgressIndicator(progress={(used.toFloat()/limit).coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth())
     }
 }
 @Composable fun ClaudeNewChat(vm: BridgeViewModel,data: JsonObject) {
@@ -74,9 +74,20 @@ import kotlinx.serialization.json.*
     confirm?.let{row->Confirm(vm.t("切换 Claude 账号？","Switch Claude account?"),vm.t("将按桌面端规则切换接入；请先处理正在运行的任务。","The desktop account will change. Handle active tasks first."),{confirm=null}){confirm=null;vm.perform("/api/desktop-sessions/claude/accounts",payload("action" to "switch","id" to row.str("id")),true)}}
 }
 
+fun permissionModeLabel(vm:BridgeViewModel,meta:JsonObject):String = when(meta.str("permissionMode")) {
+    "ask" -> vm.t("请求批准","Ask for approval")
+    "auto-review" -> vm.t("帮我批准","Automatic review")
+    "full-access" -> vm.t("完全访问","Full access")
+    "default" -> vm.t("默认权限","Default")
+    "acceptEdits" -> vm.t("允许文件编辑","Allow edits")
+    "plan" -> vm.t("计划模式","Plan mode")
+    "desktop" -> vm.t("桌面默认","Desktop default")
+    else -> meta.str("permissionLabel").ifBlank {vm.t("未获取","Unavailable")}
+}
+
 @Composable fun CodexPermissionsTool(vm:BridgeViewModel) {
     var full by remember{mutableStateOf(false)}
-    Text(vm.t("当前权限：","Current permissions: ")+vm.timeline.meta.str("permissionMode"))
+    Text(vm.t("当前权限：","Current permissions: ")+permissionModeLabel(vm,vm.timeline.meta))
     for((preset,label,help) in listOf(Triple("ask",vm.t("请求批准","Ask for approval"),vm.t("需要额外权限时询问你。","Ask when extra permissions are needed.")),Triple("auto-review",vm.t("帮我批准","Automatic review"),vm.t("由 Codex 审核额外权限操作。","Codex reviews operations requiring extra permissions.")),Triple("full-access",vm.t("完全访问权限","Full access"),vm.t("允许访问工作区外的文件和网络。","Allow access to files and networks beyond the workspace.")))) {
         OutlinedButton(onClick={if(preset=="full-access")full=true else vm.postChat("permissions",payload("preset" to preset,"confirmed" to false))},enabled=!vm.busy && vm.timeline.meta.bool("connected")){Text(label)}
         Text(help,style=MaterialTheme.typography.bodySmall)

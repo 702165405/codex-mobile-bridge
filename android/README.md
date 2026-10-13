@@ -1,6 +1,12 @@
 # Codex Mobile Bridge Android
 
-Kotlin / Jetpack Compose Material 3 原生客户端，Android 8.0+，版本 **1.2.4 / versionCode 16**，包名 `io.github.codexmobilebridge.android`。整合上游 v2.0.2 功能接口，以自有仓库 `main` 和原生安卓为主。
+Kotlin / Jetpack Compose Material 3 原生客户端，Android 8.0+，版本 **1.2.5 / versionCode 17**，包名 `io.github.codexmobilebridge.android`。整合上游 v2.0.2 功能接口，以自有仓库 `main` 和原生安卓为主。
+
+## 1.2.5 聊天权限入口
+
+- 聊天主页面输入框上方，权限与上下文用量放在同一行，直接显示当前权限模式；点击打开原有权限设置。
+- 移除右上角菜单的重复入口。权限状态复用聊天同步数据，无新增轮询或网络请求。
+- 未连接桌面或 Claude 未提供权限能力时禁用入口；Codex 完全访问仍需再次确认，权限范围由当前聊天决定。
 
 ## 1.2.4 原生在线更新
 
@@ -33,7 +39,7 @@ Kotlin / Jetpack Compose Material 3 原生客户端，Android 8.0+，版本 **1.
 
 ## 安装与连接
 
-安装 `dist/android/Codex-Mobile-Bridge-1.2.4.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
+安装 `dist/android/Codex-Mobile-Bridge-1.2.5.apk`，如系统提示，允许文件管理器安装未知来源应用。桌面网关仍需运行；添加可由手机访问的 HTTPS 根地址，例如 `https://computer.example.com`。拒绝 HTTP、自签名／过期／不匹配证书，以及包含路径、用户名或查询参数的地址。
 
 首页添加多台电脑，保存名称、排序和最近使用时间。点击卡片独立登录；聊天顶部电脑图标切换连接。可粘贴网页扫码登录链接，也可通过安卓系统分享将链接传入 App。账号密码登录可勾选「记住账号和密码」，登录成功后按连接独立保存，使用 Android Keystore 加密；重新登录时自动填入，不自动提交。取消勾选或删除连接会清除该连接保存的账号密码。免密网关显示免密连接按钮。扫码登录链接只在首次打开或新分享时消费，旋转不会重复兑换。
 
@@ -111,7 +117,7 @@ android/gradlew -p android :app:connectedDebugAndroidTest
 
 发布步骤：增加 versionCode／versionName，用同一签名运行 `build-release.py`；运行 `python3 android/scripts/create-update-manifest.py --notes '中文更新说明'`。先上传 APK 到现有域名的 `/android/` 静态目录，校验后最后原子替换 update.json。只部署到自己的服务器，不推送或发布 GitHub；签名密钥始终保存在本机。
 
-仍使用个人域名的旧版可直接检查更新。1.0.8 与 1.1.0 使用过 GitHub 更新源，需要从 `https://mac.lqilt.top/android/Codex-Mobile-Bridge-1.2.4.apk` 下载并覆盖安装一次，之后 App 检查更新继续使用个人域名。静态服务配置见 `hosting/nginx-location.conf`。
+仍使用个人域名的旧版可直接检查更新。1.0.8 与 1.1.0 使用过 GitHub 更新源，需要从 `https://mac.lqilt.top/android/Codex-Mobile-Bridge-1.2.5.apk` 下载并覆盖安装一次，之后 App 检查更新继续使用个人域名。静态服务配置见 `hosting/nginx-location.conf`。
 
 ## 新建 Codex 聊天（1.2.2）
 

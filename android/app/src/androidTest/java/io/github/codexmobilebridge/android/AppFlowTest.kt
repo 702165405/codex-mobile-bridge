@@ -1,6 +1,9 @@
 package io.github.codexmobilebridge.android
 
 import android.app.Application
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import java.io.File
 import android.content.Context
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -47,7 +50,7 @@ class AppFlowTest {
             if(offline)return MockResponse().setResponseCode(503).setBody("{\"error\":\"offline\"}")
             if(expired && path.endsWith("/changes"))return MockResponse().setResponseCode(401).setBody("{\"error\":\"expired\"}")
             if(failUpload && path.endsWith("/uploads"))return MockResponse().setResponseCode(503).setBody("{\"error\":\"upload failed\"}")
-            val meta=payload("connected" to true,"title" to "$label chat","status" to "idle","requests" to JsonArray(if(askQuestion)listOf(payload("id" to 7,"method" to "item/tool/requestUserInput","supported" to true,"params" to payload("questions" to JsonArray(listOf(payload("id" to "direction","question" to "Choose direction?")))))) else emptyList()))
+            val meta=payload("connected" to true,"permissionMode" to "ask","contextUsage" to payload("usedTokens" to 1200,"contextWindow" to 128000),"title" to "$label chat","status" to "idle","requests" to JsonArray(if(askQuestion)listOf(payload("id" to 7,"method" to "item/tool/requestUserInput","supported" to true,"params" to payload("questions" to JsonArray(listOf(payload("id" to "direction","question" to "Choose direction?")))))) else emptyList()))
             val body=when {
                 path=="/api/auth" -> payload("authenticated" to (request.getHeader("Cookie")?.contains("session=$label")==true),"csrf" to "csrf-$label","notifications" to true)
                 path=="/api/login" -> payload("csrf" to "csrf-$label")
@@ -85,6 +88,28 @@ class AppFlowTest {
         if(!vm.authenticated){ui.onNodeWithText("Username").performTextReplacement("admin");ui.onNodeWithText("Password").performTextReplacement("test");ui.onNodeWithText("Connect",useUnmergedTree=true).performClick()}
         ui.waitUntil(10000){vm.authenticated && !vm.busy}
         assertEquals("sessions",vm.screen);assertNull(vm.target)
+    }
+    @Test fun visiblePermissionsKeepFullAccessConfirmation() {
+        val a=computer("Alpha");ui.setContent{BridgeApp(vm)};connect(a)
+        ui.runOnIdle{vm.openChat(chatId)};ui.waitUntil(10000){vm.timeline.sequence>=0}
+        ui.onNodeWithText("Context · 1200 / 128000").assertExists()
+        val app=ApplicationProvider.getApplicationContext<Application>()
+        ui.onRoot().captureToImage().asAndroidBitmap().let{bitmap->File(app.filesDir,"permissions-chat-en.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
+        ui.runOnIdle{vm.preference("language","zh")}
+        ui.onNodeWithText("权限 · 请求批准").assertExists()
+        ui.onRoot().captureToImage().asAndroidBitmap().let{bitmap->File(app.filesDir,"permissions-chat-zh.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
+        ui.runOnIdle{vm.preference("language","en")}
+        ui.onNodeWithText("Permissions · Ask for approval").assertIsEnabled().performClick()
+        ui.onNodeWithText("Chat permissions").assertExists()
+        ui.onNodeWithText("Current permissions: Ask for approval").assertExists()
+        ui.onNodeWithText("Full access").performClick()
+        ui.onNodeWithText("Allow full access?").assertExists()
+        assertFalse(calls.any{it.second.path?.substringBefore('?')?.endsWith("/permissions")==true})
+        ui.onNodeWithContentDescription("Cancel").performClick()
+        ui.onNodeWithText("Close").performClick()
+        ui.onNodeWithContentDescription("More actions").performClick()
+        ui.onNodeWithText("Permissions").assertDoesNotExist()
+        assertFalse(calls.any{it.second.path?.substringBefore('?')?.endsWith("/permissions")==true})
     }
     @Test fun listActivityStartsImmediatelyWarmsUpAndHidesProtocolStatuses() {
         coldActivity=true;activityStatus="active"

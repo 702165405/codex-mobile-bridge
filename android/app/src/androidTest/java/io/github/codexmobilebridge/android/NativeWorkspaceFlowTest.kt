@@ -146,6 +146,7 @@ class NativeWorkspaceFlowTest {
         ui.runOnIdle{vm.chooseProvider("claude")};ui.waitUntil(10000){!vm.busy && vm.sessions.any{it.str("title")=="Claude native"}}
         ui.onNodeWithText("Claude native",useUnmergedTree=true).performClick();ui.waitUntil(10000){vm.timeline.sequence>=0}
         ui.onNodeWithText("Claude native history",useUnmergedTree=true).assertExists()
+        ui.onNodeWithText("Permissions · Unavailable").assertIsNotEnabled()
         capture("native-claude");unknown=true;ui.runOnIdle{vm.editDraft(Draft(text="Claude draft"));vm.send()};ui.waitUntil(10000){!vm.busy};assertEquals("Claude draft",vm.draft.text)
         unknown=false;ui.runOnIdle{vm.send()};ui.waitUntil(10000){!vm.busy && vm.draft.text.isBlank()}
         val sends=calls.filter{it.requestUrl!!.encodedPath=="/api/desktop-sessions/claude/send"};assertEquals(2,sends.size)
