@@ -14,6 +14,10 @@ public class MobileReleaseTests {
   check(MobileRelease.compare("2.0.0-preview.10","2.0.0-preview.9")>0);
   check(MobileRelease.compare("2.0.0","2.0.0-preview.99")>0);
   check(MobileRelease.compare("2.1.0-preview.1","2.0.0")>0);
+  check(MobileRelease.isDownload(url));
+  check(!MobileRelease.isDownload("https://evil.example/releases/download/v"+v+"/"+name));
+  check(MobileRelease.redirectAllowed("https://objects.githubusercontent.com/github-production-release-asset-1/example"));
+  check(!MobileRelease.redirectAllowed("https://evil.example/update.apk"));
   System.out.println("Java: mobile release channel, version and asset checks passed");
  }
 }

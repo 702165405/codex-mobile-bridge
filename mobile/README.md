@@ -1,4 +1,4 @@
-> 本分支安卓使用原生 App + 内置工作台，仅开放 Codex 与 Claude Code。安装 `dist/android/Codex-Mobile-Bridge-1.1.0.apk`，签名构建见 `android/scripts/build-release.py`。下文上游安装包名称与 iOS 说明保留为历史参考。
+> 本分支安卓使用原生 App + 内置工作台，仅开放 Codex 与 Claude Code。安装 `dist/android/Codex-Mobile-Bridge-1.2.4.apk`，签名构建见 `android/scripts/build-release.py`。本分支原生更新支持进度、续传、安装恢复和电脑辅助下载，始终使用 `https://mac.lqilt.top/android/update.json`；详见 [原生安卓说明](../android/README.md)。下文上游更新流程与 iOS 说明保留为历史参考。
 
 # Android 与 iOS App
 
@@ -12,7 +12,11 @@
 - **iPhone / iPad**：Release 提供未签名 IPA 和 Xcode 源码包，需使用自己的 Apple 账号签名；不能直接点击 IPA 安装，暂无 App Store / TestFlight 分发。免费签名可能需要定期重新安装。
 - 使用 Release 中的 `SHA256SUMS.txt` 校验下载。编译通过不代表已验证所有机型、系统版本和网络环境。
 
-在「手机设置 → 应用更新」查看当前版本并检查更新。正式版只检查正式发布，预览版也可检查后续预览；不会自动下载或安装。检查访问公开 GitHub Release，不携带网关凭据或 Cookie。Android 下载 APK 后覆盖安装，iOS 打开新版与签名安装指引。
+在「手机设置 → 应用更新」查看当前版本并检查更新。正式版只检查正式发布，预览版也可检查后续预览；不会在后台自动下载或安装。确认更新后，Android 会在 App 内下载 APK 并打开系统安装器，iOS 打开新版与签名安装指引。访问公开 GitHub Release 的请求不携带网关凭据或 Cookie。
+
+Android 在安装前核对发布信息中的大小和 SHA-256；缺少校验信息时提供版本页下载入口。首次安装更新需按系统提示允许此 App 安装应用。已完成的更新可在重新打开 App 后继续安装，也可选择「保存」导出 APK。
+
+Android 手机无法查询 GitHub 时，会尝试通过当前已连接并登录的电脑查询。点击「下载并安装」后，由用户选择「手机下载」或「电脑下载」；选择电脑后直接使用网关，无须等待手机下载失败。下载失败不会自动切换方式，下载卡片提供「重新选择」和「GitHub ↗」入口；后者在外部浏览器打开已检测到的新版 APK 直链，由浏览器下载，无须进入版本页寻找安装包。网关完成下载和校验后传送到手机，手机重新校验并打开系统安装器。电脑需要能访问 GitHub，且手机 App 与网关都需支持此功能；共享中继部署还需更新中继服务。旧网关仍可配合手机直连更新。网关缓存仅在当前运行周期内复用，最多保留两个包，超过 24 小时的闲置缓存会在下次准备更新时清理。手机取消等待不会取消其他手机可复用的电脑下载。
 
 ### 使用 Xcode 安装到 iPhone
 

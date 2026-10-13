@@ -68,18 +68,26 @@ import kotlinx.serialization.json.*
             Text(vm.t("点击提醒后进入对应电脑的聊天列表。","Tap a reminder to open that computer's chat list."))
         }
         "updates" -> {
+            val save=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.android.package-archive")){uri->if(uri!=null)vm.saveAppUpdate(uri)}
             Text(vm.t("版本与更新","Version & updates"),style=MaterialTheme.typography.titleMedium)
             Text("Codex Mobile Bridge ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             Text(vm.t("更新地址：","Update source: ")+UPDATE_MANIFEST_URL,style=MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick=vm::checkAppUpdate,enabled=!vm.updateBusy) {Text(vm.t("检查更新","Check for updates"))}
-            if(vm.updateBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(vm.authenticated)TextButton(onClick=vm::checkAppUpdateViaMac,enabled=!vm.updateBusy){Text(vm.t("通过电脑检查更新","Check through computer"))}
+            if(vm.updateBusy){
+                if(vm.updateDownloading && vm.updateTotal>0)LinearProgressIndicator(progress={(vm.updateDownloaded.toFloat()/vm.updateTotal).coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth())
+                else LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            if(vm.updateDownloaded>0)Text("${String.format(Locale.ROOT,"%.1f",vm.updateDownloaded/1048576.0)} MB"+(if(vm.updateTotal>0)" / ${String.format(Locale.ROOT,"%.1f",vm.updateTotal/1048576.0)} MB" else ""))
             if(vm.updateMessage.isNotBlank())Text(vm.updateMessage)
-            vm.availableUpdate?.takeIf {it.code>BuildConfig.VERSION_CODE}?.let { update ->
+            if(vm.updateDownloading)OutlinedButton(onClick=vm::pauseAppUpdate){Text(vm.t("暂停下载","Pause download"))}
+            vm.availableUpdate?.takeIf {it.code>BuildConfig.VERSION_CODE}?.let {update->
                 Text(vm.t("新版本：","New version: ")+update.version)
                 if(update.notes.isNotBlank())Text(update.notes)
-                Button(onClick={if(vm.updateFile==null)vm.downloadAppUpdate() else vm.installAppUpdate()},enabled=!vm.updateBusy) {Text(if(vm.updateFile==null)vm.t("下载更新","Download update") else vm.t("安装更新","Install update"))}
+                Button(onClick={if(vm.updateFile==null)vm.downloadAppUpdate() else vm.installAppUpdate()},enabled=!vm.updateBusy){Text(if(vm.updateFile==null)vm.t("下载 / 继续下载","Download / resume") else vm.t("安装更新","Install update"))}
+                if(vm.updateFile==null && vm.authenticated)OutlinedButton(onClick=vm::downloadAppUpdateViaMac,enabled=!vm.updateBusy){Text(vm.t("通过电脑下载","Download through computer"))}
+                if(vm.updateFile!=null)OutlinedButton(onClick={save.launch("Codex-Mobile-Bridge-${update.version}.apk")},enabled=!vm.updateBusy){Text(vm.t("保存 APK，手动安装","Save APK to install manually"))}
             }
-
         }
         "logout" -> {Text(vm.t("退出当前电脑的登录？其他电脑不受影响。","Sign out of this computer? Other computers keep their sessions."));Button(onClick=vm::logout,enabled=ready){Text(vm.t("退出登录","Sign out"))}}
         "details" -> {

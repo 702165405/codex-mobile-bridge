@@ -11,6 +11,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# Cold SDK compilation can take longer on a busy development Mac; assertions and runtime limits stay fixed.
+SWIFT_BUILD_TIMEOUT = int(os.environ.get('CMB_TEST_SWIFT_BUILD_TIMEOUT', '90'))
 
 
 @unittest.skipUnless(shutil.which('swift'), 'Swift interpreter required')
@@ -45,7 +47,7 @@ print("15 desktop-state fixtures passed without GUI APIs")
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as folder:
             folder = Path(folder); script = folder/'guards.swift'; script.write_text(fixture)
             result = subprocess.run(['swift', '-module-cache-path', str(folder/'modules'), str(script)],
-                                    capture_output=True, text=True, timeout=90)
+                                    capture_output=True, text=True, timeout=SWIFT_BUILD_TIMEOUT)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('15 desktop-state fixtures passed', result.stdout)
 
@@ -58,7 +60,7 @@ class NativeConsoleSelectors(unittest.TestCase):
             helper = folder/'claude-helper'
             built = subprocess.run(['swiftc', '-module-cache-path', str(folder/'modules'),
                                     str(ROOT/'bridge/platforms/macos/claude-helper.swift'), '-o', str(helper)],
-                                   capture_output=True, text=True, timeout=90)
+                                   capture_output=True, text=True, timeout=SWIFT_BUILD_TIMEOUT)
             self.assertEqual(built.returncode, 0, built.stderr)
             result = subprocess.run([str(helper), '--self-check'], capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)

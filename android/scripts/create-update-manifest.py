@@ -21,7 +21,7 @@ if base.scheme != 'https' or not base.hostname or base.username or base.password
 code = int(re.search(r'versionCode\s*=\s*(\d+)', config).group(1))
 apk = root / f'dist/android/Codex-Mobile-Bridge-{version}.apk'
 manifest = dict(applicationId='io.github.codexmobilebridge.android', versionName=version, versionCode=code,
-                sha256=hashlib.sha256(apk.read_bytes()).hexdigest(),
+                sha256=hashlib.sha256(apk.read_bytes()).hexdigest(), size=apk.stat().st_size,
                 apkUrl=args.base_url.rstrip('/') + '/' + apk.name,
                 notes=args.notes)
 path = apk.parent / 'update.json'

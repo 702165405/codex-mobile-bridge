@@ -5,6 +5,8 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.serialization.json.*
 import okhttp3.*
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -47,18 +49,21 @@ class Gateway(val connection: Connection, private val readState: (String) -> Str
     }
     // Keep the OkHttp call active until its body is consumed, so switching also
     // cancels slow streams rather than just requests waiting for headers.
-    private suspend fun <T> execute(request: Request, consume: (Response) -> T): T = suspendCancellableCoroutine { continuation ->
-        val call = client.newCall(request)
-        continuation.invokeOnCancellation { call.cancel() }
-        call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { if(continuation.isActive) continuation.resumeWithException(e) }
-            override fun onResponse(call: Call, response: Response) {
-                try {
-                    val result=response.use(consume)
-                    if(continuation.isActive)continuation.resume(result)
-                } catch(e: Exception) { if(continuation.isActive)continuation.resumeWithException(e) }
-            }
-        })
+    private suspend fun <T> execute(request: Request, consume: (Response) -> T): T {
+        val finished=CompletableDeferred<Unit>();val call=client.newCall(request)
+        try {return suspendCancellableCoroutine {continuation->
+            continuation.invokeOnCancellation {call.cancel()}
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {try{if(continuation.isActive)continuation.resumeWithException(e)}finally{finished.complete(Unit)}}
+                override fun onResponse(call: Call, response: Response) {
+                    try {val result=response.use(consume);if(continuation.isActive)continuation.resume(result)}
+                    catch(e: Exception){if(continuation.isActive)continuation.resumeWithException(e)}
+                    finally {finished.complete(Unit)}
+                }
+            })
+        }} finally {
+            withContext(NonCancellable){finished.await()}
+        }
     }
     suspend fun api(path: String, data: JsonObject? = null, raw: RequestBody? = null): JsonObject = withContext(Dispatchers.IO) {
         execute(request(path,data,raw)) { response ->
@@ -71,20 +76,27 @@ class Gateway(val connection: Connection, private val readState: (String) -> Str
         }
     }
     /** Reads may resume; the server must confirm both byte position and representation. */
-    suspend fun downloadTo(path: String, file: java.io.File, progress: (Long,Long)->Unit = {_,_->}): Unit = withContext(Dispatchers.IO) {
+    suspend fun downloadTo(path: String, file: java.io.File, maxSize:Long=Long.MAX_VALUE, progress: (Long,Long)->Unit = {_,_->}): Unit = withContext(Dispatchers.IO) {
         val key="download:$cookieKey:$path";val etag=readState(key)
         val offset=if(etag!=null && file.isFile)file.length() else 0L
-        val builder=request(path,null).newBuilder()
+        val builder=request(path,null).newBuilder().header("Accept-Encoding","identity")
         if(offset>0){builder.header("Range","bytes=$offset-");builder.header("If-Range",etag!!)}
         execute(builder.build()){response->
             if(!response.isSuccessful)throw GatewayError(response.code,"下载失败 / Download failed: ${response.code}")
             val resumed=response.code==206 && offset>0
             if(resumed)require(response.header("Content-Range")?.startsWith("bytes $offset-")==true && response.header("ETag")==etag){"下载内容已变化 / Download changed"}
+            require(response.header("Content-Encoding","identity")=="identity")
+            if(resumed){
+                val range=Regex("bytes ([0-9]+)-([0-9]+)/([0-9]+)").matchEntire(response.header("Content-Range") ?: "") ?: error("Invalid download range")
+                val (first,last,length)=range.groupValues.drop(1).map {it.toLong()}
+                require(first==offset && last>=first && last==length-1 && length<=maxSize && (response.body!!.contentLength()<0 || response.body!!.contentLength()==last-first+1))
+            } else require(response.code==200)
             val next=response.header("ETag");writeState(key,next)
             var copied=if(resumed)offset else 0L;val total=(response.body?.contentLength() ?: -1).let{if(it<0)-1 else copied+it}
+            require(total<=maxSize)
             java.io.FileOutputStream(file,resumed).use{output->response.body!!.byteStream().use{input->
                 val buffer=ByteArray(65536);var count:Int
-                while(input.read(buffer).also{count=it}>=0){output.write(buffer,0,count);copied+=count;progress(copied,total)}
+                while(input.read(buffer).also{count=it}>=0){copied+=count;require(copied<=maxSize && (total<0 || copied<=total));output.write(buffer,0,count);progress(copied,total)}
             }}
             if(total>=0)check(copied==total){"下载中断 / Download interrupted"}
         }

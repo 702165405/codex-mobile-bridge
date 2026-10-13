@@ -54,4 +54,11 @@ class AppUpdateTest {
             assertTrue(requests.size<=6)
         }
     }
+    @Test fun packageSizeIsOptionalForOlderPersonalFeedsButBoundedWhenPresent() {
+        assertEquals(-1L,parseAppUpdate(metadata()).size)
+        assertEquals(1024L,parseAppUpdate(kotlinx.serialization.json.JsonObject(metadata()+payload("size" to 1024))).size)
+        for(size in listOf(0L,-2L,MAX_UPDATE_SIZE+1))assertTrue(runCatching {parseAppUpdate(kotlinx.serialization.json.JsonObject(metadata()+payload("size" to size)))}.isFailure)
+        for(size in listOf("oops","true"))assertTrue(runCatching {parseAppUpdate(kotlinx.serialization.json.JsonObject(metadata()+payload("size" to size)))}.isFailure)
+    }
+
 }

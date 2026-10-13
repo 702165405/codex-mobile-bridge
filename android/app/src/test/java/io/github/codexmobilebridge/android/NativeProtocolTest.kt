@@ -71,4 +71,15 @@ class NativeProtocolTest {
             server.enqueue(MockResponse().setBody("new-content").addHeader("ETag","\"second\""));gateway.downloadTo("/api/test/download",file);assertEquals("new-content",file.readText())
         }finally{file.delete()}
     }}
+    @Test fun boundedDownloadRejectsOversizeAndInconsistentRangeBeforeWriting()=https{server,gateway,_->runBlocking {
+        val file=File.createTempFile("native-bounded-",".bin")
+        try {
+            server.enqueue(MockResponse().setBody("abcdefghij").addHeader("ETag","\"fixture\""));gateway.downloadTo("/api/test/download",file);server.takeRequest();file.writeText("abcd")
+            server.enqueue(MockResponse().setResponseCode(206).setBody("efghij").addHeader("ETag","\"fixture\"").addHeader("Content-Range","bytes 4-9/9"))
+            assertTrue(runCatching {gateway.downloadTo("/api/test/download",file,maxSize=10)}.isFailure);server.takeRequest();assertEquals("abcd",file.readText())
+            server.enqueue(MockResponse().setBody("oversized new package"))
+            assertTrue(runCatching {gateway.downloadTo("/api/test/download",file,maxSize=10)}.isFailure);server.takeRequest();assertEquals("abcd",file.readText())
+        } finally {file.delete()}
+    }}
+
 }

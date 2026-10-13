@@ -1,0 +1,11 @@
+# Personal native Android 1.2.4 update integration
+
+Merge upstream PR #32 (b94dedc) into the 702165405 fork, preserving upstream ancestry and the Kotlin/Compose primary app. Keep Codex and Claude Code only, encrypted storage, personal update URL and installed signing identity.
+
+- Native updates show throttled byte/progress feedback, allow pause/resume with validated Range/ETag, and restore private atomic session metadata after process death. Wait for cancelled socket consumers to close before reusing download files.
+- Restore recognizes Android's system private-directory aliases while rejecting individual APK symlinks. Complete downloads are revalidated even if completion metadata was not saved before interruption.
+- Installation/export verify SHA-256, package identity, exact version code/name and installed signing certificates. FileProvider exposes only private APK files. Unknown-source permission return is handled once; cancelled installation is retried explicitly. Verified APK export provides manual-install fallback.
+- Direct and authenticated computer-assisted updates use https://mac.lqilt.top/android/update.json and its APK; gateway assistance rejects foreign sources/redirects, requires auth/CSRF, limits packages to 150 MiB, one download/two cached jobs and 24-hour idle expiry. Manifest generation includes package size.
+- Six Java compatibility conflicts retain encrypted preferences/cookies, native entry/navigation and foreground notification behavior while adopting upstream atomic-copy/download/install lifecycle improvements. Both personal package variants redirect legacy update checks to native settings.
+
+Validation: full Python 1518 tests, 1416 passed/102 platform or removed-feature skips; desktop/frontend 516 passed/3 skipped; updater 31 passed/1 skipped; Java downloads 148 checks including TLS gateway/Range/integrity/redirects, Java+Swift release checks; Android 30 unit tests, Lint 0 errors/42 warnings, debug/test/release builds; 28 isolated emulator instrumentation tests. The development Mac required CMB_TEST_SWIFT_BUILD_TIMEOUT=300 for cold compilation; the default remains 90 seconds and runtime limits/assertions are unchanged. No production password login or real external notifications performed. Production APK retains the previous certificate; updates publish to the personal domain only.

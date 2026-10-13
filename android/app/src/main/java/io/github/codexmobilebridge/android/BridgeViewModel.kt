@@ -17,35 +17,111 @@ import java.io.File
 
 class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     private val updates = AppUpdates()
+    private var updateJob:Job?=null
+    private var updateOperation=0
+    private var permissionResume:Job?=null
+    private var pendingUpdateSave:Uri?=null
     var updateBusy by mutableStateOf(false); private set
+    var updateDownloading by mutableStateOf(false); private set
     var availableUpdate by mutableStateOf<AppUpdate?>(null); private set
     var updateMessage by mutableStateOf(""); private set
     var updateFile by mutableStateOf<File?>(null); private set
-    fun checkAppUpdate() {
+    var updateDownloaded by mutableLongStateOf(0L); private set
+    var updateTotal by mutableLongStateOf(-1L); private set
+    fun checkAppUpdate()=checkAppUpdate(false)
+    fun checkAppUpdateViaMac()=checkAppUpdate(true)
+    private fun checkAppUpdate(viaMac:Boolean) {
         if(updateBusy)return
-        updateBusy=true; updateMessage=""; availableUpdate=null; updateFile=null
-        viewModelScope.launch {
+        val gateway=if(viaMac && authenticated)api else null
+        if(viaMac && gateway==null){updateMessage=t("请先连接并登录电脑","Connect and sign in to the computer first");return}
+        updateBusy=true;updateMessage=t("正在检查更新…","Checking for updates…")
+        updateJob=viewModelScope.launch {
             try {
-                availableUpdate=updates.check()
-                updateMessage=if((availableUpdate?.code ?: 0)>BuildConfig.VERSION_CODE) t("发现新版本","New version available") else if(availableUpdate==null) t("更新源尚未发布安卓版本","No Android release published yet") else t("已是最新版本","You are up to date")
-            } catch(e:Exception) {updateMessage=t("检查失败，可重试：","Check failed; retry: ")+(e.message ?: "")}
+                val value=if(gateway==null)updates.check() else {
+                    val response=gateway.api("/api/mobile/update?current=${BuildConfig.VERSION_NAME.removeSuffix("-debug")}")
+                    require(response.bool("supported") && "release" in response){t("请先更新电脑网关","Update the computer gateway first")}
+                    (response["release"] as? JsonObject)?.let {parseAppUpdate(it)}
+                }
+                if(value!=null && availableUpdate?.sha256!=value.sha256){withContext(Dispatchers.IO){updates.discard(getApplication())};updateFile=null;updateDownloaded=0;updateTotal=value.size}
+                if(value!=null)availableUpdate=value
+                updateMessage=if(value!=null && value.code>BuildConfig.VERSION_CODE)t("发现新版本","New version available") else t("已是最新版本","You are up to date")
+            } catch(e:CancellationException){throw e}
+            catch(e:Exception){updateMessage=t("检查失败，可重试：","Check failed; retry: ")+(e.message ?: "")}
             finally {updateBusy=false}
         }
     }
-    fun downloadAppUpdate() {
+    fun downloadAppUpdate()=downloadAppUpdate(false)
+    fun downloadAppUpdateViaMac()=downloadAppUpdate(true)
+    private fun downloadAppUpdate(viaMac:Boolean) {
         val value=availableUpdate ?: return
         if(updateBusy || value.code<=BuildConfig.VERSION_CODE)return
-        updateBusy=true;updateMessage=t("正在下载并校验安装包…","Downloading and verifying…")
-        viewModelScope.launch {
-            try {updateFile=updates.download(getApplication(),value);updateMessage=t("下载完成，请点击安装更新","Download complete. Tap Install update")}
-            catch(e:Exception) {updateFile=null;updateMessage=t("下载失败，可重试：","Download failed; retry: ")+(e.message ?: "")}
+        val gateway=if(viaMac && authenticated)api else null
+        if(viaMac && (gateway==null || value.size<=0)){updateMessage=t("请先登录电脑，并用电脑检查更新","Sign in and check for updates through the computer first");return}
+        updateBusy=true;updateDownloading=true;updateFile=null
+        updateMessage=t(if(viaMac)"电脑正在准备更新…" else "正在下载并校验安装包…",if(viaMac)"Computer preparing update…" else "Downloading and verifying…")
+        val ticket=++updateOperation;var lastProgress=0L
+        val progress:(Long,Long)->Unit={done,total->
+            val now=System.nanoTime()
+            if(now-lastProgress>100_000_000 || done==total){lastProgress=now;viewModelScope.launch{if(ticket==updateOperation){updateDownloaded=done;updateTotal=total}}}
+        }
+        updateJob=viewModelScope.launch {
+            try {
+                updateFile=if(gateway==null)updates.download(getApplication(),value,progress) else {
+                    var status=gateway.api("/api/mobile/update/prepare",payload("version" to value.version,"size" to value.size,"sha256" to value.sha256))
+                    val id=status.str("id");require(id.matches(Regex("[a-f0-9]{64}")))
+                    withTimeout(660_000){
+                        while(true){
+                            require(status.str("id")==id && status.num("size").toLong()==value.size)
+                            val done=status.num("downloaded").toLong();require(done in 0..value.size);progress(done,value.size)
+                            if(status.str("state")=="ready"){require(done==value.size);break}
+                            check(status.str("state")=="downloading"){status.str("error",t("电脑下载失败","Computer download failed"))}
+                            delay(1000);status=gateway.api("/api/mobile/update/status/$id")
+                        }
+                    }
+                    updateMessage=t("正在从电脑接收并校验…","Receiving and verifying the update from the computer…")
+                    updates.downloadViaGateway(getApplication(),value,gateway,id,progress)
+                }
+                updateMessage=t("下载完成，请点击安装更新；也可以保存 APK 后手动安装","Download complete. Install the update or save the APK to install manually")
+            } catch(e:CancellationException){updateMessage=t("已暂停，点击下载可继续","Paused. Tap Download to continue");throw e}
+            catch(e:Exception){updateMessage=t("下载失败，可重试：","Download failed; retry: ")+(e.message ?: "")}
+            finally {updateBusy=false;updateDownloading=false}
+        }
+    }
+    fun pauseAppUpdate(){if(updateDownloading){updateJob?.cancel();updates.cancel()}}
+    fun installAppUpdate() {
+        val file=updateFile ?: return;val value=availableUpdate ?: return
+        if(updateBusy)return
+        updateBusy=true
+        updateJob=viewModelScope.launch {
+            try {
+                updateMessage=if(updates.install(getApplication(),file,value))t("已打开系统安装器；未安装时可再次点击安装或保存 APK","System installer opened. Retry or save the APK if installation is cancelled")
+                    else t("请允许此 App 安装应用，返回后继续安装","Allow this app to install applications, then return")
+            } catch(e:Exception){
+                val valid=withContext(Dispatchers.IO){runCatching {updates.verify(getApplication(),file,value)}.isSuccess.also{if(!it)updates.discard(getApplication())}}
+                if(!valid)updateFile=null
+                updateMessage=t("安装失败，可重试或保存 APK：","Install failed. Retry or save the APK: ")+(e.message ?: "")
+            }
             finally {updateBusy=false}
         }
     }
-    fun installAppUpdate() {
+    fun saveAppUpdate(uri:Uri) {
+        if(updateBusy && availableUpdate==null){pendingUpdateSave=uri;return}
         val file=updateFile ?: return;val value=availableUpdate ?: return
-        try {if(!updates.install(getApplication(),file,value))updateMessage=t("请允许此 App 安装应用，返回后再次点击安装更新","Allow app installs, return, then tap Install update again")}
-        catch(e:Exception) {updateFile=null;updateMessage=t("安装失败，请重新下载：","Install failed; download again: ")+(e.message ?: "")}
+        if(updateBusy)return
+        updateBusy=true
+        updateJob=viewModelScope.launch {
+            try {updates.save(getApplication(),file,value,uri);updateMessage=t("APK 已保存，请在文件管理器中打开安装","APK saved. Open it in your file manager to install")}
+            catch(e:Exception){updateMessage=t("保存失败：","Save failed: ")+(e.message ?: "")}
+            finally {updateBusy=false}
+        }
+    }
+    private fun resumePendingUpdate() {
+        val value=availableUpdate ?: return
+        if(updateBusy || updateFile==null || !foreground || permissionResume?.isActive==true)return
+        permissionResume=viewModelScope.launch {
+            val pending=withContext(Dispatchers.IO){if(updates.permissionPending(getApplication())){updates.clearPermission(getApplication(),value);true}else false}
+            if(pending && getApplication<Application>().packageManager.canRequestPackageInstalls())installAppUpdate()
+        }
     }
     val store = AppStore(app)
     var appNotifications by mutableStateOf(store.get("appNotifications")=="true"); private set
@@ -127,6 +203,15 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     fun t(zh: String,en: String) = if(english) en else zh
 
     init {
+        updateBusy=true
+        updateJob=viewModelScope.launch {
+            val pending=updates.restore(getApplication())
+            if(pending!=null){availableUpdate=pending.update;updateFile=if(pending.verified)pending.file else null;updateDownloaded=pending.file.length();updateTotal=pending.update.size
+                updateMessage=if(pending.verified)t("已恢复待安装更新","Pending update restored") else t("已恢复未完成下载，点击下载可继续","Partial download restored. Tap Download to continue")}
+            updateBusy=false
+            pendingUpdateSave?.let {pendingUpdateSave=null;saveAppUpdate(it)}
+            resumePendingUpdate()
+        }
         store.get("selected")?.let { id -> connections.find { it.id == id }?.let { selected = it } }
     }
     fun connectionStatusText(id:String) = when(connectionStates[id]) {
@@ -227,6 +312,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         connections=store.connections();api?.reloadCookies()
         val storedSelection=store.get("selected");if(storedSelection!=selected?.id)connections.find{it.id==storedSelection}?.let{select(it)}
         foreground = true;LiveNotifications.foreground=true;visibleChat();appNotifications=store.get("appNotifications")=="true"
+        resumePendingUpdate()
         if(screen=="connections")checkConnections()
         if(selected != null && api == null) select(selected!!)
         else if(authenticated) { if(target != null && (screen=="chat" || screen=="workspace" && splitWorkspaceChat)) startPolling(); startListPolling();startReminders() }

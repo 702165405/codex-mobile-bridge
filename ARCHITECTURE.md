@@ -151,6 +151,14 @@ Electron 主进程使用 qrcode 本地生成 PNG，渲染器接收图片、授�
 
 `bridge/features/updates/gateway.py` 负责原安装目录旁的准备、替换与恢复。准备阶段拒绝路径穿越和危险链接，核对包版本、平台、macOS 签名和内置运行时。独立复制的旧运行时等控制面板退出、协作停止原网关后替换目录，再等待新面板确认加载并恢复此前运行的网关。失败时尝试回滚；配置目录保持独立。发布签名身份和事务恢复操作见 [桌面更新文档](docs/desktop-updates.md)。
 
+## Android 更新协助
+
+本分支安卓在 Kotlin／Compose 原生页面中直接检查 `https://mac.lqilt.top/android/update.json`，也可选择当前已登录的电脑辅助检查与下载。两条路径均使用个人域名，不自动切换下载方式。`bridge/features/updates/mobile.py` 仅接受个人清单及版本对应的 APK、有效大小和 SHA-256。手机准备请求的版本、大小和摘要须与网关从个人更新源取得的记录一致；不接受手机指定外部 URL 或磁盘路径。上游的交互背景见 [下载方式选择记录](.agents/notes/implemented/feature/2026-10-12-android-update-download-choice.md)。
+
+`GET /api/mobile/update?current=<版本>` 查询版本；带登录和 CSRF 的 `POST /api/mobile/update/prepare` 接受 `{version,size,sha256}`，启动或复用一个后台下载；`GET /api/mobile/update/status/<id>` 返回进度；`GET /api/mobile/update/packages/<id>` 只传送已完成校验的缓存包，并支持 Range/ETag。所有入口要求密码保护的登录会话。共享中继与连接器只放行这些准确的方法和路径，共用同一网关缓存。
+
+网关单次最多下载 150 MiB，只并行下载一个包，最多保留两个任务/缓存；闲置超过 24 小时的缓存按需清理。缓存只属于当前网关运行周期。手机取消准备仅停止等待，电脑任务仍可供已登录手机复用。手机和网关各自校验完整 APK；手机安装恢复复用私有已校验文件，不依赖网关持续在线。网关 Cookie 只发往选定网关，不跟随重定向或发送给更新服务器。详细取舍见 [决策记录](.agents/notes/implemented/feature/2026-10-12-gateway-assisted-android-update.md)。
+
 
 ## PR8 验收反馈调整
 
@@ -161,3 +169,7 @@ Goal 元数据写入后立即读取原生状态确认，不再打开桌面页面
 全会话通知策略保存在 `notification-policies.json`，请求处理默认开启、运行完毕默认关闭，通道本身仍默认关闭。已有显式 watches 保留其选择，每个聊天可对两种事件独立继承或覆盖。通知通过只读列表发现聊天，并仅 follow 原 owner 状态；不读取 rollout、不激活聊天。首次实时状态作为完成通知边界，不补发旧完成事件。网页关闭后网关继续监听；依赖桌面 owner 与相关 SSH 主机可用。
 
 主页快捷入口属于浏览器显示偏好。最近排序在发送或回复被接受后立即更新，并通过活动查询中的数据库时间校准；仅阅读不更新交互时间。计划意见非空时只允许继续规划，避免执行按钮忽略意见。
+
+### Personal native Android update integration
+
+The fork's Compose client reads `https://mac.lqilt.top/android/update.json` directly or through authenticated `/api/mobile/update` assistance. The gateway accepts only the personal manifest and its exact APK filename, rejects redirects, bounds package size to 150 MiB and caches at most two packages for 24 hours. Direct update requests use a client without gateway cookies. Native update work runs separately from chat polling and throttles progress to 100 ms. Private atomic session metadata restores partial downloads and completed APKs; FileProvider exposes only the packages subdirectory. Installation and export recheck SHA-256, application ID, version and the installed signing certificates. Unknown-source permission return is consumed once; cancelled installers can be retried manually. The Java compatibility settings redirect to this native update page in both personal package variants.

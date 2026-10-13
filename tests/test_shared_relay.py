@@ -81,6 +81,13 @@ class RegistryTests(unittest.TestCase):
                     validate(method, root+action)
 
     def test_protocol_v2_routes_and_management_boundary(self):
+        for method, path in [('GET', '/api/mobile/update?current=2.0.2'), ('POST', '/api/mobile/update/prepare'),
+                             ('GET', '/api/mobile/update/status/' + 'a' * 64), ('GET', '/api/mobile/update/packages/' + 'a' * 64)]:
+            validate(method, path)
+        for method, path in [('GET', '/api/mobile/update/prepare'), ('POST', '/api/mobile/update'),
+                             ('POST', '/api/mobile/update/packages/' + 'a' * 64), ('GET', '/api/mobile/update/packages/../private'),
+                             ('POST', '/api/update-apply')]:
+            with self.assertRaises(PermissionError): validate(method, path)
         for method, action in [('GET','workspace/download?path=a.txt'), ('POST','workspace/upload?path=a.txt'), ('POST','terminal'), ('POST','side-chat'), ('GET','catalog?kind=skills'), ('POST','permissions')]:
             validate(method, '/api/sessions/'+THREAD+'/'+action)
         for path in ['/api/accounts', '/api/account/reset', '/api/login', '/api/pair', 'https://example.com/api/sessions', '/api/sessions/'+THREAD+'/events', '/api/%73essions', '/api/../admin']:
@@ -169,7 +176,7 @@ class RelayIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.sockets.append(ws)
         return ws
 
-    async def real_connector(self, device, desktop_sessions=None):
+    async def real_connector(self, device, desktop_sessions=None, mobile_updates=None):
         directory = Path(self.temp.name)/device['deviceId']
         save_config(directory, {**device, 'url': self.url, 'enabled': True})
         bridge = SimpleNamespace(host_errors=[], list=lambda **kw: [{'title': device['deviceName'], 'id': THREAD}])
@@ -177,7 +184,7 @@ class RelayIntegrationTests(unittest.IsolatedAsyncioTestCase):
         bridge.for_host = lambda host: bridge
         bridge.terminal = lambda thread, owner, action, body: {'owner': owner, 'action': action}
         gateway = SimpleNamespace(bridge=bridge, web_dir=ROOT/'web', notifications=None, desktop_sessions=desktop_sessions,
-                                  transfer_directory=directory/'gateway-settings')
+                                  transfer_directory=directory/'gateway-settings', mobile_updates=mobile_updates)
         connector = Connector(directory, gateway, test_http=True)
         connector.start(); self.connectors.append(connector)
         for _ in range(100):
@@ -185,6 +192,31 @@ class RelayIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 return connector
             await asyncio.sleep(.02)
         self.fail('Connector did not come online')
+
+    async def test_mobile_update_assistance_through_authenticated_connector(self):
+        from test_mobile_updates import fixture_service, VALUE, PAYLOAD, completed
+        service = fixture_service(Path(self.temp.name) / 'updates')
+        device = await self.device('Updater')
+        connector = await self.real_connector(device, mobile_updates=service)
+        self.assertIs(connector.server.mobile_updates, service)
+        phone = await self.phone(device)
+        check = await self.client.get('/api/mobile/update?current=2.0.2', headers=phone)
+        self.assertEqual(check.status, 200)
+        self.assertEqual((await check.json())['release']['version'], '2.0.3')
+        denied = await self.client.post('/api/mobile/update/prepare', json=VALUE, headers={'Cookie': phone['Cookie'], 'Origin': self.url})
+        self.assertIn(denied.status, (401, 403))
+        prepared = await self.client.post('/api/mobile/update/prepare', json=VALUE, headers=phone)
+        self.assertEqual(prepared.status, 200)
+        job = await prepared.json()
+        self.assertEqual((await asyncio.to_thread(completed, service, job))['state'], 'ready')
+        path = '/api/mobile/update/packages/' + job['id']
+        response = await self.client.get(path, headers={**phone, 'Range': 'bytes=10-99'})
+        self.assertEqual(response.status, 206)
+        self.assertEqual(await response.read(), PAYLOAD[10:100])
+        self.assertEqual(response.headers['Content-Range'], 'bytes 10-99/' + str(len(PAYLOAD)))
+        await asyncio.to_thread(connector.close)
+        self.assertFalse(service.closed.is_set(), 'Stopping relay must not close shared gateway update service')
+        service.close()
 
     async def test_two_real_connectors_route_independently_and_phone_owners_are_separate(self):
         a, b = await self.device('Alice'), await self.device('Bob')

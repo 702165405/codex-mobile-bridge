@@ -7,7 +7,7 @@
 
 > **v2.0.2 整合版**：[发布与下载](https://github.com/try2love/codex-mobile-bridge/releases/tag/v2.0.2) · [完整更新说明](RELEASE_NOTES.md) · [手机安装说明](mobile/README.md)。从 v1.4.0 的 Codex 手机网关，本分支仅开放 Codex 与 Claude Code。
 
-> **自有安卓原生版 1.2.3**：将上游新版的界面与增强功能移植到 Compose；Codex、Claude Code、文件、Git、终端和侧边聊天均由原生页面承接，保留加密存储与原生聊天速度；DeepSeek/Harness 与 Cowork 不开放。使用说明见 [安卓 README](android/README.md)。
+> **自有安卓原生版 1.2.4**：将上游新版的界面与增强功能移植到 Compose；Codex、Claude Code、文件、Git、终端和侧边聊天均由原生页面承接，保留加密存储与原生聊天速度；DeepSeek/Harness 与 Cowork 不开放。使用说明见 [安卓 README](android/README.md)。
 
 [简体中文](README.md) · [English](README_EN.md)
 

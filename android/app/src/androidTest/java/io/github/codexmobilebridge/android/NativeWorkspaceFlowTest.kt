@@ -62,6 +62,7 @@ class NativeWorkspaceFlowTest {
             val meta=payload("title" to "Native project","cwd" to "/test/project","connected" to true,"status" to "idle")
             val value=when {
                 path=="/api/auth"->payload("authenticated" to (!liveCookieRequired || request.getHeader("Cookie")?.contains("session=live")==true),"csrf" to "native-csrf")
+                path=="/api/mobile/update"->payload("supported" to true,"release" to AppUpdate("9.0.0",999,"a".repeat(64),"https://mac.lqilt.top/android/Codex-Mobile-Bridge-9.0.0.apk","Fixture update",1024).metadata())
                 path=="/api/projects"->payload("projects" to projects)
                 path=="/api/sessions" && request.method=="POST"->payload("id" to id,"host" to "local")
                 path=="/api/sessions"->payload("sessions" to JsonArray(listOf(payload("id" to id,"host" to "local","title" to "Native project"))))
@@ -225,4 +226,17 @@ class NativeWorkspaceFlowTest {
         capture("native-terminal");val request=calls.first{it.method=="POST" && it.body.clone().readUtf8().contains("inputId")};val body=json.parseToJsonElement(request.body.clone().readUtf8()) as JsonObject
         assertEquals("pwd\r",body.str("data"));assertTrue(runCatching{java.util.UUID.fromString(body.str("inputId"))}.isSuccess);assertEquals("local",request.requestUrl!!.queryParameter("host"));assertEquals("native-csrf",request.getHeader("X-CSRF-Token"))
     }
+    @Test fun computerUpdateCheckRetainsPersonalSourceAndNativeUi() {
+        ui.waitUntil(10_000){!vm.updateBusy}
+        ui.runOnIdle {vm.openTool("updates")}
+        ui.onNodeWithText("Check through computer").performClick()
+        ui.waitUntil(10_000){vm.availableUpdate?.code==999 && !vm.updateBusy}
+        ui.onNodeWithText("New version: 9.0.0").assertExists()
+        ui.onNodeWithText("Download through computer").assertExists()
+        assertEquals("https://mac.lqilt.top/android/Codex-Mobile-Bridge-9.0.0.apk",vm.availableUpdate!!.apkUrl)
+        val request=calls.last {it.requestUrl!!.encodedPath=="/api/mobile/update"}
+        assertEquals(BuildConfig.VERSION_NAME.removeSuffix("-debug"),request.requestUrl!!.queryParameter("current"))
+        assertEquals("GET",request.method)
+    }
+
 }
