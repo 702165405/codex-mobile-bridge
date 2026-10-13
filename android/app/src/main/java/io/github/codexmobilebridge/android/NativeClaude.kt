@@ -7,14 +7,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.*
+import kotlin.math.roundToInt
 
 @Composable fun ContextUsageChip(vm: BridgeViewModel, meta: JsonObject, modifier: Modifier = Modifier) {
     val usage=meta.obj("contextUsage")
     if(usage.isEmpty())return
     val used=usage.num("usedTokens",usage.num("totalTokens",usage.num("used")))
     val limit=usage.num("contextWindow",usage.num("maxTokens",usage.num("limit")))
+    val percent=if(limit>0)(used.toDouble()/limit*100).coerceIn(0.0,100.0).roundToInt() else null
     Column(modifier.padding(vertical=4.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        Text(vm.t("上下文","Context")+" · "+if(limit>0)"$used / $limit" else usage.toString(),style=MaterialTheme.typography.labelSmall)
+        Text(vm.t("上下文","Context")+if(limit>0)" $percent% · $used / $limit" else " · "+usage.toString(),style=MaterialTheme.typography.labelSmall)
         if(limit>0)LinearProgressIndicator(progress={(used.toFloat()/limit).coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth())
     }
 }

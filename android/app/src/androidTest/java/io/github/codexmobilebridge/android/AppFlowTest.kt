@@ -92,10 +92,11 @@ class AppFlowTest {
     @Test fun visiblePermissionsKeepFullAccessConfirmation() {
         val a=computer("Alpha");ui.setContent{BridgeApp(vm)};connect(a)
         ui.runOnIdle{vm.openChat(chatId)};ui.waitUntil(10000){vm.timeline.sequence>=0}
-        ui.onNodeWithText("Context · 1200 / 128000").assertExists()
+        ui.onNodeWithText("Context 1% · 1200 / 128000").assertExists()
         val app=ApplicationProvider.getApplicationContext<Application>()
         ui.onRoot().captureToImage().asAndroidBitmap().let{bitmap->File(app.filesDir,"permissions-chat-en.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
         ui.runOnIdle{vm.preference("language","zh")}
+        ui.onNodeWithText("上下文 1% · 1200 / 128000").assertExists()
         ui.onNodeWithText("权限 · 请求批准").assertExists()
         ui.onRoot().captureToImage().asAndroidBitmap().let{bitmap->File(app.filesDir,"permissions-chat-zh.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
         ui.runOnIdle{vm.preference("language","en")}
