@@ -71,8 +71,12 @@ class NotificationFlowTest {
         ui.onNodeWithText("Enable app notifications").assertExists()
         ui.runOnIdle {vm.enableAppNotifications(true)}
         ui.waitUntil(10000){notices().any {it.id==LiveNotifications.ONGOING}}
-        // Simulate leaving the foreground; the service takes over with its own authenticated client.
-        ui.runOnIdle {vm.closeTool();vm.pause()}
+        // Switching to an offline computer, returning to the list, and backgrounding
+        // must leave the original computer's independent listener alive.
+        ui.runOnIdle {
+            vm.closeTool();vm.saveConnection("Offline","https://127.0.0.1:1")
+            vm.select(vm.connections.first {it.name=="Offline"});vm.showConnections();vm.pause()
+        }
         ui.waitUntil(15000){notices().any {it.notification.extras.getString(Notification.EXTRA_TEXT)=="Waiting for your response"}}
         val approvalTime=notices().first {it.id==7002}.postTime
         val count=activityCalls.get();ui.waitUntil(12000){activityCalls.get()>count}

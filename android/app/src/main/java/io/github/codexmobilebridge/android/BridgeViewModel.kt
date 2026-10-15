@@ -138,14 +138,12 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun testAppNotification()=LiveNotifications.post(getApplication(),selected,t("测试通知","Test notification"),"test")
     private fun startReminders() {
-        if(appNotifications && foreground && authenticated && screen in listOf("sessions","chat"))selected?.let {
-            try {LiveNotifications.start(getApplication(),it)} catch(e:Exception) {error=t("后台提醒启动失败：","Could not start reminders: ")+(e.message ?: "")}
+        // One service owns notifications in both foreground and background.
+        if(appNotifications && foreground && store.connections().isNotEmpty()) {
+            try {LiveNotifications.start(getApplication())} catch(e:Exception) {error=t("后台提醒启动失败：","Could not start reminders: ")+(e.message ?: "")}
         }
     }
     private fun visibleChat() {LiveNotifications.visible=if(foreground && screen=="chat")target?.key else null}
-    private fun notifyRows(rows:List<JsonObject>) {
-        selected?.let {connection->LiveNotifications.accept(getApplication(),store,connection,rows)}
-    }
     var connections by mutableStateOf(store.connections()); private set
     val connectionStates = mutableStateMapOf<String,String>()
     private var connectionChecks: Job? = null
@@ -283,7 +281,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         polling = null; listPolling = null; busy = false; toolLoading = false; historyBusy = false
     }
     private fun disconnect() {
-        LiveNotifications.stop(getApplication());LiveNotifications.visible=null
+        LiveNotifications.visible=null
         cancelScope(); api = null; authenticated = false; target = null; tool = null; timeline = TimelineState()
         sessions = emptyList(); activities=emptyMap(); hostErrors = emptyList(); details = emptyMap(); draft = Draft(); attachments = emptyList(); screen = "connections"; error = ""
     }
@@ -312,6 +310,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         connections=store.connections();api?.reloadCookies()
         val storedSelection=store.get("selected");if(storedSelection!=selected?.id)connections.find{it.id==storedSelection}?.let{select(it)}
         foreground = true;LiveNotifications.foreground=true;visibleChat();appNotifications=store.get("appNotifications")=="true"
+        startReminders()
         resumePendingUpdate()
         if(screen=="connections")checkConnections()
         if(selected != null && api == null) select(selected!!)
@@ -371,7 +370,7 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
         pendingNavigation?.let{(_,id,host)->pendingNavigation=null;openChat(id,host)}
         startListPolling();startReminders()
     }
-    fun showConnections() { LiveNotifications.stop(getApplication());LiveNotifications.visible=null;saveDraft(); cancelScope(); tool = null; screen = "connections"; target = null }
+    fun showConnections() { LiveNotifications.visible=null;saveDraft(); cancelScope(); tool = null; screen = "connections"; target = null }
     fun chooseProvider(value: String) {
         require(value in listOf("codex","claude"))
         if(provider==value)return
@@ -386,14 +385,13 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
     fun closeWorkspace() {splitWorkspaceChat=false;screen="chat";startPolling();startListPolling();visibleChat()}
     fun showSessions() { LiveNotifications.visible=null;saveDraft(); cancelScope(); tool = null; target = null; timeline = TimelineState(); screen = "sessions"; refreshList() }
     fun logout() = action {
-        LiveNotifications.stop(getApplication())
         api!!.api("/api/logout",payload()); api!!.clearSession(); selected?.let{Workbench.forget(it.origin)}; selected?.let {store.put("activity:${it.id}",null)}; activities=emptyMap(); selected?.let{connectionStates[it.id]="login"}; authenticated = false; target = null
         polling?.cancel(); listPolling?.cancel(); screen = "login"; sessions = emptyList(); tool = null
     }
     private fun failure(e: Exception) {
         selected?.let{row->if(e is GatewayError && e.status==401)connectionStates[row.id]="login" else if(e is java.io.IOException && e !is GatewayError)connectionStates[row.id]="unreachable"}
         error = e.message ?: t("请求失败","Request failed")
-        if(e is GatewayError && e.status == 401) { LiveNotifications.stop(getApplication());authenticated = false; screen = "login"; tool = null; polling?.cancel(); listPolling?.cancel() }
+        if(e is GatewayError && e.status == 401) { authenticated = false; screen = "login"; tool = null; polling?.cancel(); listPolling?.cancel() }
     }
     private fun action(block: suspend () -> Unit) {
         if(busy || api == null) return
@@ -446,7 +444,6 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
                         val rows = gateway.api("/api/activity",payload("hosts" to JsonObject(hosts))).rows("sessions")
                         if(gen == generation && listGen==listGeneration) {
                             saveActivities(updateActivities(activities,rows,target?.let {it.host+"|"+it.id}))
-                            notifyRows(rows.map {row->JsonObject(row+payload("title" to (sessions.find {activityKey(it)==activityKey(row)}?.str("title") ?: "Codex")))})
                             sessions = sessions.map { old ->
                                 val status=rows.find {activityKey(it)==activityKey(old)}
                                 if(status!=null)JsonObject(old+status+payload("recency" to maxOf(old.num("recency"),status.num("recency")))) else old
@@ -518,7 +515,6 @@ class BridgeViewModel(app: Application) : AndroidViewModel(app) {
                     val activityRow=JsonObject(timeline.meta+payload("id" to row.id,"host" to row.host)+
                         (latestTurn?.let {payload("turnId" to it.str("turnId"),"turnStatus" to it.str("turnStatus"))} ?: payload()))
                     saveActivities(updateActivities(activities,listOf(activityRow),row.host+"|"+row.id))
-                    notifyRows(listOf(activityRow))
                     details = details.filterKeys { k -> timeline.messages.any { it.str("key")+":"+it.str("version") == k } }
                     delay(200)
                 } catch(e: CancellationException) { throw e } catch(e: Exception) {

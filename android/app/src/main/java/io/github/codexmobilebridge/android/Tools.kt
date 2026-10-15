@@ -58,7 +58,7 @@ import kotlinx.serialization.json.*
             val context=LocalContext.current
             val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {granted->if(granted)vm.enableAppNotifications(true)}
             Text(vm.t("App 通知","App notifications"),style=MaterialTheme.typography.titleMedium)
-            Text(vm.t("提醒当前电脑的任务完成、失败和等待回应。退到后台时，通过常驻通知保持连接；停止提醒或强制关闭后不再监测。","Reminds you when tasks finish, fail or need a response on the current computer. A persistent notification maintains the background connection. Monitoring stops when disabled or force-stopped."))
+            Text(vm.t("独立监听所有已保存且登录有效的电脑，提醒任务完成、失败和等待回应。切换电脑或页面不停止；断线自动重连，一台离线不影响其他电脑。关闭提醒或强制停止 App 后不再监测。","Independently monitors all saved, signed-in computers for completed or failed tasks and requests. Switching computers or pages does not stop monitoring. Offline computers retry without blocking others. Monitoring stops when disabled or the app is force-stopped."))
             Toggle(vm.t("开启 App 通知","Enable app notifications"),vm.appNotifications) {enabled->
                 if(enabled && Build.VERSION.SDK_INT>=33 && !LiveNotifications.permitted(context))permission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 else vm.enableAppNotifications(enabled)

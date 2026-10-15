@@ -39,7 +39,10 @@ public final class MonitorService extends Service {
     boolean ready=baselined.contains(origin)&&stream.equals(p.getString("stream:"+origin,""));
     JSONArray events=data.getJSONArray("events");
     if(ready&&p.getBoolean("alerts",false)&&!p.getBoolean("pushRegistered:"+origin,false))for(int i=0;i<events.length();i++){
-     JSONObject event=events.getJSONObject(i);if(!event.has("unread")||event.optBoolean("unread"))if(event.getLong("sequence")>Math.max(previous,p.getLong("cleared:"+origin+":"+stream,0)))notifyEvent(this,origin,event);
+     JSONObject event=events.getJSONObject(i);
+     // The native service already delivers Codex/Claude alerts in every app screen.
+     boolean nativeReminder=io.github.codexmobilebridge.android.Workbench.nativeRemindersEnabled()&&!"deepseek".equals(event.optString("provider"))&&!"desktop:deepseek".equals(event.optString("host"));
+     if(!nativeReminder&&(!event.has("unread")||event.optBoolean("unread")))if(event.getLong("sequence")>Math.max(previous,p.getLong("cleared:"+origin+":"+stream,0)))notifyEvent(this,origin,event);
     }
     p.edit().putLong(key,data.getLong("cursor")).putString("stream:"+origin,stream).apply();baselined.add(origin);
     }}

@@ -29,12 +29,12 @@ object LiveNotifications {
         val intent=Intent(context,MainActivity::class.java).setAction(OPEN).putExtra("noticeConnection",connection).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         return PendingIntent.getActivity(context,connection?.hashCode() ?: 0,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
-    fun ongoing(context:Context,connection:Connection):Notification {
+    fun ongoing(context:Context):Notification {
         channels(context);val en=english(AppStore(context))
         val stop=PendingIntent.getService(context,0,Intent(context,ReminderService::class.java).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(context,"background-monitor").setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(if(en)"Chat reminders enabled" else "聊天后台提醒已开启")
-            .setContentText(connection.name).setContentIntent(click(context,connection.id)).setOngoing(true).setSilent(true)
+            .setContentText(if(en)"Monitoring saved signed-in computers" else "持续监听已保存且已登录的主机").setContentIntent(click(context,null)).setOngoing(true).setSilent(true)
             .addAction(0,if(en)"Stop reminders" else "停止提醒",stop).build()
     }
     @android.annotation.SuppressLint("MissingPermission")
@@ -55,9 +55,9 @@ object LiveNotifications {
         if(batch.states!=previous)store.put("notice:${connection.id}",json.encodeToString(batch.states))
         for(event in batch.events)post(context,connection,event.title,event.kind,event.key)
     }
-    fun start(context:Context,connection:Connection) {
+    fun start(context:Context) {
         if(!permitted(context))return
-        ContextCompat.startForegroundService(context,Intent(context,ReminderService::class.java).putExtra("connection",connection.id))
+        ContextCompat.startForegroundService(context,Intent(context,ReminderService::class.java))
     }
     fun stop(context:Context)=context.stopService(Intent(context,ReminderService::class.java))
 }

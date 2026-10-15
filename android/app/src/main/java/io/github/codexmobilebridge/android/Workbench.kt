@@ -39,7 +39,8 @@ object Workbench {
             gatewayFactory(row,store)
         }.also{it.reloadCookies()}
     }
-    @JvmStatic fun selected(address:String) { val row=gateway(address).connection; val store=AppStore(context);store.put("selected",row.id);if(store.get("appNotifications")=="true")runCatching{LiveNotifications.start(context,row)} }
+    @JvmStatic fun selected(address:String) { val row=gateway(address).connection; val store=AppStore(context);store.put("selected",row.id);if(store.get("appNotifications")=="true")runCatching{LiveNotifications.start(context)} }
+    @JvmStatic fun nativeRemindersEnabled() = AppStore(context).get("appNotifications")=="true"
     @JvmStatic fun cookies(url: String): String {
         val parsed=url.toHttpUrl(); val origin=normalizeOrigin(parsed.newBuilder().encodedPath("/").query(null).fragment(null).build().toString())
         return gateway(origin).client.cookieJar.loadForRequest(parsed).joinToString("; ") { "${it.name}=${it.value}" }
