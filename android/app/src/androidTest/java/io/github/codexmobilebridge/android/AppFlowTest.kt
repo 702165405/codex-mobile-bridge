@@ -32,6 +32,7 @@ class AppFlowTest {
     private val activityRequests=java.util.concurrent.atomic.AtomicInteger(0)
     private var paging=false
     private var askQuestion=false
+    private var showTiming=false
     private val chatId="11111111-1111-4111-8111-111111111111"
     @Before fun setup() {
         val app=ApplicationProvider.getApplicationContext<Application>()
@@ -50,7 +51,7 @@ class AppFlowTest {
             if(offline)return MockResponse().setResponseCode(503).setBody("{\"error\":\"offline\"}")
             if(expired && path.endsWith("/changes"))return MockResponse().setResponseCode(401).setBody("{\"error\":\"expired\"}")
             if(failUpload && path.endsWith("/uploads"))return MockResponse().setResponseCode(503).setBody("{\"error\":\"upload failed\"}")
-            val meta=payload("connected" to true,"permissionMode" to "ask","contextUsage" to payload("usedTokens" to 1200,"contextWindow" to 128000),"title" to "$label chat","status" to "idle","requests" to JsonArray(if(askQuestion)listOf(payload("id" to 7,"method" to "item/tool/requestUserInput","supported" to true,"params" to payload("questions" to JsonArray(listOf(payload("id" to "direction","question" to "Choose direction?")))))) else emptyList()))
+            val meta=payload("taskTiming" to if(showTiming)payload("status" to "completed","durationMs" to 62500) else payload(),"connected" to true,"permissionMode" to "ask","contextUsage" to payload("usedTokens" to 1200,"contextWindow" to 128000),"title" to "$label chat","status" to "idle","requests" to JsonArray(if(askQuestion)listOf(payload("id" to 7,"method" to "item/tool/requestUserInput","supported" to true,"params" to payload("questions" to JsonArray(listOf(payload("id" to "direction","question" to "Choose direction?")))))) else emptyList()))
             val body=when {
                 path=="/api/auth" -> payload("authenticated" to (request.getHeader("Cookie")?.contains("session=$label")==true),"csrf" to "csrf-$label","notifications" to true)
                 path=="/api/login" -> payload("csrf" to "csrf-$label")
@@ -90,13 +91,16 @@ class AppFlowTest {
         assertEquals("sessions",vm.screen);assertNull(vm.target)
     }
     @Test fun visiblePermissionsKeepFullAccessConfirmation() {
+        showTiming=true
         val a=computer("Alpha");ui.setContent{BridgeApp(vm)};connect(a)
         ui.runOnIdle{vm.openChat(chatId)};ui.waitUntil(10000){vm.timeline.sequence>=0}
         ui.onNodeWithText("Context 1% · 1200 / 128000").assertExists()
+        ui.onNodeWithText("Duration · 1:02").assertExists()
         val app=ApplicationProvider.getApplicationContext<Application>()
         ui.onRoot().captureToImage().asAndroidBitmap().let{bitmap->File(app.filesDir,"permissions-chat-en.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
         ui.runOnIdle{vm.preference("language","zh")}
         ui.onNodeWithText("上下文 1% · 1200 / 128000").assertExists()
+        ui.onNodeWithText("耗时 · 1:02").assertExists()
         ui.onNodeWithText("权限 · 请求批准").assertExists()
         ui.onRoot().captureToImage().asAndroidBitmap().let{bitmap->File(app.filesDir,"permissions-chat-zh.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
         ui.runOnIdle{vm.preference("language","en")}

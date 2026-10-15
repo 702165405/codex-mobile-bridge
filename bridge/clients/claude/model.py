@@ -3,6 +3,7 @@
 import uuid
 import json
 import re
+from bridge.features.sessions.timing import milliseconds
 
 NAMESPACE = uuid.UUID('6b9ab66b-a02a-4074-a7d6-fde5a3115173')
 EMPTY_RETRY = '[Your previous response had no visible output. Please continue and produce a user-visible response.]'
@@ -81,6 +82,7 @@ def turns(value):
 
 def transcript(value):
     result = []
+    timing_boundary = 0
     tasks = {}
     task_creations = {}
     def task_snapshot():
@@ -88,11 +90,21 @@ def transcript(value):
     for index, event in enumerate(rows(value)):
         if event.get('isSynthetic') is True or event.get('isMeta') is True:
             continue
+        if event.get('type') == 'result':
+            terminal = turns([event])
+            duration = milliseconds(event.get('duration_ms'))
+            target = next((row for row in reversed(result[timing_boundary:]) if row['role'] == 'assistant'), None)
+            if terminal and duration is not None and target is not None:
+                target['timing'] = {'status': terminal[0]['status'], 'durationMs': duration}
+            if terminal:
+                timing_boundary = len(result)
         kind = event.get('type')
         message = event.get('message') if isinstance(event.get('message'), dict) else event
         role = message.get('role', kind)
         if role not in ('user', 'assistant'):
             continue
+        if role == 'user':
+            timing_boundary = len(result)
         content = message.get('content', [])
         blocks = [{'type': 'text', 'text': content}] if isinstance(content, str) else content
         if not isinstance(blocks, list):

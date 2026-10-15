@@ -1,6 +1,18 @@
 'use strict';
 const timelineText=source=>typeof BridgeI18n==='undefined'?source:BridgeI18n.t(source);
 
+function taskTimingText(timing,connected=true,now=Date.now()) {
+  if(!timing||!['inProgress','completed','failed','interrupted'].includes(timing.status))return '';
+  const valid=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
+  const running=timing.status==='inProgress';
+  if(running&&!connected)return timelineText('执行时长待同步');
+  const elapsed=running?(valid(timing.startedAtMs)?now-timing.startedAtMs:null):timing.durationMs;
+  if(!valid(elapsed))return timelineText('执行时长暂未提供');
+  const seconds=Math.floor(elapsed/1000),pad=value=>String(value).padStart(2,'0');
+  const duration=seconds>=3600?Math.floor(seconds/3600)+':'+pad(Math.floor(seconds/60)%60)+':'+pad(seconds%60):Math.floor(seconds/60)+':'+pad(seconds%60);
+  return timelineText(running?'执行中':'耗时')+' · '+duration;
+}
+
 // History and live changes share stable keys, but never share a request queue.
 class ChatTimeline {
   constructor({url, request, renderMeta, renderText, status, onAction, elements = {}, active = () => true}) {
@@ -9,6 +21,7 @@ class ChatTimeline {
     this.container=elements.container||document.getElementById('messages');
     this.older=elements.older||document.getElementById('older');
     this.newer=elements.newer||document.getElementById('newer');
+    this.timingSummary=document.createElement('small');this.timingSummary.className='task-timing task-timing-summary muted';this.timingSummary.hidden=true;this.viewport.insertBefore(this.timingSummary,this.viewport.firstChild);
     this.abort=new AbortController();this.rows=new Map();this.nodes=new Map();this.details=new Map();
     this.files=new Map();this.sequence=-1;this.epoch='';this.before=null;this.hasMore=false;
     this.busy=false;this.generation=0;this.windowRevision=0;this.following=true;this.lastTop=0;this.retryCount=0;
@@ -27,7 +40,7 @@ class ChatTimeline {
     this.resize=new ResizeObserver(()=>this.restore(this.anchor,this.following));
     this.resize.observe(this.container);
   }
-  dispose(){this.abort.abort();clearTimeout(this.startRetry);this.resize.disconnect();this.viewport.removeEventListener('scroll',this.onScroll);this.newer.hidden=true;}
+  dispose(){this.abort.abort();clearTimeout(this.startRetry);clearTimeout(this.timingTimer);this.timingSummary.remove();this.resize.disconnect();this.viewport.removeEventListener('scroll',this.onScroll);this.newer.hidden=true;}
   atBottom(){return this.viewport.scrollHeight-this.viewport.scrollTop-this.viewport.clientHeight<110;}
   nearTop(){const nodes=[...this.container.children].filter(n=>!n.hidden);return nodes.length>0&&nodes.slice(0,11).some(n=>n.getBoundingClientRect().bottom>=this.viewport.getBoundingClientRect().top);}
   capture(accept=()=>true){if(!this.viewport.clientHeight)return this.anchor;const top=this.viewport.getBoundingClientRect().top;const nodes=[...this.container.children].filter(n=>!n.hidden&&accept(n));const node=nodes.find(n=>n.getBoundingClientRect().bottom>top)||nodes[nodes.length-1];return node?{key:node.dataset.key,offset:node.getBoundingClientRect().top-top}:null;}
@@ -110,7 +123,7 @@ class ChatTimeline {
     let position=this.container.firstChild;
     for(const row of ordered){const node=this.nodes.get(row.key).node;if(node===position)position=position.nextSibling;else this.container.insertBefore(node,position);}
     if(reset||history){this.before=page.before;this.hasMore=page.hasMore;this.windowRevision++;}
-    this.refreshActions();this.historyStatus();this.restore(anchor,bottom);
+    this.refreshActions();this.refreshTimings();this.historyStatus();this.restore(anchor,bottom);
     if(!history&&!bottom&&(changed||page.meta.requests?.length)){this.newer.textContent=page.meta.requests?.length?timelineText('有待确认请求 ↓'):timelineText('有新内容 ↓');this.newer.hidden=false;}
     if(reset)requestAnimationFrame(()=>this.fillRecent());
   }
@@ -119,6 +132,7 @@ class ChatTimeline {
     node.className=activity?'activity timeline-row':'message timeline-row '+row.role;
     const heading=document.createElement(activity?'summary':'span');heading.className=activity?'':'who';
     heading.textContent=activity?(row.title||row.kind)+(row.status==='inProgress'?timelineText(' · 进行中'):''):row.role==='user'?timelineText('你'):row.role==='error'?timelineText('执行错误'):['CODEX',row.model&&[row.model,row.effort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');node.append(heading);
+    if(row.timing){const timing=document.createElement('small');timing.className='task-timing muted';node.append(timing);}
     const body=document.createElement(activity?'pre':'div');body.className=activity?'activity-body':'message-body';
     const more=document.createElement('button');more.className='plain detail-more';more.type='button';
     const cached=this.details.get(row.key);
@@ -194,8 +208,19 @@ class ChatTimeline {
       if(row.forkable)add('fork','从这里分支',false);
     }
   }
+  refreshTimings(){
+    clearTimeout(this.timingTimer);const latest=this.meta?.taskTiming;
+    this.timingSummary.textContent=taskTimingText(latest,this.meta?.connected!==false);this.timingSummary.hidden=!this.timingSummary.textContent;
+    let running=latest?.status==='inProgress'&&this.meta?.connected!==false&&Number.isFinite(latest.startedAtMs);
+    for(const [key,{node}] of this.nodes){
+      const timing=this.rows.get(key)?.row.timing,label=node.querySelector('.task-timing');
+      if(label){label.textContent=taskTimingText(timing,this.meta?.connected!==false);label.hidden=!label.textContent;}
+      if(timing?.status==='inProgress'&&this.meta?.connected!==false&&Number.isFinite(timing.startedAtMs))running=true;
+    }
+    if(running&&!this.abort.signal.aborted)this.timingTimer=setTimeout(()=>this.refreshTimings(),1000);
+  }
   relabel(){
-    this.refreshActions();
+    this.refreshActions();this.refreshTimings();
     this.container.querySelectorAll('.message-copy').forEach(n=>n.textContent=timelineText('复制'));
     this.container.querySelectorAll('.code-copy').forEach(n=>n.textContent=timelineText('复制代码'));
     this.historyStatus();

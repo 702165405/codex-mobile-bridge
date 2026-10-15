@@ -364,6 +364,7 @@ val EmptyObject = JsonObject(emptyMap())
                 if(file.status=="failed") IconButton(onClick={vm.retryAttachment(file.id)},enabled=!vm.busy){Icon(Icons.Default.Refresh,vm.t("重试上传","Retry upload"))}
                 IconButton(onClick={vm.removeAttachment(file.id)},enabled=!vm.busy){Icon(Icons.Default.Close,vm.t("移除附件","Remove attachment"))}
             }
+            TaskTiming(vm,meta.obj("taskTiming"),meta.bool("connected"))
             OutlinedTextField(vm.draft.text,{if(it.length<=100000) vm.editDraft(vm.draft.copy(text=it))},modifier=Modifier.fillMaxWidth(),placeholder={Text(vm.t("继续这条聊天…","Continue this chat…"))},maxLines=6,enabled=!vm.busy)
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 IconButton(onClick={pick.launch(arrayOf(if(chat.provider=="claude")"image/*" else "*/*"))},enabled=!vm.busy){Icon(Icons.Default.AttachFile,vm.t("添加附件","Add files"))}
@@ -387,6 +388,7 @@ val EmptyObject = JsonObject(emptyMap())
                 Text(if(activity) row.str("title",row.str("kind")) else when(row.str("role")){"user" -> vm.t("你","You");"error" -> vm.t("错误","Error");else -> if(vm.target?.provider=="claude")"CLAUDE CODE" else "CODEX"},Modifier.weight(1f),style=MaterialTheme.typography.labelMedium)
                 if(activity) IconButton(onClick={expanded=!expanded;if(expanded && row.bool("truncated")) vm.expand(row)}) {Icon(if(expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,vm.t("展开内容","Expand"))}
             }
+            TaskTiming(vm,row.obj("timing"),vm.timeline.meta.bool("connected"))
             val text = vm.details[row.str("key")+":"+row.str("version")] ?: row.str("text")
             if(expanded) {
                 MarkdownText(text,vm.fontScale)

@@ -60,6 +60,8 @@ class Timeline:
                 if message.get('attachments'):
                     row['attachments'] = [{k: str(a[k])[:300] for k in ('type', 'name', 'path') if k in a}
                                           for a in message['attachments'][:20]]
+                if turn.get('timing') and (message is first_user or first_user is None and message is turn['messages'][-1]):
+                    row['timing'] = turn['timing']
                 rows.append(row)
                 details[key] = text
             if turn.get('error'):
@@ -84,6 +86,7 @@ class Timeline:
         self.rows, self.details = rows, details
         self.positions = {row['key']: i for i, row in enumerate(rows)}
         self.meta = {k: v for k, v in view.items() if k != 'turns'}
+        self.meta['taskTiming'] = next((turn['timing'] for turn in reversed(view['turns']) if turn.get('timing')), None)
         self.meta['latestUserTurnId'] = next((t['id'] for t in reversed(view['turns'])
                                               if any(m['role'] == 'user'
                                                      and (not m.get('requestId') or m['requestId'] not in activation_ids)

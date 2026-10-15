@@ -9,6 +9,18 @@ import sqlite3
 import tempfile
 from contextlib import closing, contextmanager, ExitStack
 from pathlib import Path
+from datetime import datetime
+
+
+def timestamp_ms(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        value = stamp.timestamp() * 1000 if stamp.tzinfo is not None else -1
+        return int(value) if 0 <= value <= 8_640_000_000_000_000 else None
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
 class StoreUnavailable(RuntimeError):
@@ -248,6 +260,7 @@ class SessionStore:
             payload = record.get("payload", {})
             if record.get("type") == "event_msg" and payload.get("type") == "task_started":
                 current = {"turnId": payload.get("turn_id"), "status": "inProgress", "items": []}
+                current['turnStartedAtMs'] = timestamp_ms(record.get('timestamp'))
                 turns.append(current)
                 items = current["items"]
             elif record.get("type") == "event_msg" and payload.get("type") == "token_count":
@@ -262,6 +275,7 @@ class SessionStore:
             elif record.get("type") == "event_msg" and payload.get("type") in ("task_complete", "turn_aborted"):
                 if current:
                     current["status"] = "completed" if payload["type"] == "task_complete" else "interrupted"
+                    current['turnCompletedAtMs'] = timestamp_ms(record.get('timestamp'))
             elif record.get("type") == "event_msg" and payload.get("type") == "item_completed":
                 item = payload.get("item", {})
                 if isinstance(item, dict) and item.get("type") in ("ImageView", "imageView"):

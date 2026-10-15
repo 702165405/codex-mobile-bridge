@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 import ntpath
+from bridge.features.sessions.timing import turn_timing
 
 
 
@@ -208,7 +209,7 @@ def normalize_state(state, connected=True):
         model = params.get('model') or settings.get('model') or turn.get('model')
         effort = params.get('effort') or params.get('reasoningEffort') or settings.get('reasoning_effort') or turn.get('reasoningEffort')
         result.append({"model": model, "effort": effort, "id": turn.get("turnId") or str(ordinal), "status": turn.get("status"),
-                       "startedAt": turn.get("turnStartedAtMs"), "messages": messages,
+                       "startedAt": turn.get("turnStartedAtMs"), "timing": turn_timing(turn), "messages": messages,
                        "actionable": bool(turn.get("turnId")) and turn.get("turnId") != "history",
                        "error": turn.get("error"), "diff": turn.get("diff")})
     history = state.get("turnHistory", {}).get("history", {})

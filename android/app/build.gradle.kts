@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.codexmobilebridge.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.2.5"
+        versionCode = 19
+        versionName = "1.2.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     val keyPath = providers.environmentVariable("CMB_ANDROID_KEYSTORE").orNull

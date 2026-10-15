@@ -87,6 +87,7 @@ class LiveSession:
                         # Desktop history hydration can substitute today's model.
                         # Recorded turn_context is authoritative for past replies.
                         turn['model'], turn['effort'] = saved.get('model'), saved.get('effort')
+                        turn['timing'] = {**saved.get('timing', {}), **turn.get('timing', {})}
             # Native paginated snapshots only contain the loaded tail. Keep the
             # saved prefix in the presentation, never in the IPC patch base.
             if self.saved_view and not result['historyComplete']:
