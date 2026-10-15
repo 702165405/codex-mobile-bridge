@@ -2,15 +2,18 @@
 const timelineText=source=>typeof BridgeI18n==='undefined'?source:BridgeI18n.t(source);
 
 function taskTimingText(timing,connected=true,now=Date.now()) {
-  if(!timing||!['inProgress','completed','failed','interrupted'].includes(timing.status))return '';
-  const valid=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
-  const running=timing.status==='inProgress';
-  if(running&&!connected)return timelineText('执行时长待同步');
-  const elapsed=running?(valid(timing.startedAtMs)?now-timing.startedAtMs:null):timing.durationMs;
-  if(!valid(elapsed))return timelineText('执行时长暂未提供');
-  const seconds=Math.floor(elapsed/1000),pad=value=>String(value).padStart(2,'0');
-  const duration=seconds>=3600?Math.floor(seconds/3600)+':'+pad(Math.floor(seconds/60)%60)+':'+pad(seconds%60):Math.floor(seconds/60)+':'+pad(seconds%60);
-  return timelineText(running?'执行中':'耗时')+' · '+duration;
+  if(timing?.status==='inProgress'){
+    if(!connected||typeof timing.startedAtMs!=='number'||!Number.isFinite(timing.startedAtMs)||timing.startedAtMs<0||now<timing.startedAtMs)return '';
+    const seconds=Math.floor((now-timing.startedAtMs)/1000),pad=value=>String(value).padStart(2,'0');
+    const clock=seconds>=3600?Math.floor(seconds/3600)+':'+pad(Math.floor(seconds/60)%60)+':'+pad(seconds%60):Math.floor(seconds/60)+':'+pad(seconds%60);
+    return timelineText('执行中')+' · '+clock;
+  }
+  if(!timing||!['completed','failed','interrupted'].includes(timing.status)||typeof timing.durationMs!=='number'||!Number.isFinite(timing.durationMs)||timing.durationMs<0)return '';
+  const seconds=Math.floor(timing.durationMs/1000),parts=[];
+  if(seconds>=3600)parts.push(Math.floor(seconds/3600)+timelineText('小时'));
+  if(seconds>=60)parts.push(Math.floor(seconds/60)%60+timelineText('分钟'));
+  parts.push(seconds%60+timelineText('秒'));
+  return timelineText('用时')+' '+parts.join(' ');
 }
 
 // History and live changes share stable keys, but never share a request queue.
@@ -132,7 +135,6 @@ class ChatTimeline {
     node.className=activity?'activity timeline-row':'message timeline-row '+row.role;
     const heading=document.createElement(activity?'summary':'span');heading.className=activity?'':'who';
     heading.textContent=activity?(row.title||row.kind)+(row.status==='inProgress'?timelineText(' · 进行中'):''):row.role==='user'?timelineText('你'):row.role==='error'?timelineText('执行错误'):['CODEX',row.model&&[row.model,row.effort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');node.append(heading);
-    if(row.timing){const timing=document.createElement('small');timing.className='task-timing muted';node.append(timing);}
     const body=document.createElement(activity?'pre':'div');body.className=activity?'activity-body':'message-body';
     const more=document.createElement('button');more.className='plain detail-more';more.type='button';
     const cached=this.details.get(row.key);
@@ -182,6 +184,7 @@ class ChatTimeline {
       attachment.textContent=timelineText('附件：')+row.attachments.map(a=>a.name||a.type).join('、');
       attachments.append(attachment);node.append(attachments);
     }
+    if(taskTimingText(row.timing)){const timing=document.createElement('small');timing.className='task-timing muted';timing.textContent=taskTimingText(row.timing);node.append(timing);}
     if(activity){node.open=!!open;node.ontoggle=()=>{if(node.open&&!this.details.has(row.key))load();};}
     return node;
   }
@@ -209,15 +212,15 @@ class ChatTimeline {
     }
   }
   refreshTimings(){
-    clearTimeout(this.timingTimer);const latest=this.meta?.taskTiming;
-    this.timingSummary.textContent=taskTimingText(latest,this.meta?.connected!==false);this.timingSummary.hidden=!this.timingSummary.textContent;
-    let running=latest?.status==='inProgress'&&this.meta?.connected!==false&&Number.isFinite(latest.startedAtMs);
+    clearTimeout(this.timingTimer);
+    const latest=this.meta?.taskTiming;
+    this.timingSummary.textContent=latest?.status==='inProgress'?taskTimingText(latest,this.meta?.connected!==false):'';
+    this.timingSummary.hidden=!this.timingSummary.textContent;
     for(const [key,{node}] of this.nodes){
       const timing=this.rows.get(key)?.row.timing,label=node.querySelector('.task-timing');
-      if(label){label.textContent=taskTimingText(timing,this.meta?.connected!==false);label.hidden=!label.textContent;}
-      if(timing?.status==='inProgress'&&this.meta?.connected!==false&&Number.isFinite(timing.startedAtMs))running=true;
+      if(label){label.textContent=taskTimingText(timing);label.hidden=!label.textContent;}
     }
-    if(running&&!this.abort.signal.aborted)this.timingTimer=setTimeout(()=>this.refreshTimings(),1000);
+    if(this.timingSummary.textContent&&!this.abort.signal.aborted)this.timingTimer=setTimeout(()=>this.refreshTimings(),1000);
   }
   relabel(){
     this.refreshActions();this.refreshTimings();

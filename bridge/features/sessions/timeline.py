@@ -36,6 +36,8 @@ class Timeline:
         for turn in view['turns']:
             occurrences = {}
             first_user = next((m for m in turn['messages'] if m['role'] == 'user'), None)
+            final_reply = next((m for m in reversed(turn['messages']) if m['role'] == 'assistant'
+                                and m.get('phase') != 'commentary' and m.get('kind') != 'reasoning'), None)
             for message in turn['messages']:
                 if message.get('requestId') and message['requestId'] in activation_ids:
                     continue
@@ -60,7 +62,7 @@ class Timeline:
                 if message.get('attachments'):
                     row['attachments'] = [{k: str(a[k])[:300] for k in ('type', 'name', 'path') if k in a}
                                           for a in message['attachments'][:20]]
-                if turn.get('timing') and (message is first_user or first_user is None and message is turn['messages'][-1]):
+                if turn.get('timing', {}).get('status') in ('completed', 'failed', 'interrupted') and message is final_reply:
                     row['timing'] = turn['timing']
                 rows.append(row)
                 details[key] = text
@@ -69,6 +71,8 @@ class Timeline:
                 text = turn['error'] if isinstance(turn['error'], str) else json.dumps(turn['error'], ensure_ascii=False)
                 rows.append(dict(key=key, turnId=turn['id'], order=len(rows), role='error', text=text[:TEXT_PREVIEW],
                                  truncated=len(text) > TEXT_PREVIEW, version=hashlib.sha256(text.encode()).hexdigest()[:24]))
+                if turn.get('timing', {}).get('status') in ('completed', 'failed', 'interrupted') and final_reply is None:
+                    rows[-1]['timing'] = turn['timing']
                 details[key] = text
         old_keys = [row['key'] for row in self.rows]
         new_keys = [row['key'] for row in rows]
@@ -86,7 +90,9 @@ class Timeline:
         self.rows, self.details = rows, details
         self.positions = {row['key']: i for i, row in enumerate(rows)}
         self.meta = {k: v for k, v in view.items() if k != 'turns'}
-        self.meta['taskTiming'] = next((turn['timing'] for turn in reversed(view['turns']) if turn.get('timing')), None)
+        latest_timing = view['turns'][-1].get('timing', {}) if view['turns'] else {}
+        if latest_timing.get('status') == 'inProgress':
+            self.meta['taskTiming'] = latest_timing
         self.meta['latestUserTurnId'] = next((t['id'] for t in reversed(view['turns'])
                                               if any(m['role'] == 'user'
                                                      and (not m.get('requestId') or m['requestId'] not in activation_ids)

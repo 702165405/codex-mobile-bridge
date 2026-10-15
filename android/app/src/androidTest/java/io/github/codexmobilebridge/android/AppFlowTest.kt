@@ -51,7 +51,7 @@ class AppFlowTest {
             if(offline)return MockResponse().setResponseCode(503).setBody("{\"error\":\"offline\"}")
             if(expired && path.endsWith("/changes"))return MockResponse().setResponseCode(401).setBody("{\"error\":\"expired\"}")
             if(failUpload && path.endsWith("/uploads"))return MockResponse().setResponseCode(503).setBody("{\"error\":\"upload failed\"}")
-            val meta=payload("taskTiming" to if(showTiming)payload("status" to "completed","durationMs" to 62500) else payload(),"connected" to true,"permissionMode" to "ask","contextUsage" to payload("usedTokens" to 1200,"contextWindow" to 128000),"title" to "$label chat","status" to "idle","requests" to JsonArray(if(askQuestion)listOf(payload("id" to 7,"method" to "item/tool/requestUserInput","supported" to true,"params" to payload("questions" to JsonArray(listOf(payload("id" to "direction","question" to "Choose direction?")))))) else emptyList()))
+            val meta=payload("connected" to true,"permissionMode" to "ask","contextUsage" to payload("usedTokens" to 1200,"contextWindow" to 128000),"title" to "$label chat","status" to "idle","requests" to JsonArray(if(askQuestion)listOf(payload("id" to 7,"method" to "item/tool/requestUserInput","supported" to true,"params" to payload("questions" to JsonArray(listOf(payload("id" to "direction","question" to "Choose direction?")))))) else emptyList()))
             val body=when {
                 path=="/api/auth" -> payload("authenticated" to (request.getHeader("Cookie")?.contains("session=$label")==true),"csrf" to "csrf-$label","notifications" to true)
                 path=="/api/login" -> payload("csrf" to "csrf-$label")
@@ -61,7 +61,7 @@ class AppFlowTest {
                     payload("sessions" to JsonArray(listOf(payload("id" to chatId,"host" to "local","connected" to !cold,"status" to if(cold)"unknown" else activityStatus,"turnId" to "test-turn","turnStatus" to if(activityStatus=="active")"inProgress" else "completed","recency" to 123))))
                 }
                 path.endsWith("/timeline") && request.requestUrl?.queryParameter("before")!=null -> payload("epoch" to label,"sequence" to 1,"rows" to JsonArray(listOf(payload("key" to "older","order" to -1,"version" to "v1","role" to "assistant","text" to "Earlier history"))),"meta" to meta,"hasMore" to false,"before" to "$label.older")
-                path.endsWith("/timeline") || path.endsWith("/changes") -> payload("epoch" to label,"sequence" to 1,"rows" to JsonArray(listOf(payload("key" to "message","order" to 0,"version" to "v1","role" to "assistant","text" to "Hello $label\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n\$\$x^2\$\$","editable" to false))),"meta" to meta).let{if(path.endsWith("/timeline"))JsonObject(it+payload("hasMore" to paging,"before" to "$label.message"))else it}
+                path.endsWith("/timeline") || path.endsWith("/changes") -> payload("epoch" to label,"sequence" to 1,"rows" to JsonArray(listOf(payload("timing" to if(showTiming)payload("status" to "completed","durationMs" to 118000) else payload(),"key" to "message","order" to 0,"version" to "v1","role" to "assistant","text" to "Hello $label\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n\$\$x^2\$\$","editable" to false))),"meta" to meta).let{if(path.endsWith("/timeline"))JsonObject(it+payload("hasMore" to paging,"before" to "$label.message"))else it}
                 path.endsWith("/send") -> payload("status" to if(unknownSend)"unknown" else "sent")
                 path.endsWith("/uploads") -> payload("image" to false)
                 path.endsWith("/respond") -> payload("status" to "sent")
@@ -95,12 +95,12 @@ class AppFlowTest {
         val a=computer("Alpha");ui.setContent{BridgeApp(vm)};connect(a)
         ui.runOnIdle{vm.openChat(chatId)};ui.waitUntil(10000){vm.timeline.sequence>=0}
         ui.onNodeWithText("Context 1% · 1200 / 128000").assertExists()
-        ui.onNodeWithText("Duration · 1:02").assertExists()
+        ui.onNodeWithText("Time taken 1m 58s").assertExists()
         val app=ApplicationProvider.getApplicationContext<Application>()
         ui.onRoot().captureToImage().asAndroidBitmap().let{bitmap->File(app.filesDir,"permissions-chat-en.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
         ui.runOnIdle{vm.preference("language","zh")}
         ui.onNodeWithText("上下文 1% · 1200 / 128000").assertExists()
-        ui.onNodeWithText("耗时 · 1:02").assertExists()
+        ui.onNodeWithText("用时 1分钟 58秒").assertExists()
         ui.onNodeWithText("权限 · 请求批准").assertExists()
         ui.onRoot().captureToImage().asAndroidBitmap().let{bitmap->File(app.filesDir,"permissions-chat-zh.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
         ui.runOnIdle{vm.preference("language","en")}

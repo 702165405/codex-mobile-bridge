@@ -276,6 +276,7 @@ class SessionStore:
                 if current:
                     current["status"] = "completed" if payload["type"] == "task_complete" else "interrupted"
                     current['turnCompletedAtMs'] = timestamp_ms(record.get('timestamp'))
+                    current['durationMs'] = payload.get('duration_ms')
             elif record.get("type") == "event_msg" and payload.get("type") == "item_completed":
                 item = payload.get("item", {})
                 if isinstance(item, dict) and item.get("type") in ("ImageView", "imageView"):
